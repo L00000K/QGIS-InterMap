@@ -671,7 +671,7 @@ class WebMapExporter:
         initial_bounds_json = json.dumps(initial_bounds)
         include_legend = "true" if self.include_layer_control else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
-        scenes_json = json.dumps(self.scenes, separators=(",", ":")).replace("</", "<\\/")
+        themes_json = json.dumps(self.scenes, separators=(",", ":")).replace("</", "<\\/")
 
         leaflet_css, leaflet_js = _get_leaflet_assets()
         if leaflet_css and leaflet_js:
@@ -1133,49 +1133,20 @@ class WebMapExporter:
   #attr-table-body tr:hover td {{ background: #f0f7ff; cursor: pointer; }}
   #attr-table-body tr.selected td {{ background: #cce4ff; }}
 
-  /* ── Scenes panel */
-  #scenes-panel {{
-    display: none;
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 240px;
-    z-index: 1001;
-    background: rgba(255,255,255,0.97);
-    border-right: 1px solid #bbb;
-    flex-direction: column;
-    overflow: hidden;
-    box-shadow: 2px 0 8px rgba(0,0,0,0.12);
+  /* ── Themes dropdown control */
+  #theme-control {{
+    background: white;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    padding: 3px 6px;
   }}
-  #scenes-panel.open {{ display: flex; }}
-  #scenes-panel-hdr {{
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px; background: #003057; color: #fff;
-    flex-shrink: 0;
+  #theme-select {{
+    font-size: 12px; border: none; background: transparent;
+    cursor: pointer; max-width: 170px; outline: none;
   }}
-  #scenes-panel-hdr span {{ font-weight: bold; font-size: 14px; }}
-  #scenes-panel-close {{
-    background: none; border: none; color: #ccc;
-    cursor: pointer; font-size: 16px; padding: 0 2px;
-  }}
-  #scenes-panel-close:hover {{ color: #fff; }}
-  #scenes-list {{ overflow-y: auto; flex: 1; padding: 8px 0; }}
-  .scene-card {{
-    padding: 10px 14px; border-bottom: 1px solid #eee; cursor: pointer;
-  }}
-  .scene-card:hover {{ background: #f0f7ff; }}
-  .scene-card.active {{ background: #ddeeff; border-left: 3px solid #1e6bb8; padding-left: 11px; }}
-  .scene-card-title {{ font-size: 13px; font-weight: 600; color: #222; }}
-  .scene-card-notes {{ font-size: 11px; color: #777; margin-top: 2px; white-space: pre-wrap; }}
 </style>
 </head>
 <body>
-<div id="scenes-panel">
-  <div id="scenes-panel-hdr">
-    <span>Views</span>
-    <button id="scenes-panel-close" title="Close">&#10005;</button>
-  </div>
-  <div id="scenes-list"></div>
-</div>
 <div id="info-panel">
   <div id="info-panel-hdr">
     <span>Feature Info</span>
@@ -1216,6 +1187,7 @@ class WebMapExporter:
 
   var map = L.map('map', {{
     center: [0, 0], zoom: 2,
+    maxZoom: 23,
     preferCanvas: true,
     contextmenu: true,
     contextmenuWidth: 180,
@@ -1239,12 +1211,13 @@ class WebMapExporter:
   var LAYERS = {layers_json};
   var INCLUDE_LEGEND = {include_legend};
   var LAYER_TREE = {tree_json};
-  var SCENES = {scenes_json};
+  var THEMES = {themes_json};
 
   // ── Basemap (always present) ──────────────────────────────────────────────
   var basemap = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19
+    maxNativeZoom: 19,
+    maxZoom: 23
   }}).addTo(map);
 
   // ── Scale bar (built-in) ──────────────────────────────────────────────────
@@ -2296,44 +2269,16 @@ class WebMapExporter:
     if (first) updateCount(first);
   }})();
 
-  // ── Scenes panel ──────────────────────────────────────────────────────────
-  if (SCENES.length > 0) {{
-    var ScenesBtn = L.Control.extend({{
-      onAdd: function() {{
-        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
-        btn.title = 'Views / scenes';
-        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;font-size:14px;cursor:pointer;background:white;border-radius:4px;';
-        btn.innerHTML = '&#9776;';
-        L.DomEvent.disableClickPropagation(btn);
-        L.DomEvent.on(btn, 'click', function() {{
-          document.getElementById('scenes-panel').classList.toggle('open');
-        }});
-        return btn;
-      }}
-    }});
-    new ScenesBtn({{position: 'topleft'}}).addTo(map);
-
-    var scenesList = document.getElementById('scenes-list');
-    document.getElementById('scenes-panel-close').addEventListener('click', function() {{
-      document.getElementById('scenes-panel').classList.remove('open');
-    }});
-
-    var activeSceneIdx = -1;
-
-    function applyScene(idx) {{
-      var scene = SCENES[idx];
-      if (!scene) return;
-      activeSceneIdx = idx;
-
-      // Update active card
-      scenesList.querySelectorAll('.scene-card').forEach(function(c,i) {{
-        c.classList.toggle('active', i === idx);
-      }});
+  // ── Themes dropdown (only when themes are defined) ────────────────────────
+  if (THEMES.length > 0) {{
+    function applyTheme(idx) {{
+      var theme = THEMES[idx];
+      if (!theme) return;
 
       // Layer visibility
-      if (scene.layerIds) {{
+      if (theme.layerIds) {{
         legendItems.forEach(function(it) {{
-          var vis = scene.layerIds.indexOf(it.ld.name) !== -1;
+          var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
           setLayerVisible(it, vis);
           if (it.checkbox) it.checkbox.checked = vis;
           if (it.layerDiv) it.layerDiv.classList.toggle('hidden', !vis);
@@ -2341,20 +2286,37 @@ class WebMapExporter:
       }}
 
       // Zoom to extent
-      if (scene.extent) {{
-        try {{ map.fitBounds(scene.extent, {{padding: [20,20]}}); }} catch(e) {{}}
+      if (theme.extent) {{
+        try {{ map.fitBounds(theme.extent, {{padding: [20, 20]}}); }} catch(e) {{}}
       }}
     }}
 
-    // Build scene cards
-    SCENES.forEach(function(scene, i) {{
-      var card = document.createElement('div');
-      card.className = 'scene-card';
-      card.innerHTML = '<div class="scene-card-title">'+escHtml(scene.name||'Scene '+(i+1))+'</div>'
-        + (scene.notes ? '<div class="scene-card-notes">'+escHtml(scene.notes)+'</div>' : '');
-      card.addEventListener('click', function() {{ applyScene(i); }});
-      scenesList.appendChild(card);
+    var ThemesControl = L.Control.extend({{
+      onAdd: function() {{
+        var div = L.DomUtil.create('div', 'leaflet-control');
+        div.id = 'theme-control';
+        var sel = L.DomUtil.create('select', '', div);
+        sel.id = 'theme-select';
+        sel.title = 'Switch theme';
+        var opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = '— Themes —';
+        sel.appendChild(opt0);
+        THEMES.forEach(function(th, i) {{
+          var opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = escHtml(th.name || 'Theme ' + (i + 1));
+          sel.appendChild(opt);
+        }});
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.on(sel, 'change', function() {{
+          var idx = parseInt(sel.value, 10);
+          if (!isNaN(idx)) applyTheme(idx);
+        }});
+        return div;
+      }}
     }});
+    new ThemesControl({{position: 'topright'}}).addTo(map);
   }}
 
 }})();
