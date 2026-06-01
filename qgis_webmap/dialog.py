@@ -16,9 +16,25 @@ class WebMapExportDialog(QDialog):
         self.iface = iface
         self.setWindowTitle("Export to Web Map")
         self.setMinimumWidth(480)
+        # Capture the current QGIS canvas extent before anything else changes it
+        self._initial_extent = self._capture_canvas_extent()
         self._build_ui()
         self.path_edit.setText(self._default_output_path())
         self._populate_layers()
+
+    def _capture_canvas_extent(self):
+        """Return the current QGIS map canvas extent as [[s,w],[n,e]] in WGS-84."""
+        try:
+            from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem
+            canvas = self.iface.mapCanvas()
+            ext = canvas.extent()
+            src_crs = canvas.mapSettings().destinationCrs()
+            wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+            tr = QgsCoordinateTransform(src_crs, wgs84, QgsProject.instance())
+            e = tr.transformBoundingBox(ext)
+            return [[e.yMinimum(), e.xMinimum()], [e.yMaximum(), e.xMaximum()]]
+        except Exception:
+            return None
 
     # ── Default output path ──────────────────────────────────────────────────
 
@@ -206,6 +222,7 @@ class WebMapExportDialog(QDialog):
                 include_layer_control=self.layer_control_cb.isChecked(),
                 progress_callback=lambda v: self.progress.setValue(v),
                 layer_tree=tree_nodes,
+                initial_extent=self._initial_extent,
             )
             exporter.export()
             self._show_success(output_path)
