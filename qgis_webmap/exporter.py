@@ -570,12 +570,13 @@ def _geom_type_str(layer) -> str:
 class WebMapExporter:
     def __init__(self, layers, output_path,
                  include_layer_control=True, progress_callback=None,
-                 layer_tree=None):
+                 layer_tree=None, initial_extent=None):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
         self.progress = progress_callback or (lambda v: None)
         self.layer_tree = layer_tree or []
+        self.initial_extent = initial_extent
 
     def export(self):
         layer_defs = []
@@ -665,6 +666,8 @@ class WebMapExporter:
             "</", "<\\/"
         )
         bounds_json = json.dumps(bounds)
+        initial_bounds = self.initial_extent if self.initial_extent else bounds
+        initial_bounds_json = json.dumps(initial_bounds)
         include_legend = "true" if self.include_layer_control else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
 
@@ -848,6 +851,7 @@ class WebMapExporter:
     cursor: pointer; user-select: none;
     border-top: 1px solid #eee;
   }}
+  .legend-group-hdr input[type=checkbox] {{ margin: 0; cursor: pointer; flex-shrink: 0; }}
   .legend-group-hdr:hover {{ background: #f5f5f5; }}
   .legend-group-name {{ font-size: 12px; font-weight: 600; color: #333; }}
   .legend-group-body {{ padding-left: 8px; }}
@@ -1116,7 +1120,7 @@ class WebMapExporter:
     ]
   }});
   var bounds = {bounds_json};
-  try {{ map.fitBounds(bounds, {{padding: [20, 20]}}); }}
+  try {{ map.fitBounds({initial_bounds_json}, {{padding: [20, 20]}}); }}
   catch(e) {{ map.setView([0, 0], 2); }}
   var LAYERS = {layers_json};
   var INCLUDE_LEGEND = {include_legend};
@@ -1619,6 +1623,17 @@ class WebMapExporter:
       item.layerDiv = layerDiv;
     }}
 
+    function setGroupVisible(nodeList, visible) {{
+      nodeList.forEach(function(node) {{
+        if (node.type === 'layer') {{
+          var it = displayItems[node.index];
+          if (it) setLayerVisible(it, visible);
+        }} else if (node.type === 'group') {{
+          setGroupVisible(node.children, visible);
+        }}
+      }});
+    }}
+
     function buildLegendNodes(nodes, container) {{
       nodes.forEach(function(node) {{
         if (node.type === 'group') {{
@@ -1626,17 +1641,29 @@ class WebMapExporter:
           grpDiv.className = 'legend-group';
           var grpHdr = document.createElement('div');
           grpHdr.className = 'legend-group-hdr';
+
+          // Visibility checkbox for the whole group
+          var grpCb = document.createElement('input');
+          grpCb.type = 'checkbox';
+          grpCb.checked = true;
+          grpCb.title = 'Toggle group visibility';
+          grpCb.addEventListener('change', function() {{
+            setGroupVisible(node.children, grpCb.checked);
+          }});
+
           var grpExp = document.createElement('span');
           grpExp.className = 'legend-expand';
           grpExp.textContent = '▼';
           var grpName = document.createElement('span');
           grpName.className = 'legend-group-name';
           grpName.textContent = node.name;
+          grpHdr.appendChild(grpCb);
           grpHdr.appendChild(grpExp);
           grpHdr.appendChild(grpName);
           var grpBody = document.createElement('div');
           grpBody.className = 'legend-group-body open';
-          grpHdr.addEventListener('click', function() {{
+          grpHdr.addEventListener('click', function(e) {{
+            if (e.target === grpCb) return;
             var open = grpBody.classList.toggle('open');
             grpExp.textContent = open ? '▼' : '▶';
           }});
@@ -1645,7 +1672,6 @@ class WebMapExporter:
           container.appendChild(grpDiv);
           buildLegendNodes(node.children, grpBody);
         }} else {{
-          // find matching displayItem by index
           var item = displayItems[node.index];
           if (item) buildLayerRow(item, container);
         }}
@@ -1725,7 +1751,10 @@ class WebMapExporter:
   function setLayerLabels(item, visible) {{
     item.labelsVisible = visible;
     var pane = map.getPane(item.labelPaneName);
-    if (pane) pane.style.display = (item.visible && visible) ? '' : 'none';
+    if (pane) {{
+      pane.style.display = (item.visible && visible) ? '' : 'none';
+      if (visible && item.labelLayoutFn) setTimeout(item.labelLayoutFn, 100);
+    }}
   }}
 
   function buildLabels(item) {{
@@ -1748,8 +1777,10 @@ class WebMapExporter:
           + b+'px 0 0 '+bufCol+','
           + (-b)+'px 0 0 '+bufCol+';';
     }}
+    // Append safe web-font fallbacks so QGIS-specific fonts degrade gracefully
+    var fontFamily = (cfg.fontFamily || 'Arial') + ', Arial, sans-serif';
     var fontStyle = 'font-size:'+fontSz+'px;color:'+cfg.fontColor+';'
-      + 'font-family:'+(cfg.fontFamily||'sans-serif')+';'
+      + 'font-family:'+fontFamily+';'
       + (cfg.bold  ?'font-weight:bold;':'')
       + (cfg.italic?'font-style:italic;':'')
       + tsh + 'white-space:nowrap;';
@@ -1766,6 +1797,37 @@ class WebMapExporter:
            pane: item.labelPaneName }}
       );
     }});
+
+    // Collision-detection layout pass: hide labels whose bounding rects overlap
+    // an already-placed label (greedy first-wins). Re-runs after each pan/zoom.
+    function layoutLabels() {{
+      var lp = map.getPane(item.labelPaneName);
+      if (!lp || lp.style.display === 'none') return;
+      var els = lp.querySelectorAll('.leaflet-tooltip');
+      var placed = [];
+      for (var i = 0; i < els.length; i++) {{
+        els[i].style.visibility = '';  // reset first
+      }}
+      for (var i = 0; i < els.length; i++) {{
+        var el = els[i];
+        var r = el.getBoundingClientRect();
+        if (!r.width && !r.height) continue;
+        var clash = false;
+        for (var j = 0; j < placed.length; j++) {{
+          var p = placed[j];
+          if (r.left < p.right + 3 && r.right > p.left - 3 &&
+              r.top  < p.bottom + 3 && r.bottom > p.top - 3) {{
+            clash = true; break;
+          }}
+        }}
+        if (clash) {{ el.style.visibility = 'hidden'; }}
+        else        {{ placed.push(r); }}
+      }}
+    }}
+    item.labelLayoutFn = layoutLabels;
+    map.on('moveend zoomend', layoutLabels);
+    setTimeout(layoutLabels, 150);
+
     // Keep pane hidden until explicitly enabled
     var lp = map.getPane(item.labelPaneName);
     if (lp) lp.style.display = item.labelsVisible ? '' : 'none';
