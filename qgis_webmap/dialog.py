@@ -22,6 +22,7 @@ class WebMapExportDialog(QDialog):
         self._themes = []
         self._editing_theme_idx = None  # index of theme being edited, or None
         self._build_ui()
+        self._update_initial_extent_label()
         self.path_edit.setText(self._default_output_path())
         self._populate_layers()
 
@@ -90,6 +91,25 @@ class WebMapExportDialog(QDialog):
         self.layer_control_cb = QCheckBox("Include legend / layer control (toggles + transparency)")
         self.layer_control_cb.setChecked(True)
         options_layout.addWidget(self.layer_control_cb)
+
+        self.basemap_cb = QCheckBox("Include OpenStreetMap basemap")
+        self.basemap_cb.setChecked(True)
+        options_layout.addWidget(self.basemap_cb)
+
+        # Initial view capture
+        view_row = QHBoxLayout()
+        recapture_btn = QPushButton("📷 Re-capture initial view")
+        recapture_btn.setToolTip(
+            "Sets the map's opening extent to the current QGIS canvas view.\n"
+            "Default is the view at the time the dialog was opened."
+        )
+        recapture_btn.clicked.connect(self._recapture_initial_extent)
+        view_row.addWidget(recapture_btn)
+        self.initial_extent_label = QLabel("View: (captured at open)")
+        self.initial_extent_label.setWordWrap(True)
+        view_row.addWidget(self.initial_extent_label, 1)
+        options_layout.addLayout(view_row)
+
         layers_layout.addWidget(options_group)
 
         # Output path
@@ -201,6 +221,20 @@ class WebMapExportDialog(QDialog):
 
         # Internal state for the theme editor
         self._editing_theme_extent = None
+
+    def _update_initial_extent_label(self):
+        ext = self._initial_extent
+        if ext:
+            self.initial_extent_label.setText(
+                f"View: S={ext[0][0]:.4f} W={ext[0][1]:.4f} "
+                f"N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
+            )
+        else:
+            self.initial_extent_label.setText("View: (not captured)")
+
+    def _recapture_initial_extent(self):
+        self._initial_extent = self._capture_canvas_extent()
+        self._update_initial_extent_label()
 
     # ── Themes helpers ───────────────────────────────────────────────────────
 
@@ -421,6 +455,7 @@ class WebMapExportDialog(QDialog):
                 layers=layers,
                 output_path=output_path,
                 include_layer_control=self.layer_control_cb.isChecked(),
+                include_basemap=self.basemap_cb.isChecked(),
                 progress_callback=lambda v: self.progress.setValue(v),
                 layer_tree=tree_nodes,
                 initial_extent=self._initial_extent,

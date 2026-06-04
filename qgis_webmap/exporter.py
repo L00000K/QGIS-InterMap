@@ -570,11 +570,13 @@ def _geom_type_str(layer) -> str:
 
 class WebMapExporter:
     def __init__(self, layers, output_path,
-                 include_layer_control=True, progress_callback=None,
+                 include_layer_control=True, include_basemap=True,
+                 progress_callback=None,
                  layer_tree=None, initial_extent=None, scenes=None):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
+        self.include_basemap = include_basemap
         self.progress = progress_callback or (lambda v: None)
         self.layer_tree = layer_tree or []
         self.initial_extent = initial_extent
@@ -671,6 +673,7 @@ class WebMapExporter:
         initial_bounds = self.initial_extent if self.initial_extent else bounds
         initial_bounds_json = json.dumps(initial_bounds)
         include_legend = "true" if self.include_layer_control else "false"
+        include_basemap_json = "true" if self.include_basemap else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
         themes_json = json.dumps(self.scenes, separators=(",", ":")).replace("</", "<\\/")
 
@@ -1239,12 +1242,16 @@ class WebMapExporter:
   var LAYER_TREE = {tree_json};
   var THEMES = {themes_json};
 
-  // ── Basemap (always present) ──────────────────────────────────────────────
-  var basemap = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxNativeZoom: 19,
-    maxZoom: 23
-  }}).addTo(map);
+  // ── Basemap (optional) ───────────────────────────────────────────────────
+  var INCLUDE_BASEMAP = {include_basemap_json};
+  var basemap = null;
+  if (INCLUDE_BASEMAP) {{
+    basemap = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxNativeZoom: 19,
+      maxZoom: 23
+    }}).addTo(map);
+  }}
 
   // ── Scale bar (built-in) ──────────────────────────────────────────────────
   L.control.scale({{position: 'bottomleft', imperial: true, metric: true}}).addTo(map);
@@ -1259,17 +1266,19 @@ class WebMapExporter:
     }}
   }} catch(e) {{ console.warn('Fullscreen plugin error:', e); }}
 
-  // ── Mini-map overview ─────────────────────────────────────────────────────
-  try {{
-    if (typeof L.Control.MiniMap !== 'undefined') {{
-      var miniTile = L.tileLayer(
-        'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{maxZoom: 19}});
-      new L.Control.MiniMap(miniTile, {{
-        position: 'bottomright', toggleDisplay: true, minimized: true,
-        width: 160, height: 160
-      }}).addTo(map);
-    }}
-  }} catch(e) {{ console.warn('MiniMap plugin error:', e); }}
+  // ── Mini-map overview (only when basemap is included) ────────────────────
+  if (INCLUDE_BASEMAP) {{
+    try {{
+      if (typeof L.Control.MiniMap !== 'undefined') {{
+        var miniTile = L.tileLayer(
+          'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{maxZoom: 19}});
+        new L.Control.MiniMap(miniTile, {{
+          position: 'bottomright', toggleDisplay: true, minimized: true,
+          width: 160, height: 160
+        }}).addTo(map);
+      }}
+    }} catch(e) {{ console.warn('MiniMap plugin error:', e); }}
+  }}
 
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1479,8 +1488,9 @@ class WebMapExporter:
 
   function buildWmsLayer(item) {{
     var ld = item.ld;
-    if (ld.tileType === 'xyz') {{
-      return L.tileLayer(ld.wmsUrl, {{ pane: item.paneName }});
+    // XYZ and WMTS tile services use a URL template — serve directly as tile layer
+    if (ld.tileType === 'xyz' || ld.tileType === 'wmts') {{
+      return L.tileLayer(ld.wmsUrl, {{ pane: item.paneName, maxZoom: 23 }});
     }}
     return L.tileLayer.wms(ld.wmsUrl, {{
       layers:      ld.wmsLayers,
@@ -1489,7 +1499,8 @@ class WebMapExporter:
       version:     ld.wmsVersion || '1.1.1',
       transparent: true,
       opacity:     1,
-      pane:        item.paneName
+      pane:        item.paneName,
+      maxZoom:     23
     }});
   }}
 
@@ -1987,8 +1998,8 @@ class WebMapExporter:
       }});
     }}
 
-    // ── Basemap entry (opacity only — always present, no visibility toggle) ──
-    (function() {{
+    // ── Basemap entry (only when basemap is included) ─────────────────────────
+    if (basemap) (function() {{
       var bDiv = document.createElement('div');
       bDiv.className = 'legend-layer';
 
@@ -2031,7 +2042,7 @@ class WebMapExporter:
       bDiv.appendChild(bRow);
       bDiv.appendChild(bSettingsDiv);
       body.appendChild(bDiv);
-    }})();
+    }})();  // end basemap legend entry
   }}
 
   // ── Map-level click handler (multi-feature stacked points) ───────────────
