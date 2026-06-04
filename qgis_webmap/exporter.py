@@ -1640,7 +1640,7 @@ class WebMapExporter:
         return '"' + String(v).replace(/"/g,'""') + '"';
       }}).join(','));
     }});
-    var blob = new Blob([lines.join('\n')], {{type:'text/csv'}});
+    var blob = new Blob([lines.join('\\n')], {{type:'text/csv'}});
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url; a.download = (item.ld.name || 'attributes') + '.csv';
