@@ -570,13 +570,14 @@ def _geom_type_str(layer) -> str:
 class WebMapExporter:
     def __init__(self, layers, output_path,
                  include_layer_control=True, progress_callback=None,
-                 layer_tree=None, initial_extent=None):
+                 layer_tree=None, initial_extent=None, scenes=None):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
         self.progress = progress_callback or (lambda v: None)
         self.layer_tree = layer_tree or []
         self.initial_extent = initial_extent
+        self.scenes = scenes or []
 
     def export(self):
         layer_defs = []
@@ -670,6 +671,7 @@ class WebMapExporter:
         initial_bounds_json = json.dumps(initial_bounds)
         include_legend = "true" if self.include_layer_control else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
+        themes_json = json.dumps(self.scenes, separators=(",", ":")).replace("</", "<\\/")
 
         leaflet_css, leaflet_js = _get_leaflet_assets()
         if leaflet_css and leaflet_js:
@@ -1067,6 +1069,81 @@ class WebMapExporter:
     color: #555; font-weight: 600; white-space: nowrap; vertical-align: top;
   }}
   #info-panel-body td {{ padding: 2px 0; word-break: break-word; color: #222; }}
+  .mf-list {{ padding: 4px 0; }}
+  .mf-item {{
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
+  }}
+  .mf-item:hover {{ background: #f5f5f5; }}
+  .mf-layer {{ font-size: 12px; color: #333; }}
+  .mf-arrow {{ color: #aaa; font-size: 16px; }}
+  .mf-back {{
+    display: block; width: 100%; background: #f0f0f0; border: none;
+    border-bottom: 1px solid #ddd; padding: 5px 12px; text-align: left;
+    cursor: pointer; font-size: 11px; color: #555; margin-bottom: 4px;
+  }}
+  .mf-back:hover {{ background: #e0e0e0; }}
+
+  /* ── Attribute table panel */
+  #attr-table-panel {{
+    display: none;
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 240px;
+    z-index: 1002;
+    background: #fff;
+    border-top: 2px solid #bbb;
+    flex-direction: column;
+    overflow: hidden;
+  }}
+  #attr-table-panel.open {{ display: flex; }}
+  #attr-table-hdr {{
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px;
+    background: #f0f0f0; border-bottom: 1px solid #ddd;
+    flex-shrink: 0;
+  }}
+  #attr-table-hdr span {{ font-weight: bold; font-size: 13px; color: #333; }}
+  #attr-table-layer {{ font-size: 12px; padding: 2px 4px; }}
+  #attr-table-close {{
+    margin-left: auto; background: none; border: none;
+    cursor: pointer; font-size: 14px; color: #888; padding: 0 4px;
+  }}
+  #attr-table-close:hover {{ color: #333; }}
+  #attr-table-body {{
+    overflow: auto; flex: 1;
+  }}
+  #attr-table-body table {{
+    border-collapse: collapse; width: 100%; font-size: 12px;
+  }}
+  #attr-table-body th {{
+    position: sticky; top: 0;
+    background: #f5f5f5; border-bottom: 2px solid #ccc;
+    padding: 4px 8px; text-align: left;
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }}
+  #attr-table-body th:hover {{ background: #e8e8e8; }}
+  #attr-table-body th.sort-asc::after  {{ content: ' ▲'; font-size: 9px; }}
+  #attr-table-body th.sort-desc::after {{ content: ' ▼'; font-size: 9px; }}
+  #attr-table-body td {{
+    padding: 3px 8px; border-bottom: 1px solid #eee;
+    white-space: nowrap; max-width: 200px;
+    overflow: hidden; text-overflow: ellipsis;
+  }}
+  #attr-table-body tr:hover td {{ background: #f0f7ff; cursor: pointer; }}
+  #attr-table-body tr.selected td {{ background: #cce4ff; }}
+
+  /* ── Themes dropdown control */
+  #theme-control {{
+    background: white;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    padding: 3px 6px;
+  }}
+  #theme-select {{
+    font-size: 12px; border: none; background: transparent;
+    cursor: pointer; max-width: 170px; outline: none;
+  }}
 </style>
 </head>
 <body>
@@ -1076,6 +1153,14 @@ class WebMapExporter:
     <button id="info-panel-close" title="Close">&#10005;</button>
   </div>
   <div id="info-panel-body">Click a map feature to see its attributes.</div>
+</div>
+<div id="attr-table-panel">
+  <div id="attr-table-hdr">
+    <span>Attribute Table</span>
+    <select id="attr-table-layer"></select>
+    <button id="attr-table-close" title="Close">&#10005;</button>
+  </div>
+  <div id="attr-table-body"></div>
 </div>
 <div id="map"></div>
 <div id="brand-watermark">
@@ -1102,6 +1187,7 @@ class WebMapExporter:
 
   var map = L.map('map', {{
     center: [0, 0], zoom: 2,
+    maxZoom: 23,
     preferCanvas: true,
     contextmenu: true,
     contextmenuWidth: 180,
@@ -1125,11 +1211,13 @@ class WebMapExporter:
   var LAYERS = {layers_json};
   var INCLUDE_LEGEND = {include_legend};
   var LAYER_TREE = {tree_json};
+  var THEMES = {themes_json};
 
   // ── Basemap (always present) ──────────────────────────────────────────────
   var basemap = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19
+    maxNativeZoom: 19,
+    maxZoom: 23
   }}).addTo(map);
 
   // ── Scale bar (built-in) ──────────────────────────────────────────────────
@@ -1391,15 +1479,9 @@ class WebMapExporter:
     var rows = Object.entries(feature.properties)
       .filter(function(e) {{ return e[1] != null; }})
       .map(function(e) {{
-        return '<tr><th>' + escHtml(e[0]) + '</th><td>' + escHtml(String(e[1])) + '</td></tr>';
+        return '<tr><th>'+escHtml(e[0])+'</th><td>'+escHtml(String(e[1]))+'</td></tr>';
       }}).join('');
-    if (rows) {{
-      var tbl = '<table>' + rows + '</table>';
-      layer.on('click', function() {{
-        infoPanelBody.innerHTML = tbl;
-        infoPanel.classList.add('open');
-      }});
-    }}
+    if (rows) layer._infoHtml = '<table>'+rows+'</table>';
   }}
 
   // Build Leaflet layers and collect metadata for legend.
@@ -1448,6 +1530,111 @@ class WebMapExporter:
   }});
   new InfoBtn({{position: 'topleft'}}).addTo(map);
 
+  // ── Attribute table button ────────────────────────────────────────────────
+  var AttrTableBtn = L.Control.extend({{
+    onAdd: function() {{
+      var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+      btn.title = 'Attribute table';
+      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;font-size:14px;cursor:pointer;background:white;border-radius:4px;';
+      btn.innerHTML = '&#8801;';
+      L.DomEvent.disableClickPropagation(btn);
+      L.DomEvent.on(btn, 'click', function() {{
+        var panel = document.getElementById('attr-table-panel');
+        panel.classList.toggle('open');
+        if (panel.classList.contains('open')) populateAttrTable();
+      }});
+      return btn;
+    }}
+  }});
+  new AttrTableBtn({{position: 'topleft'}}).addTo(map);
+
+  var attrTablePanel = document.getElementById('attr-table-panel');
+  var attrTableLayer = document.getElementById('attr-table-layer');
+  var attrTableBody  = document.getElementById('attr-table-body');
+  document.getElementById('attr-table-close').addEventListener('click', function() {{
+    attrTablePanel.classList.remove('open');
+  }});
+
+  var _attrSortCol = null, _attrSortAsc = true;
+
+  function populateAttrTable() {{
+    var idx = parseInt(attrTableLayer.value, 10);
+    var item = legendItems[idx];
+    if (!item || item.ld.kind !== 'vector') return;
+    var feats = item.ld.geojson.features;
+    if (!feats || !feats.length) {{ attrTableBody.innerHTML = '<p style="padding:8px;color:#888">No features.</p>'; return; }}
+
+    // Collect columns
+    var cols = [], seen = {{}};
+    for (var i = 0; i < Math.min(feats.length, 100); i++) {{
+      var p = feats[i].properties || {{}};
+      Object.keys(p).forEach(function(k) {{ if (!(k in seen)) {{ seen[k]=1; cols.push(k); }} }});
+    }}
+
+    // Build and sort data rows
+    var rows = feats.map(function(f) {{ return f.properties || {{}}; }});
+    if (_attrSortCol !== null && cols.indexOf(_attrSortCol) !== -1) {{
+      rows = rows.slice().sort(function(a,b) {{
+        var va = a[_attrSortCol], vb = b[_attrSortCol];
+        var na = parseFloat(va), nb = parseFloat(vb);
+        var cmp = (!isNaN(na) && !isNaN(nb)) ? (na-nb) : (String(va) < String(vb) ? -1 : String(va) > String(vb) ? 1 : 0);
+        return _attrSortAsc ? cmp : -cmp;
+      }});
+    }}
+
+    var html = '<table><thead><tr>';
+    cols.forEach(function(c) {{
+      var cls = (_attrSortCol === c) ? ('sort-' + (_attrSortAsc?'asc':'desc')) : '';
+      html += '<th class="'+cls+'" data-col="'+escHtml(c)+'">'+escHtml(c)+'</th>';
+    }});
+    html += '</tr></thead><tbody>';
+    rows.forEach(function(p, ri) {{
+      html += '<tr data-fi="'+ri+'">';
+      cols.forEach(function(c) {{
+        var v = p[c]; html += '<td title="'+(v!=null?escHtml(String(v)):'')+'">'+escHtml(v!=null?String(v):'')+'</td>';
+      }});
+      html += '</tr>';
+    }});
+    html += '</tbody></table>';
+    attrTableBody.innerHTML = html;
+
+    // Sort on header click
+    attrTableBody.querySelectorAll('th').forEach(function(th) {{
+      th.addEventListener('click', function() {{
+        var col = th.getAttribute('data-col');
+        if (_attrSortCol === col) {{ _attrSortAsc = !_attrSortAsc; }}
+        else {{ _attrSortCol = col; _attrSortAsc = true; }}
+        populateAttrTable();
+      }});
+    }});
+
+    // Click row → show in info panel + zoom/pan
+    attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {{
+      tr.addEventListener('click', function() {{
+        attrTableBody.querySelectorAll('tr.selected').forEach(function(r){{ r.classList.remove('selected'); }});
+        tr.classList.add('selected');
+        var fi = parseInt(tr.getAttribute('data-fi'),10);
+        var feat = feats[fi];
+        if (!feat) return;
+        // Show in info panel
+        if (feat.properties) {{
+          var rws = Object.entries(feat.properties)
+            .filter(function(e){{ return e[1]!=null; }})
+            .map(function(e){{ return '<tr><th>'+escHtml(e[0])+'</th><td>'+escHtml(String(e[1]))+'</td></tr>'; }}).join('');
+          infoPanelBody.innerHTML = '<table>'+rws+'</table>';
+          infoPanel.classList.add('open');
+        }}
+        // Pan/zoom to feature
+        if (feat.geometry) {{
+          try {{
+            var geo = L.geoJSON(feat);
+            var b = geo.getBounds();
+            if (b.isValid()) map.fitBounds(b, {{maxZoom: 16, padding: [40,40]}});
+          }} catch(e) {{}}
+        }}
+      }});
+    }});
+  }}
 
   // ── Legend panel ─────────────────────────────────────────────────────────
   if (INCLUDE_LEGEND && legendItems.length > 0) {{
@@ -1732,6 +1919,66 @@ class WebMapExporter:
       body.appendChild(bDiv);
     }})();
   }}
+
+  // ── Map-level click handler (multi-feature stacked points) ───────────────
+  map.on('click', function(e) {{
+    var clickPt = map.latLngToContainerPoint(e.latlng);
+    var found = [];
+    legendItems.forEach(function(it) {{
+      if (!it.visible || it.ld.kind !== 'vector') return;
+      it.lfl.eachLayer(function(fl) {{
+        if (!fl._infoHtml) return;
+        var latlng = fl.getLatLng ? fl.getLatLng()
+                   : (fl.getBounds ? fl.getBounds().getCenter() : null);
+        if (!latlng) return;
+        var pt = map.latLngToContainerPoint(latlng);
+        var d  = Math.sqrt(Math.pow(pt.x - clickPt.x,2) + Math.pow(pt.y - clickPt.y,2));
+        if (d <= 10) found.push({{name: it.ld.name, html: fl._infoHtml}});
+      }});
+    }});
+    if (!found.length) return;
+    if (found.length === 1) {{
+      infoPanelBody.innerHTML = found[0].html;
+    }} else {{
+      // Build a list; clicking an entry drills into that feature
+      var listHtml = '<div class="mf-list">';
+      found.forEach(function(f, i) {{
+        listHtml += '<div class="mf-item" data-i="'+i+'"><span class="mf-layer">'+escHtml(f.name)+'</span>'
+                  + '<span class="mf-arrow">›</span></div>';
+      }});
+      listHtml += '</div>';
+      infoPanelBody.innerHTML = listHtml;
+      infoPanelBody.querySelectorAll('.mf-item').forEach(function(el) {{
+        el.addEventListener('click', function() {{
+          var idx = parseInt(el.getAttribute('data-i'),10);
+          infoPanelBody.innerHTML = '<button class="mf-back">‹ Back ('+found.length+' features)</button>'
+                                  + found[idx].html;
+          infoPanelBody.querySelector('.mf-back').addEventListener('click', function() {{
+            infoPanelBody.innerHTML = listHtml;
+            // Re-attach drill-in handlers
+            infoPanelBody.querySelectorAll('.mf-item').forEach(function(el2) {{
+              el2.addEventListener('click', function() {{
+                var idx2 = parseInt(el2.getAttribute('data-i'),10);
+                infoPanelBody.innerHTML = '<button class="mf-back">‹ Back ('+found.length+' features)</button>'
+                                        + found[idx2].html;
+                // Note: back button here won't re-attach handlers, but that's OK for depth-2
+              }});
+            }});
+          }});
+        }});
+      }});
+    }}
+    infoPanel.classList.add('open');
+  }});
+
+  // ── Populate attribute table layer selector ───────────────────────────────
+  legendItems.forEach(function(it) {{
+    if (it.ld.kind !== 'vector') return;
+    var o = document.createElement('option');
+    o.value = it.index; o.textContent = it.ld.name;
+    attrTableLayer.appendChild(o);
+  }});
+  attrTableLayer.addEventListener('change', populateAttrTable);
 
   function setLayerVisible(item, visible) {{
     item.visible = visible;
@@ -2021,6 +2268,56 @@ class WebMapExporter:
     var first = currentItem();
     if (first) updateCount(first);
   }})();
+
+  // ── Themes dropdown (only when themes are defined) ────────────────────────
+  if (THEMES.length > 0) {{
+    function applyTheme(idx) {{
+      var theme = THEMES[idx];
+      if (!theme) return;
+
+      // Layer visibility
+      if (theme.layerIds) {{
+        legendItems.forEach(function(it) {{
+          var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
+          setLayerVisible(it, vis);
+          if (it.checkbox) it.checkbox.checked = vis;
+          if (it.layerDiv) it.layerDiv.classList.toggle('hidden', !vis);
+        }});
+      }}
+
+      // Zoom to extent
+      if (theme.extent) {{
+        try {{ map.fitBounds(theme.extent, {{padding: [20, 20]}}); }} catch(e) {{}}
+      }}
+    }}
+
+    var ThemesControl = L.Control.extend({{
+      onAdd: function() {{
+        var div = L.DomUtil.create('div', 'leaflet-control');
+        div.id = 'theme-control';
+        var sel = L.DomUtil.create('select', '', div);
+        sel.id = 'theme-select';
+        sel.title = 'Switch theme';
+        var opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = '— Themes —';
+        sel.appendChild(opt0);
+        THEMES.forEach(function(th, i) {{
+          var opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = escHtml(th.name || 'Theme ' + (i + 1));
+          sel.appendChild(opt);
+        }});
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.on(sel, 'change', function() {{
+          var idx = parseInt(sel.value, 10);
+          if (!isNaN(idx)) applyTheme(idx);
+        }});
+        return div;
+      }}
+    }});
+    new ThemesControl({{position: 'topright'}}).addTo(map);
+  }}
 
 }})();
 </script>

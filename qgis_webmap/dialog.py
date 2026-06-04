@@ -3,7 +3,8 @@ import datetime
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QFileDialog, QLineEdit,
-    QMessageBox, QProgressBar, QCheckBox, QGroupBox
+    QMessageBox, QProgressBar, QCheckBox, QGroupBox,
+    QTabWidget, QTextEdit, QFormLayout, QSplitter, QWidget
 )
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl
 from qgis.PyQt.QtGui import QDesktopServices
@@ -18,6 +19,8 @@ class WebMapExportDialog(QDialog):
         self.setMinimumWidth(480)
         # Capture the current QGIS canvas extent before anything else changes it
         self._initial_extent = self._capture_canvas_extent()
+        self._themes = []
+        self._editing_theme_idx = None  # index of theme being edited, or None
         self._build_ui()
         self.path_edit.setText(self._default_output_path())
         self._populate_layers()
@@ -54,6 +57,14 @@ class WebMapExportDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
+        # ── Tab widget ───────────────────────────────────────────────────────
+        tabs = QTabWidget()
+        layout.addWidget(tabs)
+
+        # ── Tab 1: Layers ────────────────────────────────────────────────────
+        layers_tab = QWidget()
+        layers_layout = QVBoxLayout(layers_tab)
+
         # Layer selection
         layer_group = QGroupBox("Layers to export")
         layer_layout = QVBoxLayout(layer_group)
@@ -71,7 +82,7 @@ class WebMapExportDialog(QDialog):
         self.layer_list = QListWidget()
         self.layer_list.setMinimumHeight(200)
         layer_layout.addWidget(self.layer_list)
-        layout.addWidget(layer_group)
+        layers_layout.addWidget(layer_group)
 
         # Options
         options_group = QGroupBox("Options")
@@ -79,7 +90,7 @@ class WebMapExportDialog(QDialog):
         self.layer_control_cb = QCheckBox("Include legend / layer control (toggles + transparency)")
         self.layer_control_cb.setChecked(True)
         options_layout.addWidget(self.layer_control_cb)
-        layout.addWidget(options_group)
+        layers_layout.addWidget(options_group)
 
         # Output path
         path_group = QGroupBox("Output file")
@@ -90,8 +101,87 @@ class WebMapExportDialog(QDialog):
         browse_btn.clicked.connect(self._browse)
         path_layout.addWidget(self.path_edit)
         path_layout.addWidget(browse_btn)
-        layout.addWidget(path_group)
+        layers_layout.addWidget(path_group)
 
+        tabs.addTab(layers_tab, "Layers")
+
+        # ── Tab 2: Themes ────────────────────────────────────────────────────
+        themes_tab = QWidget()
+        themes_layout = QHBoxLayout(themes_tab)
+
+        # Left: list + buttons
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.themes_list_widget = QListWidget()
+        self.themes_list_widget.setMinimumWidth(160)
+        self.themes_list_widget.currentRowChanged.connect(self._on_theme_selected)
+        left_layout.addWidget(self.themes_list_widget)
+
+        theme_btn_row = QHBoxLayout()
+        add_theme_btn = QPushButton("＋ Add")
+        add_theme_btn.clicked.connect(self._theme_add)
+        edit_theme_btn = QPushButton("✎ Edit")
+        edit_theme_btn.clicked.connect(self._theme_edit)
+        del_theme_btn = QPushButton("✕ Delete")
+        del_theme_btn.clicked.connect(self._theme_delete)
+        theme_btn_row.addWidget(add_theme_btn)
+        theme_btn_row.addWidget(edit_theme_btn)
+        theme_btn_row.addWidget(del_theme_btn)
+        left_layout.addLayout(theme_btn_row)
+
+        move_btn_row = QHBoxLayout()
+        up_btn = QPushButton("↑ Up")
+        up_btn.clicked.connect(self._theme_move_up)
+        down_btn = QPushButton("↓ Down")
+        down_btn.clicked.connect(self._theme_move_down)
+        move_btn_row.addWidget(up_btn)
+        move_btn_row.addWidget(down_btn)
+        left_layout.addLayout(move_btn_row)
+
+        themes_layout.addWidget(left_widget)
+
+        # Right: editor form
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        form = QFormLayout()
+        self.theme_name_edit = QLineEdit()
+        self.theme_name_edit.setPlaceholderText("Theme name (required)")
+        form.addRow("Name:", self.theme_name_edit)
+
+        self.theme_notes_edit = QTextEdit()
+        self.theme_notes_edit.setPlaceholderText("Notes shown below theme name in dropdown")
+        self.theme_notes_edit.setMaximumHeight(80)
+        form.addRow("Notes:", self.theme_notes_edit)
+
+        right_layout.addLayout(form)
+
+        capture_btn = QPushButton("📷 Capture current QGIS view")
+        capture_btn.clicked.connect(self._theme_capture_extent)
+        right_layout.addWidget(capture_btn)
+
+        self.theme_extent_label = QLabel("Extent: (not captured)")
+        self.theme_extent_label.setWordWrap(True)
+        right_layout.addWidget(self.theme_extent_label)
+
+        theme_form_btns = QHBoxLayout()
+        save_theme_btn = QPushButton("Save theme")
+        save_theme_btn.clicked.connect(self._theme_save)
+        clear_form_btn = QPushButton("Clear form")
+        clear_form_btn.clicked.connect(self._theme_clear_form)
+        theme_form_btns.addWidget(save_theme_btn)
+        theme_form_btns.addWidget(clear_form_btn)
+        right_layout.addLayout(theme_form_btns)
+        right_layout.addStretch()
+
+        themes_layout.addWidget(right_widget, stretch=1)
+
+        tabs.addTab(themes_tab, "Themes")
+
+        # ── Progress + bottom buttons (outside tabs) ─────────────────────────
         # Progress
         self.progress = QProgressBar()
         self.progress.setVisible(False)
@@ -108,6 +198,117 @@ class WebMapExportDialog(QDialog):
         bottom.addWidget(self.export_btn)
         bottom.addWidget(cancel_btn)
         layout.addLayout(bottom)
+
+        # Internal state for the theme editor
+        self._editing_theme_extent = None
+
+    # ── Themes helpers ───────────────────────────────────────────────────────
+
+    def _themes_list_refresh(self):
+        self.themes_list_widget.blockSignals(True)
+        self.themes_list_widget.clear()
+        for theme in self._themes:
+            self.themes_list_widget.addItem(theme.get("name") or "(unnamed)")
+        self.themes_list_widget.blockSignals(False)
+
+    def _on_theme_selected(self, row):
+        if row < 0 or row >= len(self._themes):
+            return
+        theme = self._themes[row]
+        self._editing_theme_idx = row
+        self._editing_theme_extent = theme.get("extent")
+        self.theme_name_edit.setText(theme.get("name", ""))
+        self.theme_notes_edit.setPlainText(theme.get("notes", ""))
+        ext = theme.get("extent")
+        if ext:
+            self.theme_extent_label.setText(
+                f"Extent: S={ext[0][0]:.4f} W={ext[0][1]:.4f} N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
+            )
+        else:
+            self.theme_extent_label.setText("Extent: (not captured)")
+
+    def _theme_clear_form(self):
+        self._editing_theme_idx = None
+        self._editing_theme_extent = None
+        self.theme_name_edit.clear()
+        self.theme_notes_edit.clear()
+        self.theme_extent_label.setText("Extent: (not captured)")
+        self.themes_list_widget.clearSelection()
+
+    def _theme_capture_extent(self):
+        ext = self._capture_canvas_extent()
+        self._editing_theme_extent = ext
+        if ext:
+            self.theme_extent_label.setText(
+                f"Extent: S={ext[0][0]:.4f} W={ext[0][1]:.4f} N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
+            )
+        else:
+            self.theme_extent_label.setText("Extent: (could not capture)")
+
+    def _theme_checked_layer_names(self):
+        """Return names of currently checked layers in the Layers tab."""
+        names = []
+        for i in range(self.layer_list.count()):
+            item = self.layer_list.item(i)
+            if item.data(Qt.UserRole) is not None and item.checkState() == Qt.Checked:
+                layer_id = item.data(Qt.UserRole)
+                layer = QgsProject.instance().mapLayer(layer_id)
+                if layer:
+                    names.append(layer.name())
+        return names
+
+    def _theme_save(self):
+        name = self.theme_name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Theme name required", "Please enter a name for the theme.")
+            return
+        theme = {
+            "name": name,
+            "notes": self.theme_notes_edit.toPlainText().strip(),
+            "extent": self._editing_theme_extent,
+            "layerIds": self._theme_checked_layer_names(),
+        }
+        if self._editing_theme_idx is not None and 0 <= self._editing_theme_idx < len(self._themes):
+            self._themes[self._editing_theme_idx] = theme
+        else:
+            self._themes.append(theme)
+            self._editing_theme_idx = len(self._themes) - 1
+        self._themes_list_refresh()
+        self.themes_list_widget.setCurrentRow(self._editing_theme_idx)
+
+    def _theme_add(self):
+        self._theme_clear_form()
+
+    def _theme_edit(self):
+        row = self.themes_list_widget.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "No theme selected", "Please select a theme to edit.")
+            return
+        self._on_theme_selected(row)
+
+    def _theme_delete(self):
+        row = self.themes_list_widget.currentRow()
+        if row < 0:
+            return
+        del self._themes[row]
+        self._theme_clear_form()
+        self._themes_list_refresh()
+
+    def _theme_move_up(self):
+        row = self.themes_list_widget.currentRow()
+        if row <= 0:
+            return
+        self._themes[row - 1], self._themes[row] = self._themes[row], self._themes[row - 1]
+        self._themes_list_refresh()
+        self.themes_list_widget.setCurrentRow(row - 1)
+
+    def _theme_move_down(self):
+        row = self.themes_list_widget.currentRow()
+        if row < 0 or row >= len(self._themes) - 1:
+            return
+        self._themes[row], self._themes[row + 1] = self._themes[row + 1], self._themes[row]
+        self._themes_list_refresh()
+        self.themes_list_widget.setCurrentRow(row + 1)
 
     def _populate_layers(self):
         self.layer_list.clear()
@@ -223,6 +424,7 @@ class WebMapExportDialog(QDialog):
                 progress_callback=lambda v: self.progress.setValue(v),
                 layer_tree=tree_nodes,
                 initial_extent=self._initial_extent,
+                scenes=self._themes,
             )
             exporter.export()
             self._show_success(output_path)

@@ -1,30 +1,25 @@
 # QGIS Web Map Exporter
 
-A QGIS 3 plugin that exports selected layers to a **standalone HTML web map** powered by [Leaflet.js](https://leafletjs.com). Symbology is preserved.
+A QGIS 3 plugin that exports selected layers to a **standalone HTML web map** powered by [Leaflet.js](https://leafletjs.com). Symbology, labels, layer groups, and interactive features are all preserved in a single self-contained `.html` file — no server required.
 
-## Features
+---
 
-- Export **vector layers** (point, line, polygon) as embedded GeoJSON with Leaflet styles
-- Export **raster layers** as base64-encoded PNG image overlays
-- Export **WMS / WMTS / XYZ tile layers** as live Leaflet tile layers (streamed from the server)
-- Preserves QGIS symbology:
-  - Single symbol renderers (fill colour, stroke, weight)
-  - Categorised renderers (per-category colours)
-  - Graduated renderers (per-range colours)
-  - Rule-based renderers (first-rule fallback)
-  - **Marker shapes** — circle, square, diamond, triangle, pentagon, hexagon,
-    octagon, star, cross and X (with size, stroke and rotation)
-- **Legend / table of contents** with colour swatches, per-class breakdown,
-  per-layer visibility toggles and **transparency sliders** — including the
-  OpenStreetMap basemap
-- **Filter toolbar**: pick a layer → an attribute → then select one or more of
-  its unique values, or type free text to substring-match. Live feature count.
-- Leaflet is embedded inline, so the exported file works **fully offline**
-  (file-based layers); WMS/XYZ layers and the OSM basemap stream over the web
-- Downloads use QGIS's own network stack, so corporate proxy / auth settings
-  configured in QGIS are respected
-- Click features to see a popup with all attribute values
-- Output is a **single `.html` file** — no server required
+## Feature highlights
+
+| Category | What's included |
+|---|---|
+| **Layer types** | Vector (point/line/polygon), raster image overlays, WMS/WMTS/XYZ tile layers |
+| **Symbology** | Single, categorised, graduated, rule-based renderers; 11 marker shapes; dash patterns; fill/stroke opacity |
+| **Labels** | Font, size, colour, bold/italic, buffer halo, collision detection, per-layer toggle |
+| **Legend** | Layer groups (collapsible), visibility checkboxes, opacity sliders, per-layer cog settings |
+| **Feature info** | Click any feature → floating info panel; stacked/overlapping points show a numbered pick-list |
+| **Attribute table** | Bottom panel with sortable columns; click row to zoom + highlight feature |
+| **Themes** | Save named layer-visibility + extent presets; switch via dropdown in the map |
+| **Filter toolbar** | Filter by layer → attribute → value (multi-select or free text); live feature count |
+| **Basemap** | OpenStreetMap always included; zoom up to level 23 (tiles over-scale gracefully) |
+| **Offline** | Leaflet and all vendor JS/CSS are embedded inline; file-based layers work with no internet |
+
+---
 
 ## Requirements
 
@@ -38,41 +33,61 @@ python3 install_plugin.py
 
 Then in QGIS: **Plugins → Manage and Install Plugins → Installed → Enable "QGIS Web Map Exporter"**.
 
-Alternatively, copy the `qgis_webmap/` folder to your QGIS plugins directory:
+Manual install — copy the `qgis_webmap/` folder to your QGIS plugins directory:
 
 | Platform | Path |
-|----------|------|
-| Linux    | `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/` |
-| macOS    | `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/` |
-| Windows  | `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\` |
+|---|---|
+| Linux | `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/` |
+| macOS | `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/` |
+| Windows | `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\` |
 
 ## Usage
 
 1. Open a QGIS project with one or more layers.
-2. Go to **Web → Web Map Exporter → Export to Web Map…** (or click the toolbar icon).
-3. Check the layers you want to include.
-4. Choose whether to include an OSM basemap and layer toggle control.
-5. Click **Browse…** to choose the output `.html` file path.
-6. Click **Export**.
-7. Open the generated `.html` file in any modern web browser.
+2. In QGIS go to **Web → Web Map Exporter → Export to Web Map…**
+3. **Layers tab** — check the layers to export; the layer tree order is preserved.
+4. *(Optional)* **Themes tab** — define named themes (visibility presets + extent).
+5. Choose an output `.html` file path and click **Export**.
+6. Open the generated file in any modern browser.
+
+## Branding / logo
+
+Place either `vendor/logo.svg` or `vendor/logo.png` inside the `qgis_webmap/` folder. The plugin embeds it inline in the map header. If neither file is present a built-in fallback SVG is used.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/SPEC.md](docs/SPEC.md) | Full plugin specification |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture and code map |
+| [docs/FEATURES.md](docs/FEATURES.md) | Feature-by-feature reference |
+| [docs/TASKS.md](docs/TASKS.md) | Development task list (completed, pending, deferred) |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Development history |
+
+## Running tests
+
+```bash
+python3 -m pytest qgis_webmap/test_exporter_logic.py -v
+```
+
+All 18 tests run without a QGIS installation (QGIS APIs are mocked).
 
 ## Plugin structure
 
 ```
 qgis_webmap/
-├── __init__.py          # QGIS entry point
-├── metadata.txt         # Plugin metadata
-├── plugin.py            # Plugin class (menu/toolbar wiring)
-├── dialog.py            # Export dialog (layer selection, options)
-├── exporter.py          # Core export logic (GeoJSON, symbology, HTML)
-├── icon.png             # Toolbar icon
-└── test_exporter_logic.py  # Offline unit tests
-```
-
-## Running tests
-
-The tests mock QGIS and run with plain Python:
-
-```bash
-python3 qgis_webmap/test_exporter_logic.py
+├── __init__.py              QGIS entry point
+├── metadata.txt             Plugin metadata
+├── plugin.py                Plugin class (menu/toolbar wiring)
+├── dialog.py                Export dialog (Layers tab + Themes tab)
+├── exporter.py              Core export logic: symbology, GeoJSON, HTML template
+├── icon.png                 Toolbar icon
+├── test_exporter_logic.py   Offline unit tests
+└── vendor/                  Embedded JS/CSS libraries
+    ├── leaflet.js / .css
+    ├── leaflet.fullscreen.*
+    ├── leaflet.minimap.*
+    ├── leaflet.contextmenu.*
+    ├── logo.svg              (optional — your branding)
+    └── logo.png              (optional — fallback branding)
 ```
