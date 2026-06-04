@@ -120,11 +120,12 @@ def _get_leaflet_assets() -> tuple[str, str] | tuple[None, None]:
 
 # ── Plugin asset specs ────────────────────────────────────────────────────────
 _PLUGIN_SPECS = {
-    "fullscreen":  ("fullscreen.min.css",  "fullscreen.min.js"),
-    "minimap":     ("minimap.min.css",     "minimap.min.js"),
-    "search":      ("search.min.css",      "search.min.js"),
-    "contextmenu": ("contextmenu.min.css", "contextmenu.min.js"),
-    "geoman":      ("geoman.min.css",      "geoman.min.js"),
+    "fullscreen":    ("fullscreen.min.css",  "fullscreen.min.js"),
+    "minimap":       ("minimap.min.css",     "minimap.min.js"),
+    "search":        ("search.min.css",      "search.min.js"),
+    "contextmenu":   ("contextmenu.min.css", "contextmenu.min.js"),
+    "geoman":        ("geoman.min.css",      "geoman.min.js"),
+    "markercluster": ("markercluster.css",   "markercluster.js"),
 }
 
 
@@ -702,6 +703,7 @@ class WebMapExporter:
             )
 
         plugin_heads = "\n".join(filter(bool, [
+            _plugin_block("markercluster"),
             _plugin_block("fullscreen"),
             _plugin_block("minimap"),
             _plugin_block("contextmenu"),
@@ -1133,6 +1135,28 @@ class WebMapExporter:
   #attr-table-body tr:hover td {{ background: #f0f7ff; cursor: pointer; }}
   #attr-table-body tr.selected td {{ background: #cce4ff; }}
 
+  /* ── Attribute table search & export ─────────────────────────── */
+  #attr-table-search {{
+    font-size: 12px;
+    padding: 2px 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    width: 130px;
+    flex-shrink: 0;
+    outline: none;
+  }}
+  #attr-table-csv {{
+    font-size: 11px;
+    padding: 2px 7px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }}
+  #attr-table-csv:hover {{ background: #eee; }}
+
   /* ── Themes dropdown control */
   #theme-control {{
     background: white;
@@ -1158,6 +1182,8 @@ class WebMapExporter:
   <div id="attr-table-hdr">
     <span>Attribute Table</span>
     <select id="attr-table-layer"></select>
+    <input id="attr-table-search" type="text" placeholder="Search…" autocomplete="off">
+    <button id="attr-table-csv" title="Export CSV">&#8595; CSV</button>
     <button id="attr-table-close" title="Close">&#10005;</button>
   </div>
   <div id="attr-table-body"></div>
@@ -1431,7 +1457,18 @@ class WebMapExporter:
         return leafletPathStyle(resolveStyle(ld.styleMap, feature.properties || {{}}));
       }};
     }}
-    return L.geoJSON(ld.geojson, opts);
+    var geoLayer = L.geoJSON(ld.geojson, opts);
+    if (item.clusterEnabled && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
+      var cg = L.markerClusterGroup({{
+        chunkedLoading: true,
+        maxClusterRadius: 80,
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true
+      }});
+      cg.addLayer(geoLayer);
+      return cg;
+    }}
+    return geoLayer;
   }}
 
   function buildRasterLayer(item) {{
@@ -1500,7 +1537,8 @@ class WebMapExporter:
 
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
-      visible: true, labelsVisible: false, filterFn: null, lfl: null, index: i
+      visible: true, labelsVisible: false, filterFn: null, lfl: null, index: i,
+      clusterEnabled: false
     }};
     item.lfl = buildLayer(item);
     item.lfl.addTo(map);
@@ -1551,9 +1589,61 @@ class WebMapExporter:
   var attrTablePanel = document.getElementById('attr-table-panel');
   var attrTableLayer = document.getElementById('attr-table-layer');
   var attrTableBody  = document.getElementById('attr-table-body');
+  var attrTableSearch = document.getElementById('attr-table-search');
+
+  var _highlightLayer = null;
+  function highlightFeatureOnMap(feat) {{
+    if (_highlightLayer) {{ map.removeLayer(_highlightLayer); _highlightLayer = null; }}
+    if (!feat || !feat.geometry) return;
+    try {{
+      _highlightLayer = L.geoJSON(feat, {{
+        style: {{ color: '#ffcc00', weight: 4, opacity: 1, fillColor: '#ffff00', fillOpacity: 0.3 }},
+        pointToLayer: function(f, latlng) {{
+          return L.circleMarker(latlng, {{ radius: 12, color: '#ffcc00', weight: 3, fillColor: '#ffff00', fillOpacity: 0.5 }});
+        }}
+      }}).addTo(map);
+    }} catch(e) {{}}
+  }}
+
   document.getElementById('attr-table-close').addEventListener('click', function() {{
     attrTablePanel.classList.remove('open');
+    if (_highlightLayer) {{ map.removeLayer(_highlightLayer); _highlightLayer = null; }}
   }});
+
+  document.getElementById('attr-table-csv').addEventListener('click', function() {{
+    var idx = parseInt(attrTableLayer.value, 10);
+    var item = legendItems[idx];
+    if (!item || item.ld.kind !== 'vector') return;
+    var feats = item.ld.geojson.features;
+    if (!feats || !feats.length) return;
+    var cols = [], seen = {{}};
+    for (var i = 0; i < feats.length; i++) {{
+      var p = feats[i].properties || {{}};
+      Object.keys(p).forEach(function(k) {{ if (!(k in seen)) {{ seen[k]=1; cols.push(k); }} }});
+    }}
+    var lines = [cols.map(function(c) {{ return '"' + c.replace(/"/g,'""') + '"'; }}).join(',')];
+    feats.forEach(function(f) {{
+      var p = f.properties || {{}};
+      lines.push(cols.map(function(c) {{
+        var v = p[c]; if (v == null) return '';
+        return '"' + String(v).replace(/"/g,'""') + '"';
+      }}).join(','));
+    }});
+    var blob = new Blob([lines.join('\n')], {{type:'text/csv'}});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = (item.ld.name || 'attributes') + '.csv';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }});
+
+  function filterAttrTable() {{
+    var q = attrTableSearch ? attrTableSearch.value.trim().toLowerCase() : '';
+    attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {{
+      tr.style.display = (!q || tr.textContent.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+    }});
+  }}
+  if (attrTableSearch) attrTableSearch.addEventListener('input', filterAttrTable);
 
   var _attrSortCol = null, _attrSortAsc = true;
 
@@ -1624,7 +1714,8 @@ class WebMapExporter:
           infoPanelBody.innerHTML = '<table>'+rws+'</table>';
           infoPanel.classList.add('open');
         }}
-        // Pan/zoom to feature
+        // Highlight + pan/zoom to feature
+        highlightFeatureOnMap(feat);
         if (feat.geometry) {{
           try {{
             var geo = L.geoJSON(feat);
@@ -1634,6 +1725,7 @@ class WebMapExporter:
         }}
       }});
     }});
+    filterAttrTable();
   }}
 
   // ── Legend panel ─────────────────────────────────────────────────────────
@@ -1798,6 +1890,28 @@ class WebMapExporter:
         lblRow.appendChild(lblLbl);
         lblRow.appendChild(lblCb);
         settingsDiv.appendChild(lblRow);
+      }}
+
+      // Cluster row (point vector layers only)
+      if (ld.kind === 'vector' && ld.geomType === 'point') {{
+        var clRow = document.createElement('div');
+        clRow.className = 'layer-settings-row';
+        var clLbl = document.createElement('span');
+        clLbl.className = 'layer-settings-label';
+        clLbl.textContent = 'Cluster';
+        var clCb = document.createElement('input');
+        clCb.type = 'checkbox';
+        clCb.checked = false;
+        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
+        clCb.title = clusterAvail ? 'Toggle marker clustering' : 'Marker cluster plugin not loaded';
+        clCb.disabled = !clusterAvail;
+        clCb.addEventListener('change', function() {{
+          item.clusterEnabled = clCb.checked;
+          rebuildLayer(item);
+        }});
+        clRow.appendChild(clLbl);
+        clRow.appendChild(clCb);
+        settingsDiv.appendChild(clRow);
       }}
 
       row.appendChild(makeCogBtn(settingsDiv));
@@ -1978,7 +2092,10 @@ class WebMapExporter:
     o.value = it.index; o.textContent = it.ld.name;
     attrTableLayer.appendChild(o);
   }});
-  attrTableLayer.addEventListener('change', populateAttrTable);
+  attrTableLayer.addEventListener('change', function() {{
+    if (attrTableSearch) attrTableSearch.value = '';
+    populateAttrTable();
+  }});
 
   function setLayerVisible(item, visible) {{
     item.visible = visible;
