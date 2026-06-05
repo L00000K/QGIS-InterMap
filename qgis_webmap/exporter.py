@@ -1382,6 +1382,37 @@ class WebMapExporter:
   try {{ map.fitBounds({initial_bounds_json}, {{padding: [20, 20]}}); }}
   catch(e) {{ map.setView([0, 0], 2); }}
   setTimeout(function() {{ map.invalidateSize(); }}, 50);
+
+  // ── Left panel close & toggle ─────────────────────────────────────────────
+  // Registered immediately after map init so it works even if later sections fail.
+  (function() {{
+    var panel = document.getElementById('left-panel');
+    if (!panel) return;
+    var closeBtn = document.getElementById('left-panel-close');
+    if (closeBtn) {{
+      closeBtn.addEventListener('click', function() {{
+        panel.style.display = 'none';
+        map.invalidateSize();
+      }});
+    }}
+    var InfoToggle = L.Control.extend({{
+      onAdd: function() {{
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control map-info-toggle');
+        btn.type = 'button';
+        btn.title = 'About this map';
+        btn.innerHTML = 'ⓘ';
+        L.DomEvent.on(btn, 'click', function(e) {{
+          L.DomEvent.stopPropagation(e);
+          var hidden = panel.style.display === 'none';
+          panel.style.display = hidden ? 'flex' : 'none';
+          map.invalidateSize();
+        }});
+        return btn;
+      }}
+    }});
+    new InfoToggle({{position: 'topleft'}}).addTo(map);
+  }})();
+
   var LAYERS = {layers_json};
   var INCLUDE_LEGEND = {include_legend};
   var LAYER_TREE = {tree_json};
@@ -1696,13 +1727,17 @@ class WebMapExporter:
       visible: true, labelsVisible: false, filterFn: null, lfl: null, index: i,
       clusterEnabled: false
     }};
-    item.lfl = buildLayer(item);
-    item.lfl.addTo(map);
-    if (item.ld.labelConfig) {{
-      buildLabels(item);
-      if (item.ld.labelConfig.enabled) setLayerLabels(item, true);
+    try {{
+      item.lfl = buildLayer(item);
+      item.lfl.addTo(map);
+      if (item.ld.labelConfig) {{
+        buildLabels(item);
+        if (item.ld.labelConfig.enabled) setLayerLabels(item, true);
+      }}
+      legendItems.push(item);
+    }} catch(layerErr) {{
+      console.error('Layer render failed:', LAYERS[i] && LAYERS[i].name, layerErr);
     }}
-    legendItems.push(item);
   }}
 
   // ── Feature info panel ───────────────────────────────────────────────────
@@ -1885,7 +1920,7 @@ class WebMapExporter:
   }}
 
   // ── Legend panel ─────────────────────────────────────────────────────────
-  if (INCLUDE_LEGEND && legendItems.length > 0) {{
+  try {{ if (INCLUDE_LEGEND && legendItems.length > 0) {{
     var panel = document.getElementById('legend');
     panel.style.display = 'flex';
 
@@ -2188,7 +2223,7 @@ class WebMapExporter:
       bDiv.appendChild(bSettingsDiv);
       body.appendChild(bDiv);
     }})();  // end basemap legend entry
-  }}
+  }} }} catch(legendErr) {{ console.error('Legend build failed:', legendErr); }}
 
   // ── Map-level click handler (multi-feature stacked points) ───────────────
   map.on('click', function(e) {{
@@ -2598,35 +2633,6 @@ class WebMapExporter:
     }}
   }});
   new BrandControl({{position: 'bottomleft'}}).addTo(map);
-
-  // ── Left panel toggle ─────────────────────────────────────────────────────
-  (function() {{
-    var panel = document.getElementById('left-panel');
-    if (!panel) return;
-    var closeBtn = document.getElementById('left-panel-close');
-    if (closeBtn) {{
-      closeBtn.addEventListener('click', function() {{
-        panel.style.display = 'none';
-        map.invalidateSize();
-      }});
-    }}
-    var InfoToggle = L.Control.extend({{
-      onAdd: function() {{
-        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control map-info-toggle');
-        btn.type = 'button';
-        btn.title = 'About this map';
-        btn.innerHTML = 'ⓘ';
-        L.DomEvent.on(btn, 'click', function(e) {{
-          L.DomEvent.stopPropagation(e);
-          var hidden = panel.style.display === 'none';
-          panel.style.display = hidden ? 'flex' : 'none';
-          map.invalidateSize();
-        }});
-        return btn;
-      }}
-    }});
-    new InfoToggle({{position: 'topleft'}}).addTo(map);
-  }})();
 
 }})();
 </script>
