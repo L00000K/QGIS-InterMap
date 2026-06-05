@@ -201,6 +201,39 @@ class WebMapExportDialog(QDialog):
 
         tabs.addTab(themes_tab, "Themes")
 
+        # ── Tab 3: Map Info ──────────────────────────────────────────────────
+        info_tab = QWidget()
+        info_layout = QVBoxLayout(info_tab)
+
+        self.include_info_cb = QCheckBox("Include 'About this Map' info panel")
+        self.include_info_cb.setChecked(True)
+        info_layout.addWidget(self.include_info_cb)
+
+        info_form = QFormLayout()
+
+        self.info_title_edit = QLineEdit()
+        self.info_title_edit.setText(QgsProject.instance().baseName() or "")
+        self.info_title_edit.setPlaceholderText("Panel title…")
+        info_form.addRow("Title:", self.info_title_edit)
+
+        self.info_text_edit = QTextEdit()
+        self.info_text_edit.setPlaceholderText("Description / information text…")
+        self.info_text_edit.setMinimumHeight(100)
+        info_form.addRow("Description:", self.info_text_edit)
+
+        self.info_originator_edit = QLineEdit()
+        self.info_originator_edit.setText("AtkinsRéalis")
+        info_form.addRow("Originator:", self.info_originator_edit)
+
+        self.info_date_edit = QLineEdit()
+        self.info_date_edit.setText(datetime.datetime.now().strftime("%d/%m/%Y"))
+        info_form.addRow("Date:", self.info_date_edit)
+
+        info_layout.addLayout(info_form)
+        info_layout.addStretch()
+
+        tabs.addTab(info_tab, "Map Info")
+
         # ── Progress + bottom buttons (outside tabs) ─────────────────────────
         # Progress
         self.progress = QProgressBar()
@@ -451,6 +484,15 @@ class WebMapExportDialog(QDialog):
 
         try:
             from .exporter import WebMapExporter
+            info_panel = None
+            if self.include_info_cb.isChecked():
+                info_panel = {
+                    "enabled": True,
+                    "title": self.info_title_edit.text().strip(),
+                    "text": self.info_text_edit.toPlainText().strip(),
+                    "originator": self.info_originator_edit.text().strip(),
+                    "date": self.info_date_edit.text().strip(),
+                }
             exporter = WebMapExporter(
                 layers=layers,
                 output_path=output_path,
@@ -460,6 +502,7 @@ class WebMapExportDialog(QDialog):
                 layer_tree=tree_nodes,
                 initial_extent=self._initial_extent,
                 scenes=self._themes,
+                info_panel=info_panel,
             )
             exporter.export()
             self._show_success(output_path)

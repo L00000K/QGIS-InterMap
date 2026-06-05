@@ -572,7 +572,8 @@ class WebMapExporter:
     def __init__(self, layers, output_path,
                  include_layer_control=True, include_basemap=True,
                  progress_callback=None,
-                 layer_tree=None, initial_extent=None, scenes=None):
+                 layer_tree=None, initial_extent=None, scenes=None,
+                 info_panel=None):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
@@ -581,6 +582,7 @@ class WebMapExporter:
         self.layer_tree = layer_tree or []
         self.initial_extent = initial_extent
         self.scenes = scenes or []
+        self.info_panel = info_panel or {}
 
     def export(self):
         layer_defs = []
@@ -677,6 +679,18 @@ class WebMapExporter:
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
         themes_json = json.dumps(self.scenes, separators=(",", ":")).replace("</", "<\\/")
 
+        import html as _html_mod
+        _info = self.info_panel
+        _info_enabled = bool(_info.get("enabled", False))
+        _info_title = _html_mod.escape(str(_info.get("title", "") or ""))
+        _info_text_raw = str(_info.get("text", "") or "")
+        _info_text = "".join(
+            "<br>" if c == "\n" else _html_mod.escape(c) for c in _info_text_raw
+        )
+        _info_originator = _html_mod.escape(str(_info.get("originator", "") or ""))
+        _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
+        _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
+
         leaflet_css, leaflet_js = _get_leaflet_assets()
         if leaflet_css and leaflet_js:
             leaflet_head = (
@@ -712,11 +726,16 @@ class WebMapExporter:
             _plugin_block("contextmenu"),
         ]))
 
-        # Brand watermark — prefer logo.svg, fall back to logo.png, then built-in SVG
+        # Brand watermark — prefer logo.svg (case-insensitive), fall back to logo.png, then built-in SVG
         import base64 as _b64
-        _logo_svg  = os.path.join(_PLUGIN_DIR, "vendor", "logo.svg")
+        _logo_svg = None
+        for _svgname in ("Logo.svg", "logo.svg"):
+            _svgpath = os.path.join(_PLUGIN_DIR, "vendor", _svgname)
+            if os.path.exists(_svgpath):
+                _logo_svg = _svgpath
+                break
         _logo_png  = os.path.join(_PLUGIN_DIR, "vendor", "logo.png")
-        if os.path.exists(_logo_svg):
+        if _logo_svg is not None:
             with open(_logo_svg, encoding="utf-8") as _f:
                 _svg_src = _f.read().strip()
             # Wrap in a sized container so height is constrained
@@ -740,13 +759,38 @@ class WebMapExporter:
                 '</svg>'
                 '<span>AtkinsRéalis</span>'
             )
+        brand_content_json = json.dumps(brand_content)
+
+        # Pre-build info panel HTML so the f-string template stays readable
+        if _info_enabled:
+            _footer_parts = []
+            if _info_originator:
+                _footer_parts.append(f"<span>{_info_originator}</span>")
+            if _info_date:
+                _footer_parts.append(f"<span>{_info_date}</span>")
+            _footer_html = (
+                f'<div id="map-info-footer">{"".join(_footer_parts)}</div>'
+                if _footer_parts else ""
+            )
+            info_panel_html = (
+                f'<div id="map-info-panel">'
+                f'<div id="map-info-hdr">'
+                f'<span id="map-info-title">{_info_title}</span>'
+                f'<button id="map-info-close" title="Close">&#10005;</button>'
+                f'</div>'
+                f'<div id="map-info-body">{_info_text or "&nbsp;"}</div>'
+                f'{_footer_html}'
+                f'</div>'
+            )
+        else:
+            info_panel_html = ""
 
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QGIS Web Map</title>
+<title>{_page_title}</title>
 {leaflet_head}
 {plugin_heads}
 <style>
@@ -1011,11 +1055,8 @@ class WebMapExporter:
     background: #dde8ff;
   }}
 
-  /* ── Brand watermark ──────────────────────────────────────────── */
-  #brand-watermark {{
-    position: absolute;
-    bottom: 28px; right: 10px;
-    z-index: 999;
+  /* ── Brand watermark (Leaflet control at bottomleft) ─────────── */
+  .brand-watermark {{
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1026,8 +1067,8 @@ class WebMapExporter:
     pointer-events: none;
     user-select: none;
   }}
-  #brand-watermark svg {{ display: block; flex-shrink: 0; max-height: 22px; }}
-  #brand-watermark span {{
+  .brand-watermark svg {{ display: block; flex-shrink: 0; max-height: 22px; }}
+  .brand-watermark span {{
     font-family: Arial, sans-serif;
     font-size: 11px;
     font-weight: 700;
@@ -1035,6 +1076,85 @@ class WebMapExporter:
     color: #003057;
     line-height: 1;
   }}
+
+  /* ── Map Info sidebar ──────────────────────────────────────────── */
+  #map-info-panel {{
+    position: absolute;
+    top: 10px; left: 10px;
+    z-index: 1000;
+    width: 280px;
+    max-height: calc(100vh - 80px);
+    background: rgba(255,255,255,0.97);
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+  }}
+  #map-info-panel.hidden {{
+    transform: translateX(calc(-100% - 20px));
+    opacity: 0;
+    pointer-events: none;
+  }}
+  #map-info-hdr {{
+    background: #003057;
+    padding: 12px 14px 10px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+  }}
+  #map-info-title {{
+    font-size: 15px;
+    font-weight: bold;
+    color: #fff;
+    flex: 1;
+    line-height: 1.3;
+    margin: 0;
+  }}
+  #map-info-close {{
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255,255,255,0.65);
+    font-size: 16px;
+    padding: 0;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }}
+  #map-info-close:hover {{ color: #fff; }}
+  #map-info-body {{
+    padding: 12px 14px;
+    overflow-y: auto;
+    flex: 1;
+    font-size: 13px;
+    color: #333;
+    line-height: 1.55;
+  }}
+  #map-info-footer {{
+    padding: 8px 14px;
+    border-top: 1px solid #e5e5e5;
+    font-size: 11px;
+    color: #888;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }}
+  .map-info-toggle {{
+    width: 30px; height: 30px;
+    background: white;
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: bold; color: #444;
+    padding: 0;
+  }}
+  .map-info-toggle:hover {{ background: #f4f4f4; color: #003057; }}
 
   /* ── Feature info panel */
   #info-panel {{
@@ -1192,9 +1312,7 @@ class WebMapExporter:
   <div id="attr-table-body"></div>
 </div>
 <div id="map"></div>
-<div id="brand-watermark">
-  {brand_content}
-</div>
+{info_panel_html}
 <div id="filterbar" style="display:none">
   <label>Filter</label>
   <select id="filter-layer" title="Layer"></select>
@@ -2199,6 +2317,7 @@ class WebMapExporter:
         else        {{ placed.push(r); }}
       }}
     }}
+    if (item.labelLayoutFn) map.off('moveend zoomend', item.labelLayoutFn);
     item.labelLayoutFn = layoutLabels;
     map.on('moveend zoomend', layoutLabels);
     setTimeout(layoutLabels, 150);
@@ -2446,6 +2565,45 @@ class WebMapExporter:
     }});
     new ThemesControl({{position: 'topright'}}).addTo(map);
   }}
+
+  // ── Brand watermark (bottomleft Leaflet control, above scale bar) ─────────
+  var BrandControl = L.Control.extend({{
+    onAdd: function() {{
+      var div = L.DomUtil.create('div', 'brand-watermark leaflet-control');
+      div.innerHTML = {brand_content_json};
+      return div;
+    }}
+  }});
+  new BrandControl({{position: 'bottomleft'}}).addTo(map);
+
+  // ── Map info panel ────────────────────────────────────────────────────────
+  (function() {{
+    var panel = document.getElementById('map-info-panel');
+    if (!panel) return;
+
+    // Close button inside panel
+    document.getElementById('map-info-close').addEventListener('click', function() {{
+      panel.classList.add('hidden');
+    }});
+
+    // Leaflet toggle button at topleft
+    var InfoToggle = L.Control.extend({{
+      onAdd: function() {{
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control map-info-toggle');
+        btn.type = 'button';
+        btn.title = 'About this map';
+        btn.innerHTML = 'i';
+        btn.style.fontStyle = 'italic';
+        btn.style.fontWeight = 'bold';
+        L.DomEvent.on(btn, 'click', function(e) {{
+          L.DomEvent.stopPropagation(e);
+          panel.classList.toggle('hidden');
+        }});
+        return btn;
+      }}
+    }});
+    new InfoToggle({{position: 'topleft'}}).addTo(map);
+  }})();
 
 }})();
 </script>
