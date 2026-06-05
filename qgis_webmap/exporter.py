@@ -683,13 +683,11 @@ class WebMapExporter:
         _info = self.info_panel
         _info_enabled = bool(_info.get("enabled", False))
         _info_title = _html_mod.escape(str(_info.get("title", "") or ""))
-        _info_text_raw = str(_info.get("text", "") or "")
-        _info_text = "".join(
-            "<br>" if c == "\n" else _html_mod.escape(c) for c in _info_text_raw
-        )
+        _info_text = _html_mod.escape(str(_info.get("text", "") or ""))
         _info_originator = _html_mod.escape(str(_info.get("originator", "") or ""))
         _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
         _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
+        filterbar_left = "305px" if _info_enabled else "50px"
 
         leaflet_css, leaflet_js = _get_leaflet_assets()
         if leaflet_css and leaflet_js:
@@ -955,7 +953,7 @@ class WebMapExporter:
   /* ── Filter toolbar ───────────────────────────────────────────── */
   #filterbar {{
     position: absolute;
-    top: 10px; left: 50px;
+    top: 10px; left: {filterbar_left};
     z-index: 1000;
     background: rgba(255,255,255,0.96);
     border: 1px solid #bbb;
@@ -1134,6 +1132,7 @@ class WebMapExporter:
     font-size: 13px;
     color: #333;
     line-height: 1.55;
+    white-space: pre-line;
   }}
   #map-info-footer {{
     padding: 8px 14px;
@@ -2234,6 +2233,7 @@ class WebMapExporter:
     if (item.layerDiv) item.layerDiv.classList.toggle('hidden', !visible);
     var lp = map.getPane(item.labelPaneName);
     if (lp) lp.style.display = (visible && item.labelsVisible) ? '' : 'none';
+    setTimeout(layoutAllLabels, 100);
   }}
 
   function setLayerOpacity(item, factor) {{
@@ -2244,9 +2244,41 @@ class WebMapExporter:
   function setLayerLabels(item, visible) {{
     item.labelsVisible = visible;
     var pane = map.getPane(item.labelPaneName);
-    if (pane) {{
-      pane.style.display = (item.visible && visible) ? '' : 'none';
-      if (visible && item.labelLayoutFn) setTimeout(item.labelLayoutFn, 100);
+    if (pane) pane.style.display = (item.visible && visible) ? '' : 'none';
+    setTimeout(layoutAllLabels, 100);
+  }}
+
+  // Global list of items with labels; collision pass runs across all layers at once.
+  var _allLabelItems = [];
+
+  function layoutAllLabels() {{
+    var placed = [];
+    // Two passes: first reset all, then greedily place (top-legend-layer wins).
+    for (var li = 0; li < _allLabelItems.length; li++) {{
+      var lp = map.getPane(_allLabelItems[li].labelPaneName);
+      if (!lp || lp.style.display === 'none') continue;
+      var els = lp.querySelectorAll('.leaflet-tooltip');
+      for (var i = 0; i < els.length; i++) els[i].style.visibility = '';
+    }}
+    for (var li = 0; li < _allLabelItems.length; li++) {{
+      var lp = map.getPane(_allLabelItems[li].labelPaneName);
+      if (!lp || lp.style.display === 'none') continue;
+      var els = lp.querySelectorAll('.leaflet-tooltip');
+      for (var i = 0; i < els.length; i++) {{
+        var el = els[i];
+        var r = el.getBoundingClientRect();
+        if (!r.width && !r.height) continue;
+        var clash = false;
+        for (var j = 0; j < placed.length; j++) {{
+          var p = placed[j];
+          if (r.left < p.right + 3 && r.right > p.left - 3 &&
+              r.top  < p.bottom + 3 && r.bottom > p.top - 3) {{
+            clash = true; break;
+          }}
+        }}
+        if (clash) el.style.visibility = 'hidden';
+        else        placed.push(r);
+      }}
     }}
   }}
 
@@ -2291,36 +2323,13 @@ class WebMapExporter:
       );
     }});
 
-    // Collision-detection layout pass: hide labels whose bounding rects overlap
-    // an already-placed label (greedy first-wins). Re-runs after each pan/zoom.
-    function layoutLabels() {{
-      var lp = map.getPane(item.labelPaneName);
-      if (!lp || lp.style.display === 'none') return;
-      var els = lp.querySelectorAll('.leaflet-tooltip');
-      var placed = [];
-      for (var i = 0; i < els.length; i++) {{
-        els[i].style.visibility = '';  // reset first
-      }}
-      for (var i = 0; i < els.length; i++) {{
-        var el = els[i];
-        var r = el.getBoundingClientRect();
-        if (!r.width && !r.height) continue;
-        var clash = false;
-        for (var j = 0; j < placed.length; j++) {{
-          var p = placed[j];
-          if (r.left < p.right + 3 && r.right > p.left - 3 &&
-              r.top  < p.bottom + 3 && r.bottom > p.top - 3) {{
-            clash = true; break;
-          }}
-        }}
-        if (clash) {{ el.style.visibility = 'hidden'; }}
-        else        {{ placed.push(r); }}
-      }}
-    }}
-    if (item.labelLayoutFn) map.off('moveend zoomend', item.labelLayoutFn);
-    item.labelLayoutFn = layoutLabels;
-    map.on('moveend zoomend', layoutLabels);
-    setTimeout(layoutLabels, 150);
+    // Register in global list (idempotent) and hook the shared layout pass.
+    if (_allLabelItems.indexOf(item) === -1) _allLabelItems.push(item);
+    item.labelLayoutFn = layoutAllLabels;
+    // Deduplicate: remove then re-add so exactly one listener exists.
+    map.off('moveend zoomend', layoutAllLabels);
+    map.on('moveend zoomend', layoutAllLabels);
+    setTimeout(layoutAllLabels, 150);
 
     // Keep pane hidden until explicitly enabled
     var lp = map.getPane(item.labelPaneName);
@@ -2570,6 +2579,7 @@ class WebMapExporter:
   var BrandControl = L.Control.extend({{
     onAdd: function() {{
       var div = L.DomUtil.create('div', 'brand-watermark leaflet-control');
+      div.style.pointerEvents = 'none';  // don't absorb map mouse events
       div.innerHTML = {brand_content_json};
       return div;
     }}
@@ -2580,24 +2590,28 @@ class WebMapExporter:
   (function() {{
     var panel = document.getElementById('map-info-panel');
     if (!panel) return;
+    var filterbar = document.getElementById('filterbar');
 
-    // Close button inside panel
+    function syncFilterbarPos() {{
+      if (!filterbar) return;
+      filterbar.style.left = panel.classList.contains('hidden') ? '50px' : '305px';
+    }}
+
     document.getElementById('map-info-close').addEventListener('click', function() {{
       panel.classList.add('hidden');
+      syncFilterbarPos();
     }});
 
-    // Leaflet toggle button at topleft
     var InfoToggle = L.Control.extend({{
       onAdd: function() {{
         var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control map-info-toggle');
         btn.type = 'button';
         btn.title = 'About this map';
-        btn.innerHTML = 'i';
-        btn.style.fontStyle = 'italic';
-        btn.style.fontWeight = 'bold';
+        btn.innerHTML = 'ⓘ';  // circled ℹ (always renders, no font-style hack)
         L.DomEvent.on(btn, 'click', function(e) {{
           L.DomEvent.stopPropagation(e);
           panel.classList.toggle('hidden');
+          syncFilterbarPos();
         }});
         return btn;
       }}
