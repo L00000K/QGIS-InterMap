@@ -1679,6 +1679,8 @@ class WebMapExporter:
   // Each layer gets a dedicated map pane so its opacity can be controlled
   // uniformly (works for vector markers, paths, rasters and WMS alike).
   var legendItems = [];
+  // Declared here so buildLabels (called inside the loop below) can access it.
+  var _allLabelItems = [];
   for (var i = 0; i < LAYERS.length; i++) {{
     var paneName = 'layerPane' + i;
     map.createPane(paneName);
@@ -2275,8 +2277,6 @@ class WebMapExporter:
   }}
 
   // Global list of items with labels; collision pass runs across all layers at once.
-  var _allLabelItems = [];
-
   function layoutAllLabels() {{
     var placed = [];
     // Two passes: first reset all, then greedily place (top-legend-layer wins).
