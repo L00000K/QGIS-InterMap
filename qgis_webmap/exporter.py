@@ -757,7 +757,7 @@ class WebMapExporter:
                 '</svg>'
                 '<span>AtkinsRéalis</span>'
             )
-        brand_content_json = json.dumps(brand_content)
+        brand_content_json = json.dumps(brand_content).replace("</", "<\\/")
 
         # Pre-build info panel HTML so the f-string template stays readable
         if _info_enabled:
@@ -942,13 +942,14 @@ class WebMapExporter:
 
   /* ── Feature labels ───────────────────────────────────────────── */
   .leaflet-tooltip.qgis-label {{
-    background: none;
-    border: none;
-    box-shadow: none;
-    padding: 0;
+    background: none !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
     pointer-events: none;
   }}
-  .leaflet-tooltip.qgis-label::before {{ display: none; }}
+  .leaflet-tooltip.qgis-label::before {{ display: none !important; }}
 
   /* ── Filter toolbar ───────────────────────────────────────────── */
   #filterbar {{
@@ -1383,19 +1384,17 @@ class WebMapExporter:
     }}
   }} catch(e) {{ console.warn('Fullscreen plugin error:', e); }}
 
-  // ── Mini-map overview (only when basemap is included) ────────────────────
-  if (INCLUDE_BASEMAP) {{
-    try {{
-      if (typeof L.Control.MiniMap !== 'undefined') {{
-        var miniTile = L.tileLayer(
-          'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{maxZoom: 19}});
-        new L.Control.MiniMap(miniTile, {{
-          position: 'bottomright', toggleDisplay: true, minimized: true,
-          width: 160, height: 160
-        }}).addTo(map);
-      }}
-    }} catch(e) {{ console.warn('MiniMap plugin error:', e); }}
-  }}
+  // ── Mini-map overview (always shown as geographic context) ──────────────
+  try {{
+    if (typeof L.Control.MiniMap !== 'undefined') {{
+      var miniTile = L.tileLayer(
+        'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{maxZoom: 19}});
+      new L.Control.MiniMap(miniTile, {{
+        position: 'bottomright', toggleDisplay: true, minimized: true,
+        width: 160, height: 160
+      }}).addTo(map);
+    }}
+  }} catch(e) {{ console.warn('MiniMap plugin error:', e); }}
 
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -2268,16 +2267,23 @@ class WebMapExporter:
         var el = els[i];
         var r = el.getBoundingClientRect();
         if (!r.width && !r.height) continue;
+        var cx = r.left + r.width  / 2;
+        var cy = r.top  + r.height / 2;
         var clash = false;
         for (var j = 0; j < placed.length; j++) {{
           var p = placed[j];
-          if (r.left < p.right + 3 && r.right > p.left - 3 &&
-              r.top  < p.bottom + 3 && r.bottom > p.top - 3) {{
+          // Bounding-box overlap (4px gap tolerance)
+          if (r.left < p.right + 4 && r.right > p.left - 4 &&
+              r.top  < p.bottom + 4 && r.bottom > p.top - 4) {{
             clash = true; break;
           }}
+          // Centre-proximity: suppress labels from co-located features in
+          // different layers that Leaflet nudges apart so boxes don't overlap.
+          var dx = cx - p.cx, dy = cy - p.cy;
+          if (dx * dx + dy * dy < 900) {{ clash = true; break; }}  // 30px radius
         }}
         if (clash) el.style.visibility = 'hidden';
-        else        placed.push(r);
+        else placed.push({{ left: r.left, right: r.right, top: r.top, bottom: r.bottom, cx: cx, cy: cy }});
       }}
     }}
   }}
@@ -2289,26 +2295,20 @@ class WebMapExporter:
     var fontSz = cfg.fontSize || 11;
     var bufSz  = cfg.bufferSize  || 0;
     var bufCol = cfg.bufferColor || '#ffffff';
-    var tsh = '';
-    if (bufSz > 0) {{
-      var b = bufSz;
-      tsh = 'text-shadow:'
-          + b+'px '+b+'px 0 '+bufCol+','
-          + (-b)+'px '+b+'px 0 '+bufCol+','
-          + b+'px '+(-b)+'px 0 '+bufCol+','
-          + (-b)+'px '+(-b)+'px 0 '+bufCol+','
-          + '0 '+b+'px 0 '+bufCol+','
-          + '0 '+(-b)+'px 0 '+bufCol+','
-          + b+'px 0 0 '+bufCol+','
-          + (-b)+'px 0 0 '+bufCol+';';
-    }}
     // Append safe web-font fallbacks so QGIS-specific fonts degrade gracefully
     var fontFamily = (cfg.fontFamily || 'Arial') + ', Arial, sans-serif';
+    // Use CSS text-stroke for the buffer (paint-order:stroke fill draws the
+    // stroke behind the fill, matching QGIS buffer rendering exactly).
+    // The 8-direction text-shadow approach created ghost copies at large sizes.
+    var bufStyle = bufSz > 0
+      ? ('-webkit-text-stroke:' + bufSz + 'px ' + bufCol + ';'
+         + 'paint-order:stroke fill;')
+      : '';
     var fontStyle = 'font-size:'+fontSz+'px;color:'+cfg.fontColor+';'
       + 'font-family:'+fontFamily+';'
       + (cfg.bold  ?'font-weight:bold;':'')
       + (cfg.italic?'font-style:italic;':'')
-      + tsh + 'white-space:nowrap;';
+      + bufStyle + 'white-space:nowrap;';
     var dir = ld.geomType === 'point' ? 'top' : 'center';
     item.lfl.eachLayer(function(fl) {{
       var props = fl.feature && fl.feature.properties;

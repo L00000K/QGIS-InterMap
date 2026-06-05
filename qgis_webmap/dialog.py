@@ -93,7 +93,7 @@ class WebMapExportDialog(QDialog):
         options_layout.addWidget(self.layer_control_cb)
 
         self.basemap_cb = QCheckBox("Include OpenStreetMap basemap")
-        self.basemap_cb.setChecked(True)
+        self.basemap_cb.setChecked(False)
         options_layout.addWidget(self.basemap_cb)
 
         # Initial view capture
