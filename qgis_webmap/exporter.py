@@ -803,7 +803,8 @@ class WebMapExporter:
 {leaflet_head}
 {plugin_heads}
 <style>
-  html, body {{ margin: 0; padding: 0; height: 100%; font-family: sans-serif; overflow: hidden; display: flex; }}
+  html, body {{ margin: 0; padding: 0; height: 100%; font-family: sans-serif; overflow: hidden; }}
+  body {{ display: flex; }}
   #left-panel {{
     width: 300px;
     flex-shrink: 0;
@@ -820,9 +821,9 @@ class WebMapExporter:
     flex: 1;
     position: relative;
     overflow: hidden;
-    height: 100%;
+    min-height: 0;
   }}
-  #map {{ height: 100%; width: 100%; }}
+  #map {{ position: absolute; inset: 0; }}
 
   /* ── Legend panel ─────────────────────────────────────────────── */
   #legend {{
@@ -845,24 +846,24 @@ class WebMapExporter:
     align-items: center;
     justify-content: space-between;
     padding: 7px 10px 6px;
-    background: #f0f0f0;
-    border-bottom: 1px solid #ddd;
+    background: #003057;
+    border-bottom: 1px solid #002144;
     cursor: default;
     user-select: none;
     border-radius: 6px 6px 0 0;
   }}
-  #legend-header span {{ font-weight: bold; font-size: 13px; color: #333; }}
+  #legend-header span {{ font-weight: bold; font-size: 13px; color: #fff; }}
   #legend-toggle-all {{
     font-size: 11px;
-    color: #555;
+    color: rgba(255,255,255,0.85);
     cursor: pointer;
     padding: 2px 5px;
     border-radius: 3px;
-    border: 1px solid #ccc;
-    background: #fff;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.12);
     line-height: 1.4;
   }}
-  #legend-toggle-all:hover {{ background: #e8e8e8; }}
+  #legend-toggle-all:hover {{ background: rgba(255,255,255,0.25); }}
   #legend-body {{
     overflow-y: auto;
     padding: 4px 0;
@@ -879,7 +880,7 @@ class WebMapExporter:
     user-select: none;
     transition: background 0.1s;
   }}
-  .legend-layer-row:hover {{ background: #f5f5f5; }}
+  .legend-layer-row:hover {{ background: #e8f0f7; }}
   .legend-layer-row input[type=checkbox] {{
     margin: 0;
     cursor: pointer;
@@ -930,8 +931,8 @@ class WebMapExporter:
     border-top: 1px solid #eee;
   }}
   .legend-group-hdr input[type=checkbox] {{ margin: 0; cursor: pointer; flex-shrink: 0; }}
-  .legend-group-hdr:hover {{ background: #f5f5f5; }}
-  .legend-group-name {{ font-size: 12px; font-weight: 600; color: #333; }}
+  .legend-group-hdr:hover {{ background: #e8f0f7; }}
+  .legend-group-name {{ font-size: 12px; font-weight: 600; color: #003057; }}
   .legend-group-body {{ padding-left: 8px; }}
   .legend-group-body:not(.open) {{ display: none; }}
 
@@ -949,7 +950,7 @@ class WebMapExporter:
     align-items: center;
   }}
   .legend-cog-btn:hover {{ color: #444; background: #e8e8e8; }}
-  .legend-cog-btn.active {{ color: #1e6bb8; background: #ddeeff; }}
+  .legend-cog-btn.active {{ color: #003057; background: #d0e5f0; }}
 
   /* ── Per-layer settings panel ─────────────────────────────────── */
   .layer-settings {{
@@ -1014,7 +1015,7 @@ class WebMapExporter:
     background: #fff;
     cursor: pointer;
   }}
-  #filterbar button:hover {{ background: #eee; }}
+  #filterbar button:hover {{ background: #e8f0f7; }}
   #filter-values-wrap {{ position: relative; }}
   #filter-values-btn {{
     min-width: 140px;
@@ -1187,7 +1188,7 @@ class WebMapExporter:
     font-size: 16px; font-weight: bold; color: #444;
     padding: 0;
   }}
-  .map-info-toggle:hover {{ background: #f4f4f4; color: #003057; }}
+  .map-info-toggle:hover {{ background: #e8f0f7; color: #003057; }}
 
   /* ── Feature info panel */
   #info-panel {{
@@ -1207,16 +1208,16 @@ class WebMapExporter:
   #info-panel.open {{ display: flex; }}
   #info-panel-hdr {{
     display: flex; align-items: center; justify-content: space-between;
-    padding: 7px 10px 6px; background: #f0f0f0;
-    border-bottom: 1px solid #ddd; border-radius: 6px 6px 0 0;
+    padding: 7px 10px 6px; background: #003057;
+    border-bottom: 1px solid #002144; border-radius: 6px 6px 0 0;
     user-select: none;
   }}
-  #info-panel-hdr span {{ font-weight: bold; font-size: 13px; color: #333; }}
+  #info-panel-hdr span {{ font-weight: bold; font-size: 13px; color: #fff; }}
   #info-panel-close {{
     background: none; border: none; cursor: pointer;
-    font-size: 14px; color: #888; padding: 0 2px; line-height: 1;
+    font-size: 14px; color: rgba(255,255,255,0.65); padding: 0 2px; line-height: 1;
   }}
-  #info-panel-close:hover {{ color: #333; }}
+  #info-panel-close:hover {{ color: #fff; }}
   #info-panel-body {{
     padding: 8px 12px; overflow-y: auto; flex: 1;
     font-size: 12px; color: #666;
@@ -1232,15 +1233,15 @@ class WebMapExporter:
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
   }}
-  .mf-item:hover {{ background: #f5f5f5; }}
+  .mf-item:hover {{ background: #e8f0f7; }}
   .mf-layer {{ font-size: 12px; color: #333; }}
   .mf-arrow {{ color: #aaa; font-size: 16px; }}
   .mf-back {{
-    display: block; width: 100%; background: #f0f0f0; border: none;
-    border-bottom: 1px solid #ddd; padding: 5px 12px; text-align: left;
-    cursor: pointer; font-size: 11px; color: #555; margin-bottom: 4px;
+    display: block; width: 100%; background: #e8f0f7; border: none;
+    border-bottom: 1px solid #d0dde8; padding: 5px 12px; text-align: left;
+    cursor: pointer; font-size: 11px; color: #003057; margin-bottom: 4px;
   }}
-  .mf-back:hover {{ background: #e0e0e0; }}
+  .mf-back:hover {{ background: #d0e5f0; }}
 
   /* ── Attribute table panel */
   #attr-table-panel {{
@@ -1250,7 +1251,7 @@ class WebMapExporter:
     height: 240px;
     z-index: 1002;
     background: #fff;
-    border-top: 2px solid #bbb;
+    border-top: 2px solid #003057;
     flex-direction: column;
     overflow: hidden;
   }}
@@ -1258,16 +1259,16 @@ class WebMapExporter:
   #attr-table-hdr {{
     display: flex; align-items: center; gap: 8px;
     padding: 5px 10px;
-    background: #f0f0f0; border-bottom: 1px solid #ddd;
+    background: #003057; border-bottom: 1px solid #002144;
     flex-shrink: 0;
   }}
-  #attr-table-hdr span {{ font-weight: bold; font-size: 13px; color: #333; }}
-  #attr-table-layer {{ font-size: 12px; padding: 2px 4px; }}
+  #attr-table-hdr span {{ font-weight: bold; font-size: 13px; color: #fff; }}
+  #attr-table-layer {{ font-size: 12px; padding: 2px 4px; border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; background: rgba(255,255,255,0.12); color: #fff; }}
   #attr-table-close {{
     margin-left: auto; background: none; border: none;
-    cursor: pointer; font-size: 14px; color: #888; padding: 0 4px;
+    cursor: pointer; font-size: 14px; color: rgba(255,255,255,0.65); padding: 0 4px;
   }}
-  #attr-table-close:hover {{ color: #333; }}
+  #attr-table-close:hover {{ color: #fff; }}
   #attr-table-body {{
     overflow: auto; flex: 1;
   }}
@@ -1276,11 +1277,11 @@ class WebMapExporter:
   }}
   #attr-table-body th {{
     position: sticky; top: 0;
-    background: #f5f5f5; border-bottom: 2px solid #ccc;
+    background: #e8f0f7; border-bottom: 2px solid #003057;
     padding: 4px 8px; text-align: left;
-    cursor: pointer; user-select: none; white-space: nowrap;
+    cursor: pointer; user-select: none; white-space: nowrap; color: #003057;
   }}
-  #attr-table-body th:hover {{ background: #e8e8e8; }}
+  #attr-table-body th:hover {{ background: #d0e5f0; }}
   #attr-table-body th.sort-asc::after  {{ content: ' ▲'; font-size: 9px; }}
   #attr-table-body th.sort-desc::after {{ content: ' ▼'; font-size: 9px; }}
   #attr-table-body td {{
@@ -1288,8 +1289,8 @@ class WebMapExporter:
     white-space: nowrap; max-width: 200px;
     overflow: hidden; text-overflow: ellipsis;
   }}
-  #attr-table-body tr:hover td {{ background: #f0f7ff; cursor: pointer; }}
-  #attr-table-body tr.selected td {{ background: #cce4ff; }}
+  #attr-table-body tr:hover td {{ background: #e8f0f7; cursor: pointer; }}
+  #attr-table-body tr.selected td {{ background: #c0d9ec; }}
 
   /* ── Attribute table search & export ─────────────────────────── */
   #attr-table-search {{
@@ -1380,6 +1381,7 @@ class WebMapExporter:
   var bounds = {bounds_json};
   try {{ map.fitBounds({initial_bounds_json}, {{padding: [20, 20]}}); }}
   catch(e) {{ map.setView([0, 0], 2); }}
+  setTimeout(function() {{ map.invalidateSize(); }}, 50);
   var LAYERS = {layers_json};
   var INCLUDE_LEGEND = {include_legend};
   var LAYER_TREE = {tree_json};
