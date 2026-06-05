@@ -687,7 +687,6 @@ class WebMapExporter:
         _info_originator = _html_mod.escape(str(_info.get("originator", "") or ""))
         _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
         _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
-        filterbar_left = "305px" if _info_enabled else "50px"
 
         leaflet_css, leaflet_js = _get_leaflet_assets()
         if leaflet_css and leaflet_js:
@@ -759,29 +758,41 @@ class WebMapExporter:
             )
         brand_content_json = json.dumps(brand_content).replace("</", "<\\/")
 
-        # Pre-build info panel HTML so the f-string template stays readable
-        if _info_enabled:
+        # Pre-build left panel HTML (map info + optional scenes section)
+        _left_panel_needed = _info_enabled or bool(self.scenes)
+        if _left_panel_needed:
+            _panel_title_html = _info_title if _info_enabled else "Scenes"
             _footer_parts = []
-            if _info_originator:
-                _footer_parts.append(f"<span>{_info_originator}</span>")
-            if _info_date:
-                _footer_parts.append(f"<span>{_info_date}</span>")
+            if _info_enabled:
+                if _info_originator:
+                    _footer_parts.append(f"<span>{_info_originator}</span>")
+                if _info_date:
+                    _footer_parts.append(f"<span>{_info_date}</span>")
             _footer_html = (
-                f'<div id="map-info-footer">{"".join(_footer_parts)}</div>'
+                f'<div id="left-panel-footer">{"".join(_footer_parts)}</div>'
                 if _footer_parts else ""
             )
-            info_panel_html = (
-                f'<div id="map-info-panel">'
-                f'<div id="map-info-hdr">'
-                f'<span id="map-info-title">{_info_title}</span>'
-                f'<button id="map-info-close" title="Close">&#10005;</button>'
-                f'</div>'
-                f'<div id="map-info-body">{_info_text or "&nbsp;"}</div>'
+            _body_html = (
+                f'<div id="left-panel-body">{_info_text or "&nbsp;"}</div>'
                 f'{_footer_html}'
+            ) if _info_enabled else ""
+            left_panel_html = (
+                f'<div id="left-panel">'
+                f'<div id="left-panel-hdr">'
+                f'<span id="left-panel-title">{_panel_title_html}</span>'
+                f'<button id="left-panel-close" title="Close">&#10005;</button>'
+                f'</div>'
+                f'{_body_html}'
+                f'<div id="scenes-section" style="display:none">'
+                f'<div class="scenes-hdr">Scenes</div>'
+                f'<select id="theme-select">'
+                f'<option value="">&#8212; Select scene &#8212;</option>'
+                f'</select>'
+                f'</div>'
                 f'</div>'
             )
         else:
-            info_panel_html = ""
+            left_panel_html = ""
 
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -792,7 +803,25 @@ class WebMapExporter:
 {leaflet_head}
 {plugin_heads}
 <style>
-  html, body {{ margin: 0; padding: 0; height: 100%; font-family: sans-serif; }}
+  html, body {{ margin: 0; padding: 0; height: 100%; font-family: sans-serif; overflow: hidden; display: flex; }}
+  #left-panel {{
+    width: 300px;
+    flex-shrink: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border-right: 1px solid #ddd;
+    box-shadow: 2px 0 6px rgba(0,0,0,0.1);
+    z-index: 400;
+    overflow: hidden;
+  }}
+  #map-wrap {{
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    height: 100%;
+  }}
   #map {{ height: 100%; width: 100%; }}
 
   /* ── Legend panel ─────────────────────────────────────────────── */
@@ -954,7 +983,7 @@ class WebMapExporter:
   /* ── Filter toolbar ───────────────────────────────────────────── */
   #filterbar {{
     position: absolute;
-    top: 10px; left: {filterbar_left};
+    top: 10px; left: 50px;
     z-index: 1000;
     background: rgba(255,255,255,0.96);
     border: 1px solid #bbb;
@@ -1076,28 +1105,8 @@ class WebMapExporter:
     line-height: 1;
   }}
 
-  /* ── Map Info sidebar ──────────────────────────────────────────── */
-  #map-info-panel {{
-    position: absolute;
-    top: 10px; left: 10px;
-    z-index: 1000;
-    width: 280px;
-    max-height: calc(100vh - 80px);
-    background: rgba(255,255,255,0.97);
-    border: 1px solid #bbb;
-    border-radius: 6px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    transition: transform 0.25s ease, opacity 0.25s ease;
-  }}
-  #map-info-panel.hidden {{
-    transform: translateX(calc(-100% - 20px));
-    opacity: 0;
-    pointer-events: none;
-  }}
-  #map-info-hdr {{
+  /* ── Left info / scenes panel ─────────────────────────────────── */
+  #left-panel-hdr {{
     background: #003057;
     padding: 12px 14px 10px;
     display: flex;
@@ -1106,7 +1115,7 @@ class WebMapExporter:
     gap: 8px;
     flex-shrink: 0;
   }}
-  #map-info-title {{
+  #left-panel-title {{
     font-size: 15px;
     font-weight: bold;
     color: #fff;
@@ -1114,7 +1123,7 @@ class WebMapExporter:
     line-height: 1.3;
     margin: 0;
   }}
-  #map-info-close {{
+  #left-panel-close {{
     background: none;
     border: none;
     cursor: pointer;
@@ -1125,8 +1134,8 @@ class WebMapExporter:
     flex-shrink: 0;
     margin-top: 1px;
   }}
-  #map-info-close:hover {{ color: #fff; }}
-  #map-info-body {{
+  #left-panel-close:hover {{ color: #fff; }}
+  #left-panel-body {{
     padding: 12px 14px;
     overflow-y: auto;
     flex: 1;
@@ -1135,7 +1144,7 @@ class WebMapExporter:
     line-height: 1.55;
     white-space: pre-line;
   }}
-  #map-info-footer {{
+  #left-panel-footer {{
     padding: 8px 14px;
     border-top: 1px solid #e5e5e5;
     font-size: 11px;
@@ -1144,6 +1153,30 @@ class WebMapExporter:
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }}
+  #scenes-section {{
+    border-top: 1px solid #e5e5e5;
+    padding: 10px 14px;
+    flex-shrink: 0;
+  }}
+  .scenes-hdr {{
+    font-size: 11px;
+    font-weight: bold;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+  }}
+  #theme-select {{
+    width: 100%;
+    font-size: 13px;
+    padding: 4px 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+    outline: none;
+    box-sizing: border-box;
   }}
   .map-info-toggle {{
     width: 30px; height: 30px;
@@ -1280,20 +1313,28 @@ class WebMapExporter:
   }}
   #attr-table-csv:hover {{ background: #eee; }}
 
-  /* ── Themes dropdown control */
-  #theme-control {{
-    background: white;
-    border-radius: 4px;
-    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
-    padding: 3px 6px;
-  }}
-  #theme-select {{
-    font-size: 12px; border: none; background: transparent;
-    cursor: pointer; max-width: 170px; outline: none;
-  }}
+
 </style>
 </head>
 <body>
+{left_panel_html}
+<div id="map-wrap">
+<div id="map"></div>
+<div id="filterbar" style="display:none">
+  <label>Filter</label>
+  <select id="filter-layer" title="Layer"></select>
+  <select id="filter-attr" title="Attribute"></select>
+  <span id="filter-values-wrap">
+    <button id="filter-values-btn" type="button">All values</button>
+    <div id="filter-values-panel">
+      <input id="filter-values-search" type="text" placeholder="Type to search / filter…" autocomplete="off">
+      <div id="filter-values-list"></div>
+    </div>
+  </span>
+  <button id="filter-clear" type="button">Clear</button>
+  <span id="filter-count" class="filter-count"></span>
+</div>
+<div id="legend" style="display:none"></div>
 <div id="info-panel">
   <div id="info-panel-hdr">
     <span>Feature Info</span>
@@ -1311,23 +1352,7 @@ class WebMapExporter:
   </div>
   <div id="attr-table-body"></div>
 </div>
-<div id="map"></div>
-{info_panel_html}
-<div id="filterbar" style="display:none">
-  <label>Filter</label>
-  <select id="filter-layer" title="Layer"></select>
-  <select id="filter-attr" title="Attribute"></select>
-  <span id="filter-values-wrap">
-    <button id="filter-values-btn" type="button">All values</button>
-    <div id="filter-values-panel">
-      <input id="filter-values-search" type="text" placeholder="Type to search / filter…" autocomplete="off">
-      <div id="filter-values-list"></div>
-    </div>
-  </span>
-  <button id="filter-clear" type="button">Clear</button>
-  <span id="filter-count" class="filter-count"></span>
 </div>
-<div id="legend" style="display:none"></div>
 <script>
 (function() {{
   "use strict";
@@ -2525,13 +2550,11 @@ class WebMapExporter:
     if (first) updateCount(first);
   }})();
 
-  // ── Themes dropdown (only when themes are defined) ────────────────────────
+  // ── Scenes (shown in left panel below map info) ───────────────────────────
   if (THEMES.length > 0) {{
     function applyTheme(idx) {{
       var theme = THEMES[idx];
       if (!theme) return;
-
-      // Layer visibility
       if (theme.layerIds) {{
         legendItems.forEach(function(it) {{
           var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
@@ -2540,39 +2563,27 @@ class WebMapExporter:
           if (it.layerDiv) it.layerDiv.classList.toggle('hidden', !vis);
         }});
       }}
-
-      // Zoom to extent
       if (theme.extent) {{
         try {{ map.fitBounds(theme.extent, {{padding: [20, 20]}}); }} catch(e) {{}}
       }}
     }}
 
-    var ThemesControl = L.Control.extend({{
-      onAdd: function() {{
-        var div = L.DomUtil.create('div', 'leaflet-control');
-        div.id = 'theme-control';
-        var sel = L.DomUtil.create('select', '', div);
-        sel.id = 'theme-select';
-        sel.title = 'Switch theme';
-        var opt0 = document.createElement('option');
-        opt0.value = '';
-        opt0.textContent = '— Themes —';
-        sel.appendChild(opt0);
-        THEMES.forEach(function(th, i) {{
-          var opt = document.createElement('option');
-          opt.value = i;
-          opt.textContent = escHtml(th.name || 'Theme ' + (i + 1));
-          sel.appendChild(opt);
-        }});
-        L.DomEvent.disableClickPropagation(div);
-        L.DomEvent.on(sel, 'change', function() {{
-          var idx = parseInt(sel.value, 10);
-          if (!isNaN(idx)) applyTheme(idx);
-        }});
-        return div;
-      }}
-    }});
-    new ThemesControl({{position: 'topright'}}).addTo(map);
+    var scenesSection = document.getElementById('scenes-section');
+    if (scenesSection) scenesSection.style.display = '';
+
+    var themeSelect = document.getElementById('theme-select');
+    if (themeSelect) {{
+      THEMES.forEach(function(th, i) {{
+        var opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = escHtml(th.name || 'Scene ' + (i + 1));
+        themeSelect.appendChild(opt);
+      }});
+      themeSelect.addEventListener('change', function() {{
+        var idx = parseInt(themeSelect.value, 10);
+        if (!isNaN(idx)) applyTheme(idx);
+      }});
+    }}
   }}
 
   // ── Brand watermark (bottomleft Leaflet control, above scale bar) ─────────
@@ -2586,32 +2597,28 @@ class WebMapExporter:
   }});
   new BrandControl({{position: 'bottomleft'}}).addTo(map);
 
-  // ── Map info panel ────────────────────────────────────────────────────────
+  // ── Left panel toggle ─────────────────────────────────────────────────────
   (function() {{
-    var panel = document.getElementById('map-info-panel');
+    var panel = document.getElementById('left-panel');
     if (!panel) return;
-    var filterbar = document.getElementById('filterbar');
-
-    function syncFilterbarPos() {{
-      if (!filterbar) return;
-      filterbar.style.left = panel.classList.contains('hidden') ? '50px' : '305px';
+    var closeBtn = document.getElementById('left-panel-close');
+    if (closeBtn) {{
+      closeBtn.addEventListener('click', function() {{
+        panel.style.display = 'none';
+        map.invalidateSize();
+      }});
     }}
-
-    document.getElementById('map-info-close').addEventListener('click', function() {{
-      panel.classList.add('hidden');
-      syncFilterbarPos();
-    }});
-
     var InfoToggle = L.Control.extend({{
       onAdd: function() {{
         var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control map-info-toggle');
         btn.type = 'button';
         btn.title = 'About this map';
-        btn.innerHTML = 'ⓘ';  // circled ℹ (always renders, no font-style hack)
+        btn.innerHTML = 'ⓘ';
         L.DomEvent.on(btn, 'click', function(e) {{
           L.DomEvent.stopPropagation(e);
-          panel.classList.toggle('hidden');
-          syncFilterbarPos();
+          var hidden = panel.style.display === 'none';
+          panel.style.display = hidden ? 'flex' : 'none';
+          map.invalidateSize();
         }});
         return btn;
       }}

@@ -8,6 +8,7 @@ class WebMapExporterPlugin:
     def __init__(self, iface):
         self.iface = iface
         self.action = None
+        self._dlg = None
 
     def tr(self, message):
         return QCoreApplication.translate("WebMapExporter", message)
@@ -23,8 +24,15 @@ class WebMapExporterPlugin:
     def unload(self):
         self.iface.removePluginWebMenu(self.tr("Web Map Exporter"), self.action)
         self.iface.removeToolBarIcon(self.action)
+        if self._dlg:
+            self._dlg.close()
+            self._dlg = None
 
     def run(self):
         from .dialog import WebMapExportDialog
-        dlg = WebMapExportDialog(self.iface)
-        dlg.exec_()
+        if self._dlg is None:
+            self._dlg = WebMapExportDialog(self.iface)
+            self._dlg.finished.connect(lambda _result: setattr(self, '_dlg', None))
+        self._dlg.show()
+        self._dlg.raise_()
+        self._dlg.activateWindow()
