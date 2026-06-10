@@ -918,6 +918,13 @@ class WebMapExporter:
     overflow: hidden;
     text-overflow: ellipsis;
   }}
+  .legend-entry input[type=checkbox] {{
+    margin: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+  }}
+  .legend-entry.class-hidden .legend-entry-label,
+  .legend-entry.class-hidden .legend-swatch {{ opacity: 0.35; }}
   .legend-swatch svg {{ display: block; }}
   .legend-layer.hidden .legend-layer-name {{ opacity: 0.45; }}
   .qgis-marker {{ background: none; border: none; }}
@@ -1574,6 +1581,29 @@ class WebMapExporter:
     return {{}};
   }}
 
+  function resolveEntryIndex(styleMap, props) {{
+    var t = styleMap.type;
+    if (t === 'categorized') {{
+      var propVal = props[styleMap.field];
+      var val = (propVal == null) ? null : String(propVal);
+      for (var i = 0; i < styleMap.entries.length; i++) {{
+        var ev = styleMap.entries[i].value;
+        var entVal = (ev == null) ? null : String(ev);
+        if (entVal === val) return i;
+      }}
+      return -1;
+    }}
+    if (t === 'graduated') {{
+      var v = parseFloat(props[styleMap.field]);
+      for (var i = 0; i < styleMap.entries.length; i++) {{
+        var e = styleMap.entries[i];
+        if (v >= e.min && v <= e.max) return i;
+      }}
+      return -1;
+    }}
+    return -1;
+  }}
+
   function leafletPathStyle(s) {{
     return {{
       color: s.color || '#3388ff',
@@ -1628,7 +1658,12 @@ class WebMapExporter:
       pane: item.paneName,
       onEachFeature: onEachFeature,
       filter: function(feature) {{
-        return item.filterFn ? item.filterFn(feature) : true;
+        if (item.filterFn && !item.filterFn(feature)) return false;
+        if (item.hiddenClasses && item.hiddenClasses.length) {{
+          var idx = resolveEntryIndex(item.ld.styleMap, feature.properties || {{}});
+          if (item.hiddenClasses.indexOf(idx) !== -1) return false;
+        }}
+        return true;
       }}
     }};
     if (ld.geomType === 'point') {{
@@ -1725,7 +1760,7 @@ class WebMapExporter:
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
       visible: true, labelsVisible: false, filterFn: null, lfl: null, index: i,
-      clusterEnabled: false
+      clusterEnabled: false, hiddenClasses: []
     }};
     try {{
       item.lfl = buildLayer(item);
@@ -2027,9 +2062,31 @@ class WebMapExporter:
 
         entriesDiv = document.createElement('div');
         entriesDiv.className = 'legend-entries';
-        sm.entries.forEach(function(entry) {{
+        var classTogglable = sm.type === 'categorized' || sm.type === 'graduated';
+        sm.entries.forEach(function(entry, ei) {{
           var eRow = document.createElement('div');
           eRow.className = 'legend-entry';
+          if (classTogglable) {{
+            var eCb = document.createElement('input');
+            eCb.type = 'checkbox';
+            eCb.checked = true;
+            eCb.title = 'Toggle this class';
+            (function(entryIndex, row) {{
+              eCb.addEventListener('change', function() {{
+                if (!eCb.checked) {{
+                  if (item.hiddenClasses.indexOf(entryIndex) === -1)
+                    item.hiddenClasses.push(entryIndex);
+                  row.classList.add('class-hidden');
+                }} else {{
+                  var pos = item.hiddenClasses.indexOf(entryIndex);
+                  if (pos !== -1) item.hiddenClasses.splice(pos, 1);
+                  row.classList.remove('class-hidden');
+                }}
+                rebuildLayer(item);
+              }});
+            }})(ei, eRow);
+            eRow.appendChild(eCb);
+          }}
           var eSwatch = document.createElement('span');
           eSwatch.className = 'legend-swatch';
           eSwatch.innerHTML = swatchSvg(geomType, entry.style || {{}});
