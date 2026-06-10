@@ -2044,7 +2044,7 @@ class WebMapExporter:
     var feats = item.ld.geojson.features;
     if (!feats || !feats.length) {{ attrTableBody.innerHTML = '<p style="padding:8px;color:#888">No features.</p>'; return; }}
 
-    // Apply drag-select filter: build {fi, f} pairs preserving original indices
+    // Apply drag-select filter: build {{fi, f}} pairs preserving original indices
     var pairs = feats.map(function(f, fi) {{ return {{fi: fi, f: f}}; }});
     if (_attrSelectSet !== null) pairs = pairs.filter(function(p) {{ return _attrSelectSet.indexOf(p.fi) !== -1; }});
 
