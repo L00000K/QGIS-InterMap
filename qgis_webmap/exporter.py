@@ -1213,6 +1213,30 @@ class WebMapExporter:
     overflow: hidden;
   }}
   #info-panel.open {{ display: flex; }}
+  #info-panel.split {{ min-width: 380px; max-width: 520px; }}
+  #info-panel.split #info-panel-body {{ padding: 0; overflow: hidden; display: flex; flex: 1; min-height: 0; }}
+  .info-split {{ display: flex; flex: 1; overflow: hidden; min-height: 0; }}
+  .info-list-pane {{
+    width: 150px; flex-shrink: 0; border-right: 1px solid #ddd;
+    overflow-y: auto; background: #f7f9fb;
+  }}
+  .info-list-pane .mf-item {{
+    border-bottom: 1px solid #eee; padding: 7px 10px; cursor: pointer; user-select: none;
+  }}
+  .info-list-pane .mf-item:hover {{ background: #e8f0f7; }}
+  .info-list-pane .mf-item.active {{ background: #003057; }}
+  .info-list-pane .mf-item.active .mf-feature-name {{ color: #fff; }}
+  .info-list-pane .mf-item.active .mf-layer-name {{ color: rgba(255,255,255,0.65); }}
+  .info-detail-pane {{
+    flex: 1; overflow-y: auto; padding: 8px 12px;
+    font-size: 12px; color: #666; min-width: 0;
+  }}
+  .info-detail-pane table {{ border-collapse: collapse; width: 100%; }}
+  .info-detail-pane th {{
+    text-align: left; padding: 2px 8px 2px 0;
+    color: #555; font-weight: 600; white-space: nowrap; vertical-align: top;
+  }}
+  .info-detail-pane td {{ padding: 2px 0; word-break: break-word; color: #222; }}
   #info-panel-hdr {{
     display: flex; align-items: center; justify-content: space-between;
     padding: 7px 10px 6px; background: #003057;
@@ -1805,6 +1829,7 @@ class WebMapExporter:
   var infoPanelBody = document.getElementById('info-panel-body');
   document.getElementById('info-panel-close').addEventListener('click', function() {{
     infoPanel.classList.remove('open');
+    infoPanel.classList.remove('split');
   }});
   var InfoBtn = L.Control.extend({{
     onAdd: function() {{
@@ -2432,33 +2457,46 @@ class WebMapExporter:
       return vals.length ? String(vals[0]) : '(feature)';
     }}
 
-    function showList() {{
-      var html = '<div class="mf-list">';
-      found.forEach(function(f, i) {{
-        html += '<div class="mf-item" data-i="'+i+'">'
-              + '<div><div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
-              + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div></div>'
-              + '<span class="mf-arrow">&#x203A;</span></div>';
-      }});
-      html += '</div>';
-      infoPanelBody.innerHTML = html;
-      infoPanelBody.querySelectorAll('.mf-item').forEach(function(el) {{
-        el.addEventListener('click', function() {{
-          showDetail(parseInt(el.getAttribute('data-i'), 10));
-        }});
-      }});
-    }}
-
-    function showDetail(i) {{
-      var f = found[i];
+    function showSingle(f) {{
+      infoPanel.classList.remove('split');
+      infoPanelBody.innerHTML = f.html;
       highlightFeatureOnMap(f.lfl._feature);
-      infoPanelBody.innerHTML =
-        (found.length > 1 ? '<button class="mf-back">&#x2039; Back ('+found.length+' features)</button>' : '')
-        + f.html;
-      if (found.length > 1) infoPanelBody.querySelector('.mf-back').addEventListener('click', showList);
     }}
 
-    if (found.length === 1) showDetail(0); else showList();
+    function showSplit() {{
+      infoPanel.classList.add('split');
+      infoPanelBody.innerHTML = '';
+
+      var splitDiv = document.createElement('div');
+      splitDiv.className = 'info-split';
+
+      var listPane = document.createElement('div');
+      listPane.className = 'info-list-pane';
+
+      var detailPane = document.createElement('div');
+      detailPane.className = 'info-detail-pane';
+
+      found.forEach(function(f) {{
+        var item = document.createElement('div');
+        item.className = 'mf-item';
+        item.innerHTML = '<div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
+                       + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div>';
+        item.addEventListener('click', function() {{
+          listPane.querySelectorAll('.mf-item').forEach(function(el) {{ el.classList.remove('active'); }});
+          item.classList.add('active');
+          detailPane.innerHTML = f.html;
+          highlightFeatureOnMap(f.lfl._feature);
+        }});
+        listPane.appendChild(item);
+      }});
+
+      splitDiv.appendChild(listPane);
+      splitDiv.appendChild(detailPane);
+      infoPanelBody.appendChild(splitDiv);
+      listPane.querySelector('.mf-item').click();
+    }}
+
+    if (found.length === 1) showSingle(found[0]); else showSplit();
     infoPanel.classList.add('open');
   }});
 
