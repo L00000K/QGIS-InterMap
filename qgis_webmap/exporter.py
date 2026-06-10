@@ -684,7 +684,6 @@ class WebMapExporter:
         _info_enabled = bool(_info.get("enabled", False))
         _info_title = _html_mod.escape(str(_info.get("title", "") or ""))
         _info_text = _html_mod.escape(str(_info.get("text", "") or ""))
-        _info_originator = _html_mod.escape(str(_info.get("originator", "") or ""))
         _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
         _info_client = _html_mod.escape(str(_info.get("client", "") or ""))
         _info_project = _html_mod.escape(str(_info.get("project", "") or ""))
@@ -777,8 +776,6 @@ class WebMapExporter:
             _footer_parts = []
             _doc_block_html = ""
             if _info_enabled:
-                if _info_originator:
-                    _footer_parts.append(f"<span>{_info_originator}</span>")
                 if _info_date:
                     _footer_parts.append(f"<span>{_info_date}</span>")
                 # Formal document title block
@@ -2044,7 +2041,7 @@ class WebMapExporter:
     var feats = item.ld.geojson.features;
     if (!feats || !feats.length) {{ attrTableBody.innerHTML = '<p style="padding:8px;color:#888">No features.</p>'; return; }}
 
-    // Apply drag-select filter: build {fi, f} pairs preserving original indices
+    // Apply drag-select filter: build {{fi, f}} pairs preserving original indices
     var pairs = feats.map(function(f, fi) {{ return {{fi: fi, f: f}}; }});
     if (_attrSelectSet !== null) pairs = pairs.filter(function(p) {{ return _attrSelectSet.indexOf(p.fi) !== -1; }});
 

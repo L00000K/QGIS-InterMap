@@ -83,9 +83,6 @@ class WebMapExportDialog(QDialog):
         text = s.value(f"{_SETTINGS_KEY}/info_text", "")
         if text:
             self.info_text_edit.setPlainText(text)
-        originator = s.value(f"{_SETTINGS_KEY}/info_originator", "")
-        if originator:
-            self.info_originator_edit.setText(originator)
         date_val = s.value(f"{_SETTINGS_KEY}/info_date", "")
         if date_val:
             self.info_date_edit.setText(date_val)
@@ -106,7 +103,6 @@ class WebMapExportDialog(QDialog):
         s.setValue(f"{_SETTINGS_KEY}/include_info", self.include_info_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/info_title", self.info_title_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/info_text", self.info_text_edit.toPlainText().strip())
-        s.setValue(f"{_SETTINGS_KEY}/info_originator", self.info_originator_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/info_date", self.info_date_edit.text().strip())
         for fld in ("info_client", "info_project"):
             s.setValue(f"{_SETTINGS_KEY}/{fld}", getattr(self, f"{fld}_edit").text().strip())
@@ -302,10 +298,6 @@ class WebMapExportDialog(QDialog):
         self.info_text_edit.setPlaceholderText("Description / information text…")
         self.info_text_edit.setMinimumHeight(100)
         info_form.addRow("Description:", self.info_text_edit)
-
-        self.info_originator_edit = QLineEdit()
-        self.info_originator_edit.setText("AtkinsRéalis")
-        info_form.addRow("Originator:", self.info_originator_edit)
 
         self.info_date_edit = QLineEdit()
         self.info_date_edit.setText(datetime.datetime.now().strftime("%d/%m/%Y"))
@@ -731,7 +723,6 @@ class WebMapExportDialog(QDialog):
                     "enabled": True,
                     "title": self.info_title_edit.text().strip(),
                     "text": self.info_text_edit.toPlainText().strip(),
-                    "originator": self.info_originator_edit.text().strip(),
                     "date": self.info_date_edit.text().strip(),
                     "client": self.info_client_edit.text().strip(),
                     "project": self.info_project_edit.text().strip(),
