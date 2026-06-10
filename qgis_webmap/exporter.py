@@ -1304,12 +1304,16 @@ class WebMapExporter:
     overflow-y: auto; background: #f7f9fb;
   }}
   .info-list-pane .mf-item {{
-    border-bottom: 1px solid #eee; padding: 7px 10px; cursor: pointer; user-select: none;
+    border-bottom: 1px solid #eee; padding: 7px 8px; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 7px;
   }}
+  .info-list-pane .mf-item .mf-swatch {{ flex-shrink: 0; line-height: 0; }}
+  .info-list-pane .mf-item .mf-text {{ flex: 1; min-width: 0; }}
   .info-list-pane .mf-item:hover {{ background: #e8f0f7; }}
   .info-list-pane .mf-item.active {{ background: #003057; }}
   .info-list-pane .mf-item.active .mf-feature-name {{ color: #fff; }}
   .info-list-pane .mf-item.active .mf-layer-name {{ color: rgba(255,255,255,0.65); }}
+  .info-list-pane .mf-item.active .mf-swatch svg {{ opacity: 0.85; }}
   .info-detail-pane {{
     flex: 1; overflow-y: auto; padding: 8px 12px;
     font-size: 12px; color: #666; min-width: 0;
@@ -2556,7 +2560,7 @@ class WebMapExporter:
         if (!latlng) return;
         var pt = map.latLngToContainerPoint(latlng);
         var d = Math.sqrt(Math.pow(pt.x - clickPt.x, 2) + Math.pow(pt.y - clickPt.y, 2));
-        if (d <= 10) found.push({{layerName: it.ld.name, html: fl._infoHtml, lfl: fl}});
+        if (d <= 10) found.push({{layerName: it.ld.name, html: fl._infoHtml, lfl: fl, legendItem: it}});
       }});
     }});
     if (!found.length) return;
@@ -2589,8 +2593,13 @@ class WebMapExporter:
       found.forEach(function(f) {{
         var item = document.createElement('div');
         item.className = 'mf-item';
-        item.innerHTML = '<div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
-                       + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div>';
+        var fStyle = resolveStyle(f.legendItem.ld.styleMap, f.lfl._feature && f.lfl._feature.properties || {{}});
+        var fSwatch = swatchSvg(f.legendItem.ld.geomType, fStyle);
+        item.innerHTML = '<span class="mf-swatch">'+fSwatch+'</span>'
+                       + '<span class="mf-text">'
+                       + '<div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
+                       + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div>'
+                       + '</span>';
         item.addEventListener('click', function() {{
           listPane.querySelectorAll('.mf-item').forEach(function(el) {{ el.classList.remove('active'); }});
           item.classList.add('active');
