@@ -1241,8 +1241,27 @@ class WebMapExporter:
     padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
   }}
   .mf-item:hover {{ background: #e8f0f7; }}
+  .mf-feature-name {{ font-size: 12px; color: #222; font-weight: 600; }}
+  .mf-layer-name {{ font-size: 10px; color: #888; margin-top: 1px; }}
   .mf-layer {{ font-size: 12px; color: #333; }}
-  .mf-arrow {{ color: #aaa; font-size: 16px; }}
+  .mf-arrow {{ color: #aaa; font-size: 16px; flex-shrink: 0; }}
+  /* ── Drag-select rubber-band rectangle */
+  #select-rect {{
+    position: absolute; pointer-events: none; display: none;
+    border: 2px dashed #3388ff; background: rgba(51,136,255,0.08); z-index: 999;
+  }}
+  /* ── Drag-select toolbar button active state */
+  .select-btn-active {{ background: #003057 !important; color: #fff !important; }}
+  /* ── Attr table selection badge */
+  #attr-select-badge {{
+    display: none; font-size: 11px; padding: 2px 7px;
+    background: #003057; color: #fff; border-radius: 10px; white-space: nowrap;
+  }}
+  #attr-select-clear {{
+    display: none; font-size: 11px; padding: 2px 7px; cursor: pointer;
+    border: 1px solid #ccc; border-radius: 3px; background: #fff;
+  }}
+  #attr-select-clear:hover {{ background: #eee; }}
   .mf-back {{
     display: block; width: 100%; background: #e8f0f7; border: none;
     border-bottom: 1px solid #d0dde8; padding: 5px 12px; text-align: left;
@@ -1328,6 +1347,7 @@ class WebMapExporter:
 {left_panel_html}
 <div id="map-wrap">
 <div id="map"></div>
+<div id="select-rect"></div>
 <div id="filterbar" style="display:none">
   <label>Filter</label>
   <select id="filter-layer" title="Layer"></select>
@@ -1354,6 +1374,8 @@ class WebMapExporter:
   <div id="attr-table-hdr">
     <span>Attribute Table</span>
     <select id="attr-table-layer"></select>
+    <span id="attr-select-badge"></span>
+    <button id="attr-select-clear" title="Clear selection">&#10005; Clear</button>
     <input id="attr-table-search" type="text" placeholder="Search…" autocomplete="off">
     <button id="attr-table-csv" title="Export CSV">&#8595; CSV</button>
     <button id="attr-table-close" title="Close">&#10005;</button>
@@ -1738,7 +1760,10 @@ class WebMapExporter:
       .map(function(e) {{
         return '<tr><th>'+escHtml(e[0])+'</th><td>'+escHtml(String(e[1]))+'</td></tr>';
       }}).join('');
-    if (rows) layer._infoHtml = '<table>'+rows+'</table>';
+    if (rows) {{
+      layer._infoHtml = '<table>'+rows+'</table>';
+      layer._feature = feature;
+    }}
   }}
 
   // Build Leaflet layers and collect metadata for legend.
@@ -1812,10 +1837,31 @@ class WebMapExporter:
   }});
   new AttrTableBtn({{position: 'topleft'}}).addTo(map);
 
+  // ── Drag-select button ────────────────────────────────────────────────────
+  var _selectMode = false;
+  var SelectBtn = L.Control.extend({{
+    onAdd: function() {{
+      var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+      btn.title = 'Drag to select features';
+      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;font-size:16px;cursor:pointer;background:white;border-radius:4px;';
+      btn.innerHTML = '&#x2B1A;';
+      L.DomEvent.disableClickPropagation(btn);
+      L.DomEvent.on(btn, 'click', function() {{
+        _selectMode = !_selectMode;
+        btn.classList.toggle('select-btn-active', _selectMode);
+        map.getContainer().style.cursor = _selectMode ? 'crosshair' : '';
+        if (!_selectMode) selectRect.style.display = 'none';
+      }});
+      return btn;
+    }}
+  }});
+  new SelectBtn({{position: 'topleft'}}).addTo(map);
+
   var attrTablePanel = document.getElementById('attr-table-panel');
   var attrTableLayer = document.getElementById('attr-table-layer');
   var attrTableBody  = document.getElementById('attr-table-body');
   var attrTableSearch = document.getElementById('attr-table-search');
+  var _attrSelectSet = null;
 
   var _highlightLayer = null;
   function highlightFeatureOnMap(feat) {{
@@ -1834,6 +1880,11 @@ class WebMapExporter:
   document.getElementById('attr-table-close').addEventListener('click', function() {{
     attrTablePanel.classList.remove('open');
     if (_highlightLayer) {{ map.removeLayer(_highlightLayer); _highlightLayer = null; }}
+  }});
+
+  document.getElementById('attr-select-clear').addEventListener('click', function() {{
+    _attrSelectSet = null;
+    populateAttrTable();
   }});
 
   document.getElementById('attr-table-csv').addEventListener('click', function() {{
@@ -1880,18 +1931,28 @@ class WebMapExporter:
     var feats = item.ld.geojson.features;
     if (!feats || !feats.length) {{ attrTableBody.innerHTML = '<p style="padding:8px;color:#888">No features.</p>'; return; }}
 
-    // Collect columns
+    // Apply drag-select filter: build {fi, f} pairs preserving original indices
+    var pairs = feats.map(function(f, fi) {{ return {{fi: fi, f: f}}; }});
+    if (_attrSelectSet !== null) pairs = pairs.filter(function(p) {{ return _attrSelectSet.indexOf(p.fi) !== -1; }});
+
+    // Update selection badge
+    var badge = document.getElementById('attr-select-badge');
+    var clearBtn = document.getElementById('attr-select-clear');
+    if (badge) {{ badge.textContent = _attrSelectSet !== null ? pairs.length + ' selected' : ''; badge.style.display = _attrSelectSet !== null ? '' : 'none'; }}
+    if (clearBtn) clearBtn.style.display = _attrSelectSet !== null ? '' : 'none';
+
+    // Collect columns from first 100 filtered features
     var cols = [], seen = {{}};
-    for (var i = 0; i < Math.min(feats.length, 100); i++) {{
-      var p = feats[i].properties || {{}};
+    for (var i = 0; i < Math.min(pairs.length, 100); i++) {{
+      var p = pairs[i].f.properties || {{}};
       Object.keys(p).forEach(function(k) {{ if (!(k in seen)) {{ seen[k]=1; cols.push(k); }} }});
     }}
 
-    // Build and sort data rows
-    var rows = feats.map(function(f) {{ return f.properties || {{}}; }});
+    // Sort pairs preserving original feature index
+    var sorted = pairs.slice();
     if (_attrSortCol !== null && cols.indexOf(_attrSortCol) !== -1) {{
-      rows = rows.slice().sort(function(a,b) {{
-        var va = a[_attrSortCol], vb = b[_attrSortCol];
+      sorted.sort(function(a, b) {{
+        var va = (a.f.properties || {{}})[_attrSortCol], vb = (b.f.properties || {{}})[_attrSortCol];
         var na = parseFloat(va), nb = parseFloat(vb);
         var cmp = (!isNaN(na) && !isNaN(nb)) ? (na-nb) : (String(va) < String(vb) ? -1 : String(va) > String(vb) ? 1 : 0);
         return _attrSortAsc ? cmp : -cmp;
@@ -1904,8 +1965,9 @@ class WebMapExporter:
       html += '<th class="'+cls+'" data-col="'+escHtml(c)+'">'+escHtml(c)+'</th>';
     }});
     html += '</tr></thead><tbody>';
-    rows.forEach(function(p, ri) {{
-      html += '<tr data-fi="'+ri+'">';
+    sorted.forEach(function(pair) {{
+      var p = pair.f.properties || {{}};
+      html += '<tr data-fi="'+pair.fi+'">';
       cols.forEach(function(c) {{
         var v = p[c]; html += '<td title="'+(v!=null?escHtml(String(v)):'')+'">'+escHtml(v!=null?String(v):'')+'</td>';
       }});
@@ -1924,15 +1986,14 @@ class WebMapExporter:
       }});
     }});
 
-    // Click row → show in info panel + zoom/pan
+    // Click row → show in info panel + highlight on map
     attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {{
       tr.addEventListener('click', function() {{
         attrTableBody.querySelectorAll('tr.selected').forEach(function(r){{ r.classList.remove('selected'); }});
         tr.classList.add('selected');
-        var fi = parseInt(tr.getAttribute('data-fi'),10);
+        var fi = parseInt(tr.getAttribute('data-fi'), 10);
         var feat = feats[fi];
         if (!feat) return;
-        // Show in info panel
         if (feat.properties) {{
           var rws = Object.entries(feat.properties)
             .filter(function(e){{ return e[1]!=null; }})
@@ -1940,7 +2001,6 @@ class WebMapExporter:
           infoPanelBody.innerHTML = '<table>'+rws+'</table>';
           infoPanel.classList.add('open');
         }}
-        // Highlight + pan/zoom to feature
         highlightFeatureOnMap(feat);
         if (feat.geometry) {{
           try {{
@@ -2282,8 +2342,74 @@ class WebMapExporter:
     }})();  // end basemap legend entry
   }} }} catch(legendErr) {{ console.error('Legend build failed:', legendErr); }}
 
-  // ── Map-level click handler (multi-feature stacked points) ───────────────
+  // ── Map-level click + drag-select ────────────────────────────────────────
+  var selectRect = document.getElementById('select-rect');
+  var _dragStart = null, _dragRx, _dragRy, _dragRw, _dragRh;
+
+  map.getContainer().addEventListener('mousedown', function(e) {{
+    if (!_selectMode || e.button !== 0) return;
+    e.preventDefault();
+    map.dragging.disable();
+    var rc = map.getContainer().getBoundingClientRect();
+    _dragStart = {{x: e.clientX - rc.left, y: e.clientY - rc.top}};
+    selectRect.style.cssText += ';left:'+_dragStart.x+'px;top:'+_dragStart.y+'px;width:0;height:0;display:block';
+  }});
+
+  document.addEventListener('mousemove', function(e) {{
+    if (!_selectMode || !_dragStart) return;
+    var rc = map.getContainer().getBoundingClientRect();
+    var cx = e.clientX - rc.left, cy = e.clientY - rc.top;
+    _dragRx = Math.min(_dragStart.x, cx); _dragRy = Math.min(_dragStart.y, cy);
+    _dragRw = Math.abs(cx - _dragStart.x); _dragRh = Math.abs(cy - _dragStart.y);
+    selectRect.style.left = _dragRx+'px'; selectRect.style.top = _dragRy+'px';
+    selectRect.style.width = _dragRw+'px'; selectRect.style.height = _dragRh+'px';
+  }});
+
+  document.addEventListener('mouseup', function(e) {{
+    if (!_selectMode || !_dragStart) return;
+    map.dragging.enable();
+    selectRect.style.display = 'none';
+    _dragStart = null;
+    if (!_dragRw || _dragRw < 5 || _dragRh < 5) return;
+
+    var sw = map.containerPointToLatLng(L.point(_dragRx, _dragRy + _dragRh));
+    var ne = map.containerPointToLatLng(L.point(_dragRx + _dragRw, _dragRy));
+    var bounds = L.latLngBounds(sw, ne);
+
+    // Find the active layer (attr table selection or first visible vector)
+    var selIdx = parseInt(attrTableLayer.value, 10);
+    var targetItem = null;
+    legendItems.forEach(function(it) {{ if (it.index === selIdx && it.ld.kind === 'vector') targetItem = it; }});
+    if (!targetItem) legendItems.forEach(function(it) {{ if (!targetItem && it.ld.kind === 'vector' && it.visible) targetItem = it; }});
+    if (!targetItem) return;
+
+    var selSet = [];
+    targetItem.ld.geojson.features.forEach(function(feat, fi) {{
+      if (!feat.geometry) return;
+      var coords = feat.geometry.type === 'Point' ? [feat.geometry.coordinates]
+                 : feat.geometry.type === 'MultiPoint' ? feat.geometry.coordinates : null;
+      if (coords) {{
+        for (var ci = 0; ci < coords.length; ci++) {{
+          if (bounds.contains(L.latLng(coords[ci][1], coords[ci][0]))) {{ selSet.push(fi); return; }}
+        }}
+      }} else {{
+        try {{
+          var center = L.geoJSON(feat).getBounds().getCenter();
+          if (bounds.contains(center)) selSet.push(fi);
+        }} catch(ex) {{}}
+      }}
+    }});
+
+    if (!selSet.length) return;
+    attrTableLayer.value = targetItem.index;
+    _attrSelectSet = selSet;
+    populateAttrTable();
+    attrTablePanel.classList.add('open');
+  }});
+
+  // ── Click identify ────────────────────────────────────────────────────────
   map.on('click', function(e) {{
+    if (_selectMode) return;
     var clickPt = map.latLngToContainerPoint(e.latlng);
     var found = [];
     legendItems.forEach(function(it) {{
@@ -2294,42 +2420,45 @@ class WebMapExporter:
                    : (fl.getBounds ? fl.getBounds().getCenter() : null);
         if (!latlng) return;
         var pt = map.latLngToContainerPoint(latlng);
-        var d  = Math.sqrt(Math.pow(pt.x - clickPt.x,2) + Math.pow(pt.y - clickPt.y,2));
-        if (d <= 10) found.push({{name: it.ld.name, html: fl._infoHtml}});
+        var d = Math.sqrt(Math.pow(pt.x - clickPt.x, 2) + Math.pow(pt.y - clickPt.y, 2));
+        if (d <= 10) found.push({{layerName: it.ld.name, html: fl._infoHtml, lfl: fl}});
       }});
     }});
     if (!found.length) return;
-    if (found.length === 1) {{
-      infoPanelBody.innerHTML = found[0].html;
-    }} else {{
-      // Build a list; clicking an entry drills into that feature
-      var listHtml = '<div class="mf-list">';
+
+    function getDisplayName(f) {{
+      var props = f.lfl._feature && f.lfl._feature.properties || {{}};
+      var vals = Object.values(props).filter(function(v) {{ return v != null && v !== ''; }});
+      return vals.length ? String(vals[0]) : '(feature)';
+    }}
+
+    function showList() {{
+      var html = '<div class="mf-list">';
       found.forEach(function(f, i) {{
-        listHtml += '<div class="mf-item" data-i="'+i+'"><span class="mf-layer">'+escHtml(f.name)+'</span>'
-                  + '<span class="mf-arrow">›</span></div>';
+        html += '<div class="mf-item" data-i="'+i+'">'
+              + '<div><div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
+              + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div></div>'
+              + '<span class="mf-arrow">&#x203A;</span></div>';
       }});
-      listHtml += '</div>';
-      infoPanelBody.innerHTML = listHtml;
+      html += '</div>';
+      infoPanelBody.innerHTML = html;
       infoPanelBody.querySelectorAll('.mf-item').forEach(function(el) {{
         el.addEventListener('click', function() {{
-          var idx = parseInt(el.getAttribute('data-i'),10);
-          infoPanelBody.innerHTML = '<button class="mf-back">‹ Back ('+found.length+' features)</button>'
-                                  + found[idx].html;
-          infoPanelBody.querySelector('.mf-back').addEventListener('click', function() {{
-            infoPanelBody.innerHTML = listHtml;
-            // Re-attach drill-in handlers
-            infoPanelBody.querySelectorAll('.mf-item').forEach(function(el2) {{
-              el2.addEventListener('click', function() {{
-                var idx2 = parseInt(el2.getAttribute('data-i'),10);
-                infoPanelBody.innerHTML = '<button class="mf-back">‹ Back ('+found.length+' features)</button>'
-                                        + found[idx2].html;
-                // Note: back button here won't re-attach handlers, but that's OK for depth-2
-              }});
-            }});
-          }});
+          showDetail(parseInt(el.getAttribute('data-i'), 10));
         }});
       }});
     }}
+
+    function showDetail(i) {{
+      var f = found[i];
+      highlightFeatureOnMap(f.lfl._feature);
+      infoPanelBody.innerHTML =
+        (found.length > 1 ? '<button class="mf-back">&#x2039; Back ('+found.length+' features)</button>' : '')
+        + f.html;
+      if (found.length > 1) infoPanelBody.querySelector('.mf-back').addEventListener('click', showList);
+    }}
+
+    if (found.length === 1) showDetail(0); else showList();
     infoPanel.classList.add('open');
   }});
 
