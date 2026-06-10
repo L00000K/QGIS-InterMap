@@ -3,35 +3,34 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Project Info Panel — CAD Title Block Mockup (ISO 7200 / BS EN ISO 19650)</title>
+<title>Project Info Panel — CAD Title Block Mockup</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    background: #b0b5be;
+    background: #c0c4cc;
     display: flex;
     align-items: flex-start;
     justify-content: center;
     min-height: 100vh;
-    font-family: 'Arial Narrow', Arial, sans-serif;
-    padding: 32px 16px;
-    gap: 32px;
+    font-family: Arial, sans-serif;
+    padding: 40px 16px;
+    gap: 40px;
   }
 
-  /* ── Outer wrapper ──────────────────────────────────────────────── */
-  .sheet {
-    width: 560px;
-    background: #fff;
-    border: 2px solid #1a1a1a;
-    box-shadow: 6px 6px 18px rgba(0,0,0,0.4);
+  /* ── Map sheet (left) ───────────────────────────────────────────── */
+  .map-sheet {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    border: 2px solid #1a1a1a;
+    box-shadow: 5px 5px 16px rgba(0,0,0,0.4);
+    background: #fff;
   }
 
-  /* ── Map viewport placeholder ────────────────────────────────────── */
   .map-area {
+    width: 520px;
+    height: 620px;
     background: #dce5ec;
-    height: 260px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -39,343 +38,254 @@
     font-size: 12px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    border-bottom: 2px solid #1a1a1a;
+    border-right: 2px solid #1a1a1a;
     flex-shrink: 0;
   }
 
-  /* ════════════════════════════════════════════════════════════════
-     TITLE BLOCK  (all content below the map)
-  ════════════════════════════════════════════════════════════════ */
-  .title-block { display: flex; flex-direction: column; }
-
-  /* Generic row */
-  .tb-row {
+  /* ── Title block (right vertical strip) ─────────────────────────── */
+  .title-block {
+    width: 180px;
     display: flex;
-    border-top: 1px solid #1a1a1a;
-    min-height: 0;
+    flex-direction: column;
+    border-left: 0; /* already handled by map-area border-right */
   }
 
-  /* Generic cell */
-  .tb-cell {
-    position: relative;
-    padding: 14px 7px 5px 7px;
-    border-right: 1px solid #1a1a1a;
-    flex: 1;
-    min-width: 0;
-    background: #fff;
+  /* Each section row */
+  .tb-section {
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
   }
-  .tb-cell:last-child { border-right: none; }
+  .tb-section:last-child { border-bottom: none; flex: 1; }
 
-  /* Field label — ISO style: small caps top-left */
-  .f-label {
-    position: absolute;
-    top: 3px; left: 5px;
-    font-size: 6.5px;
+  /* Label header band */
+  .sec-label {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    font-size: 7px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: #3f32f1;
+    border-bottom: 1px solid #d0d0d0;
+    line-height: 1.4;
   }
 
-  /* Field value */
-  .f-val {
+  /* Value area */
+  .sec-value {
+    padding: 6px 6px 8px 6px;
     font-size: 11px;
-    color: #1a1a1a;
-    line-height: 1.35;
-  }
-  .f-val.title  { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; }
-  .f-val.code   { font-family: 'Courier New', monospace; letter-spacing: 0.06em; font-size: 11px; }
-  .f-val.rev    { font-family: 'Courier New', monospace; font-size: 13px; font-weight: 700; color: #3f32f1; }
-  .f-val.muted  { font-size: 9px; color: #888; margin-top: 1px; }
-
-  /* Status badge for Purpose of Issue */
-  .poi-badge {
-    display: inline-block;
-    background: #3f32f1;
-    color: #fff;
-    font-size: 8px;
     font-weight: 700;
-    letter-spacing: 0.1em;
-    padding: 1px 5px;
-    border-radius: 2px;
-    margin-bottom: 2px;
+    color: #1a1a1a;
+    line-height: 1.3;
+    word-break: break-word;
   }
 
-  /* Image placeholder */
+  /* Image / logo placeholder */
   .img-ph {
-    width: 100%;
-    height: 50px;
+    margin: 4px 6px 8px 6px;
     background: #edf0f5;
     border: 1px dashed #b0b5be;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #b0b5be;
-    font-size: 8px;
+    font-size: 7.5px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
+    font-weight: 400;
+    height: 46px;
   }
 
-  /* Doc-control name/date sub-rows */
-  .dc-row { display: flex; align-items: baseline; gap: 4px; margin-top: 1px; }
-  .dc-key  { font-size: 6.5px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; min-width: 24px; }
-  .dc-val  { font-size: 9.5px; color: #1a1a1a; }
-
-  /* Separator accent line under header label in coloured rows */
-  .accent-border { border-top: 2px solid #3f32f1; }
-
-  /* ── Logo footer ─────────────────────────────────────────────────── */
-  .logo-bar {
-    border-top: 2px solid #1a1a1a;
+  /* Produced-by section: logo centred */
+  .logo-wrap {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0;
-    background: #fff;
+    justify-content: center;
+    padding: 10px 8px 10px 8px;
+  }
+  .logo-wrap svg { width: 130px; height: auto; }
+
+  /* Split row: REVISION | PURPOSE OF ISSUE */
+  .tb-split {
+    display: flex;
+    flex-direction: row;
+    border-bottom: 1px solid #1a1a1a;
     flex-shrink: 0;
   }
-  .logo-left {
-    /* coloured accent stripe on left edge */
-    width: 6px;
-    align-self: stretch;
-    background: #3f32f1;
-    flex-shrink: 0;
-  }
-  .logo-svg-wrap {
+  .tb-split .tb-section {
     flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 7px 12px 7px 8px;
+    border-bottom: none;
+    border-right: 1px solid #1a1a1a;
   }
-  .logo-svg-wrap svg { height: 20px; width: auto; }
+  .tb-split .tb-section:last-child { border-right: none; }
 
-  /* ── Legend / annotation column ──────────────────────────────────── */
-  .legend-col {
-    width: 200px;
-    flex-shrink: 0;
-    font-family: Arial, sans-serif;
-    font-size: 10.5px;
-    line-height: 1.65;
-    color: #333;
-  }
-  .legend-col h3 {
-    font-size: 11px;
+  /* Doc-control section */
+  .dc-header {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    font-size: 7px;
     font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
     color: #3f32f1;
-    border-bottom: 2px solid #3f32f1;
-    padding-bottom: 4px;
-    margin-bottom: 10px;
+    border-bottom: 1px solid #d0d0d0;
   }
-  .legend-col .note {
-    font-size: 9.5px;
-    color: #666;
-    margin-top: 12px;
-    border-left: 3px solid #3f32f1;
-    padding-left: 7px;
+  .dc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8px;
   }
-  .legend-col .note b { color: #1a1a1a; }
-  .poi-table { width: 100%; border-collapse: collapse; font-size: 9px; margin-top: 6px; }
-  .poi-table th { text-align: left; color: #3f32f1; padding: 2px 4px; border-bottom: 1px solid #3f32f1; font-weight: 700; }
-  .poi-table td { padding: 1px 4px; color: #333; border-bottom: 1px solid #eee; }
-  .poi-table td:first-child { font-family: 'Courier New', monospace; font-weight: 700; color: #1a1a1a; }
+  .dc-table td {
+    padding: 3px 5px;
+    border-bottom: 1px solid #e8e8e8;
+    color: #1a1a1a;
+    vertical-align: middle;
+  }
+  .dc-table tr:last-child td { border-bottom: none; }
+  .dc-table td.role {
+    font-weight: 700;
+    color: #333;
+    white-space: nowrap;
+    width: 38%;
+  }
+  .dc-table td.person { color: #888; width: 31%; }
+  .dc-table td.date   { color: #888; width: 31%; }
 </style>
 </head>
 <body>
 
-<!-- ── Title block sheet ─────────────────────────────────────────── -->
-<div class="sheet">
+<!-- ── Map sheet with right-side title block ─────────────────────── -->
+<div class="map-sheet">
 
   <div class="map-area">Map Viewport</div>
 
+  <!-- TITLE BLOCK ─────────────────────────────────────────────────── -->
   <div class="title-block">
 
-    <!-- ① Document / Drawing title — full width ─────────────── -->
-    <div class="tb-row accent-border">
-      <div class="tb-cell" style="padding-top:16px; padding-bottom:8px;">
-        <span class="f-label">Document Title</span>
-        <div class="f-val title">Riverside Corridor Infrastructure Assessment</div>
-        <div class="f-val muted">Drainage Network Overview — Sheet 1 of 3</div>
+    <!-- PRODUCED BY -->
+    <div class="tb-section">
+      <div class="sec-label">Produced By</div>
+      <div class="logo-wrap">
+        <svg viewBox="0 0 354.3684 47.7976" xmlns="http://www.w3.org/2000/svg">
+          <g fill="#3f32f1">
+            <path d="M342.9727,47.7976c7.6237,0,11.3957-3.1131,11.3957-8.6786v-0.211c0-4.0356-2.2947-6.7789-7.5444-7.3593
+              l-6.9113-0.7386c-2.0048-0.2115-2.9806-1.24-2.9806-3.0599v-1.6093c0-0.6065,0.3959-0.9762,0.9758-0.9762h8.9427
+              c0.6064,0,0.9758,0.3698,0.9758,0.9762v2.9805h6.1726c-0.3693-5.6711-4.1412-8.6254-11.6595-8.6254
+              c-7.1223,0-11.1847,2.7695-11.1847,8.2566v0.1051c0,3.9833,2.6118,6.8583,6.753,7.2804l7.8082,0.7918
+              c2.0048,0.2106,2.9017,1.2395,2.9017,3.1649v2.0047c0,0.5808-0.3693,0.9496-0.9496,0.9496h-9.602
+              c-0.5803,0-0.9758-0.3688-0.9758-0.9496V39.119h-6.4103C330.8383,44.6845,335.1383,47.7976,342.9727,47.7976
+              M320.4455,18.2803h6.7264v-6.4629h-6.7264V18.2803z M320.551,47.2696h6.5158V21.0231h-6.5158V47.2696z
+              M308.984,47.2696h6.5158V11.8174h-6.5158V47.2696z M297.6285,26.1409v5.9087h-9.8396
+              c-5.1703,0-8.3091,2.8488-8.3091,7.5703c0,5.3816,4.194,8.1777,9.813,8.1777c3.8247,0,6.9641-1.5038,8.3358-4.7485
+              h-10.4727c-0.5803,0-0.9758-0.3688-0.9758-0.9496v-6.3041h11.4485v11.4742h6.5154V28.8049
+              c0-5.5922-4.59-8.3089-11.4485-8.3089c-7.0695,0-12.3453,3.0071-12.4509,8.9158h5.9355v-3.2709
+              c0-0.6065,0.3954-0.9762,0.9758-0.9762h9.523C297.2592,25.1647,297.6285,25.5345,297.6285,26.1409
+              M261.0411,17.9899h5.0381l4.1417-6.1725h-7.2017L261.0411,17.9899z M257.4008,32.0496v-5.9087
+              c0-0.6065,0.3693-0.9762,0.9496-0.9762h10.8416c0.6069,0,0.9762,0.3698,0.9762,0.9762v5.9087H257.4008z
+              M263.9955,47.7976c7.2806,0,11.4746-4.1943,12.477-9.18h-6.4892v3.4819c0,0.5808-0.3693,0.9496-0.9496,0.9496
+              h-10.6833c-0.5803,0-0.9496-0.3688-0.9496-0.9496v-6.3041h19.23v-2.374c0-3.6663-0.8969-6.8322-2.7434-9.0475
+              c-2.1364-2.5589-5.7767-3.8778-10.024-3.8778c-4.3789,0-8.0454,1.2661-10.314,3.8246
+              c-2.0048,2.3213-2.981,5.5926-2.981,9.6544v0.3431c0,4.0888,0.9762,7.2804,2.981,9.575
+              C255.8708,46.4787,259.4845,47.7976,263.9955,47.7976 M219.9283,47.2696h6.2034V34.3709
+              c0-0.5803,0.3693-0.9496,0.9496-0.9496h11.3122l5.4602,13.8483h6.5994l-5.935-14.8506
+              c-1.0024-2.5057-1.8465-3.5347-3.4292-3.9306c-0.7125-0.1844-1.5566-0.2372-2.6379-0.2372h-11.3696
+              c-0.5803,0-0.9496-0.3693-0.9496-0.9496V16.9875h13.9809c0.5804,0,0.9763,0.3693,0.9763,0.9496v10.5512
+              c5.3285-1.9254,6.753-4.6687,6.753-7.9657c0-5.4343-3.7458-8.7052-10.6044-8.7052h-17.3092V47.2696z
+              M204.6207,47.7976c7.6238,0,11.3957-3.1131,11.3957-8.6786v-0.211c0-4.0356-2.2947-6.7789-7.5444-7.3593
+              l-6.9113-0.7386c-2.0048-0.2115-2.9806-1.24-2.9806-3.0599v-1.6093c0-0.6065,0.3954-0.9762,0.9758-0.9762h8.9427
+              c0.6065,0,0.9758,0.3698,0.9758,0.9762v2.9805h6.1727c-0.3693-5.6711-4.1413-8.6254-11.6595-8.6254
+              c-7.1223,0-11.1847,2.7695-11.1847,8.2566v0.1051c0,3.9833,2.6118,6.8583,6.753,7.2804l7.8082,0.7918
+              c2.0048,0.2106,2.9017,1.2395,2.9017,3.1649v2.0047c0,0.5808-0.3693,0.9496-0.9496,0.9496h-9.6019
+              c-0.5803,0-0.9758-0.3688-0.9758-0.9496V39.119h-6.4103C192.4864,44.6845,196.7864,47.7976,204.6207,47.7976
+              M164.8417,47.2696h6.5154V21.0231h-6.5154V47.2696z M182.1463,26.7474v20.5222h6.5158V28.0402
+              c0-4.537-3.2182-7.4914-8.6789-7.4914c-4.3261,0-7.2012,1.8731-8.6257,5.2495h9.8391
+              C181.777,25.7983,182.1463,26.1671,182.1463,26.7474 M153.3932,18.2803h6.7269v-6.4629h-6.7269V18.2803z
+              M153.4988,47.2696h6.5154V21.0231h-6.5154V47.2696z M132.6865,33.1837l10.7365,14.0859h7.465
+              l-10.6832-13.8217c-0.2638-0.3698-0.2638-0.7386,0.0527-1.1083l10.525-11.316h-7.043L132.6865,33.1837z
+              M132.6865,11.8174h-6.5154v35.4522h6.5154V11.8174z M115.9626,13.3212h-6.4892v6.6734
+              c0,0.6331-0.3693,1.029-0.9758,1.029h-3.8513v4.4843h4.8271v14.8506c0,4.4315,2.6379,6.9111,7.2017,6.9111h5.5923
+              v-4.6159h-5.3552c-0.5803,0-0.9496-0.3693-0.9496-0.9496V25.5079h6.3048v-4.4843h-6.3048V13.3212z
+              M99.5252,47.2695h7.0168L95.4101,14.4291c-0.6859-1.9781-1.5827-2.6117-3.2182-2.6117h-6.964
+              c-1.5566,0-2.4007,0.6335-3.0866,2.6117L70.9038,47.2695h6.8585l3.1114-10.0498h15.5474L99.5252,47.2695z
+              M82.4744,32.0496l6.1822-19.9684l6.1676,19.9684H82.4744z"/>
+            <path d="M11.8173,11.8174C11.8173,5.2908,17.1081,0,23.6346,0c0,0,11.8173,0,11.8173,0v11.8174H11.8173z
+               M70.9038,11.8174V0c0,0-11.8173,0-11.8173,0C52.56,0,47.2692,5.2908,47.2692,11.8174H70.9038z
+               M-0.0001,23.6348v11.8174h11.8173c0,0,0-23.6348,0-23.6348C5.2907,11.8174-0.0001,17.1082-0.0001,23.6348z
+               M23.6346,47.2695c6.5265,0,11.8173-5.2908,11.8173-11.8174H11.8173v11.8174
+               C11.8173,47.2695,23.6346,47.2695,23.6346,47.2695z M47.2692,47.2695V11.8174H35.4519v23.6348
+               C35.4519,41.9787,40.7427,47.2695,47.2692,47.2695z"/>
+          </g>
+        </svg>
       </div>
     </div>
 
-    <!-- ② Client + images row ───────────────────────────────── -->
-    <div class="tb-row">
-      <div class="tb-cell" style="flex:2.2; padding-bottom:7px;">
-        <span class="f-label">Client / Employer</span>
-        <div class="f-val" style="margin-top:2px;">City of Riverside</div>
-        <div class="f-val muted">Department of Public Works</div>
+    <!-- CLIENT -->
+    <div class="tb-section">
+      <div class="sec-label">Client</div>
+      <div class="img-ph">Client Name or Image</div>
+    </div>
+
+    <!-- PROJECT -->
+    <div class="tb-section">
+      <div class="sec-label">Project</div>
+      <div class="img-ph">Project Name or Image</div>
+    </div>
+
+    <!-- DOCUMENT NAME -->
+    <div class="tb-section">
+      <div class="sec-label">Document Name</div>
+      <div class="sec-value">Title</div>
+    </div>
+
+    <!-- DOCUMENT NUMBER -->
+    <div class="tb-section">
+      <div class="sec-label">Document Number</div>
+      <div class="sec-value">0</div>
+    </div>
+
+    <!-- REVISION | PURPOSE OF ISSUE -->
+    <div class="tb-split">
+      <div class="tb-section">
+        <div class="sec-label">Revision</div>
+        <div class="sec-value">P1.02</div>
       </div>
-      <div class="tb-cell" style="flex:1; padding-bottom:7px;">
-        <span class="f-label">Client Logo</span>
-        <div class="img-ph">+ Image</div>
-      </div>
-      <div class="tb-cell" style="flex:1; padding-bottom:7px;">
-        <span class="f-label">Project Image</span>
-        <div class="img-ph">+ Image</div>
+      <div class="tb-section">
+        <div class="sec-label">Purpose of Issue</div>
+        <div class="sec-value">P1</div>
       </div>
     </div>
 
-    <!-- ③ Project + originator info ─────────────────────────── -->
-    <div class="tb-row">
-      <div class="tb-cell" style="flex:2.2;">
-        <span class="f-label">Project / Scheme</span>
-        <div class="f-val">Southern Catchment Flood Management Study</div>
-      </div>
-      <div class="tb-cell" style="flex:2;">
-        <span class="f-label">Originator (Organisation)</span>
-        <div class="f-val">AtkinsRéalis UK Ltd</div>
-      </div>
-    </div>
-
-    <!-- ④ Document metadata row ─────────────────────────────── -->
-    <div class="tb-row">
-      <div class="tb-cell" style="flex:2.4;">
-        <span class="f-label">Document Number (ISO 7200)</span>
-        <div class="f-val code">RSC-AKR-DR-CI-0001</div>
-      </div>
-      <div class="tb-cell" style="flex:0.8; padding-top:14px;">
-        <span class="f-label">Revision</span>
-        <div class="f-val rev">P02</div>
-      </div>
-      <div class="tb-cell" style="flex:1.3;">
-        <span class="f-label">Purpose of Issue</span>
-        <div class="poi-badge">S1</div>
-        <div class="f-val" style="font-size:8.5px; color:#555;">Suitable for Coord.</div>
-      </div>
-      <div class="tb-cell" style="flex:1;">
-        <span class="f-label">Date of Issue</span>
-        <div class="f-val code" style="font-size:10px;">2026-06-10</div>
-      </div>
-      <div class="tb-cell" style="flex:0.8;">
-        <span class="f-label">Scale</span>
-        <div class="f-val code" style="font-size:10px;">1:5 000</div>
-      </div>
-    </div>
-
-    <!-- ⑤ Document control — originated / checked / reviewed / approved ── -->
-    <div class="tb-row">
-      <div class="tb-cell" style="flex:1;">
-        <span class="f-label">Originated</span>
-        <div class="dc-row"><span class="dc-key">Name</span><span class="dc-val">J. Smith</span></div>
-        <div class="dc-row"><span class="dc-key">Date</span><span class="dc-val">10 Jun 26</span></div>
-      </div>
-      <div class="tb-cell" style="flex:1;">
-        <span class="f-label">Checked</span>
-        <div class="dc-row"><span class="dc-key">Name</span><span class="dc-val">A. Brown</span></div>
-        <div class="dc-row"><span class="dc-key">Date</span><span class="dc-val">10 Jun 26</span></div>
-      </div>
-      <div class="tb-cell" style="flex:1;">
-        <span class="f-label">Reviewed</span>
-        <div class="dc-row"><span class="dc-key">Name</span><span class="dc-val">C. Davis</span></div>
-        <div class="dc-row"><span class="dc-key">Date</span><span class="dc-val">10 Jun 26</span></div>
-      </div>
-      <div class="tb-cell" style="flex:1;">
-        <span class="f-label">Approved</span>
-        <div class="dc-row"><span class="dc-key">Name</span><span class="dc-val">M. Wilson</span></div>
-        <div class="dc-row"><span class="dc-key">Date</span><span class="dc-val">10 Jun 26</span></div>
-      </div>
+    <!-- DOCUMENT CONTROL -->
+    <div class="tb-section" style="flex:1;">
+      <div class="dc-header">Document Control</div>
+      <table class="dc-table">
+        <tr>
+          <td class="role">Originated</td>
+          <td class="person">person</td>
+          <td class="date">date</td>
+        </tr>
+        <tr>
+          <td class="role">Checked</td>
+          <td class="person">person</td>
+          <td class="date">date</td>
+        </tr>
+        <tr>
+          <td class="role">Reviewed</td>
+          <td class="person">person</td>
+          <td class="date">date</td>
+        </tr>
+        <tr>
+          <td class="role">Approved</td>
+          <td class="person">person</td>
+          <td class="date">date</td>
+        </tr>
+      </table>
     </div>
 
   </div><!-- /title-block -->
-
-  <!-- Logo bar -->
-  <div class="logo-bar">
-    <div class="logo-left"></div>
-    <div class="logo-svg-wrap">
-      <svg viewBox="0 0 354.3684 47.7976" xmlns="http://www.w3.org/2000/svg">
-        <g fill="#3f32f1">
-          <path d="M342.9727,47.7976c7.6237,0,11.3957-3.1131,11.3957-8.6786v-0.211c0-4.0356-2.2947-6.7789-7.5444-7.3593
-            l-6.9113-0.7386c-2.0048-0.2115-2.9806-1.24-2.9806-3.0599v-1.6093c0-0.6065,0.3959-0.9762,0.9758-0.9762h8.9427
-            c0.6064,0,0.9758,0.3698,0.9758,0.9762v2.9805h6.1726c-0.3693-5.6711-4.1412-8.6254-11.6595-8.6254
-            c-7.1223,0-11.1847,2.7695-11.1847,8.2566v0.1051c0,3.9833,2.6118,6.8583,6.753,7.2804l7.8082,0.7918
-            c2.0048,0.2106,2.9017,1.2395,2.9017,3.1649v2.0047c0,0.5808-0.3693,0.9496-0.9496,0.9496h-9.602
-            c-0.5803,0-0.9758-0.3688-0.9758-0.9496V39.119h-6.4103C330.8383,44.6845,335.1383,47.7976,342.9727,47.7976 M320.4455,18.2803
-            h6.7264v-6.4629h-6.7264V18.2803z M320.551,47.2696h6.5158V21.0231h-6.5158V47.2696z M308.984,47.2696h6.5158V11.8174h-6.5158
-            V47.2696z M297.6285,26.1409v5.9087h-9.8396c-5.1703,0-8.3091,2.8488-8.3091,7.5703c0,5.3816,4.194,8.1777,9.813,8.1777
-            c3.8247,0,6.9641-1.5038,8.3358-4.7485h-10.4727c-0.5803,0-0.9758-0.3688-0.9758-0.9496v-6.3041h11.4485v11.4742h6.5154V28.8049
-            c0-5.5922-4.59-8.3089-11.4485-8.3089c-7.0695,0-12.3453,3.0071-12.4509,8.9158h5.9355v-3.2709
-            c0-0.6065,0.3954-0.9762,0.9758-0.9762h9.523C297.2592,25.1647,297.6285,25.5345,297.6285,26.1409 M261.0411,17.9899h5.0381
-            l4.1417-6.1725h-7.2017L261.0411,17.9899z M257.4008,32.0496v-5.9087c0-0.6065,0.3693-0.9762,0.9496-0.9762h10.8416
-            c0.6069,0,0.9762,0.3698,0.9762,0.9762v5.9087H257.4008z M263.9955,47.7976c7.2806,0,11.4746-4.1943,12.477-9.18h-6.4892v3.4819
-            c0,0.5808-0.3693,0.9496-0.9496,0.9496h-10.6833c-0.5803,0-0.9496-0.3688-0.9496-0.9496v-6.3041h19.23v-2.374
-            c0-3.6663-0.8969-6.8322-2.7434-9.0475c-2.1364-2.5589-5.7767-3.8778-10.024-3.8778c-4.3789,0-8.0454,1.2661-10.314,3.8246
-            c-2.0048,2.3213-2.981,5.5926-2.981,9.6544v0.3431c0,4.0888,0.9762,7.2804,2.981,9.575
-            C255.8708,46.4787,259.4845,47.7976,263.9955,47.7976 M219.9283,47.2696h6.2034V34.3709c0-0.5803,0.3693-0.9496,0.9496-0.9496
-            h11.3122l5.4602,13.8483h6.5994l-5.935-14.8506c-1.0024-2.5057-1.8465-3.5347-3.4292-3.9306
-            c-0.7125-0.1844-1.5566-0.2372-2.6379-0.2372h-11.3696c-0.5803,0-0.9496-0.3693-0.9496-0.9496V16.9875h13.9809
-            c0.5804,0,0.9763,0.3693,0.9763,0.9496v10.5512c5.3285-1.9254,6.753-4.6687,6.753-7.9657c0-5.4343-3.7458-8.7052-10.6044-8.7052
-            h-17.3092V47.2696z M204.6207,47.7976c7.6238,0,11.3957-3.1131,11.3957-8.6786v-0.211c0-4.0356-2.2947-6.7789-7.5444-7.3593
-            l-6.9113-0.7386c-2.0048-0.2115-2.9806-1.24-2.9806-3.0599v-1.6093c0-0.6065,0.3954-0.9762,0.9758-0.9762h8.9427
-            c0.6065,0,0.9758,0.3698,0.9758,0.9762v2.9805h6.1727c-0.3693-5.6711-4.1413-8.6254-11.6595-8.6254
-            c-7.1223,0-11.1847,2.7695-11.1847,8.2566v0.1051c0,3.9833,2.6118,6.8583,6.753,7.2804l7.8082,0.7918
-            c2.0048,0.2106,2.9017,1.2395,2.9017,3.1649v2.0047c0,0.5808-0.3693,0.9496-0.9496,0.9496h-9.6019
-            c-0.5803,0-0.9758-0.3688-0.9758-0.9496V39.119h-6.4103C192.4864,44.6845,196.7864,47.7976,204.6207,47.7976
-            M164.8417,47.2696h6.5154V21.0231h-6.5154V47.2696z M182.1463,26.7474v20.5222h6.5158V28.0402
-            c0-4.537-3.2182-7.4914-8.6789-7.4914c-4.3261,0-7.2012,1.8731-8.6257,5.2495h9.8391
-            C181.777,25.7983,182.1463,26.1671,182.1463,26.7474 M153.3932,18.2803h6.7269v-6.4629h-6.7269V18.2803z
-            M153.4988,47.2696h6.5154V21.0231h-6.5154V47.2696z M132.6865,33.1837l10.7365,14.0859h7.465
-            l-10.6832-13.8217c-0.2638-0.3698-0.2638-0.7386,0.0527-1.1083l10.525-11.316h-7.043L132.6865,33.1837z
-            M132.6865,11.8174h-6.5154v35.4522h6.5154V11.8174z M115.9626,13.3212h-6.4892v6.6734
-            c0,0.6331-0.3693,1.029-0.9758,1.029h-3.8513v4.4843h4.8271v14.8506c0,4.4315,2.6379,6.9111,7.2017,6.9111h5.5923
-            v-4.6159h-5.3552c-0.5803,0-0.9496-0.3693-0.9496-0.9496V25.5079h6.3048v-4.4843h-6.3048V13.3212z
-            M99.5252,47.2695h7.0168L95.4101,14.4291c-0.6859-1.9781-1.5827-2.6117-3.2182-2.6117h-6.964
-            c-1.5566,0-2.4007,0.6335-3.0866,2.6117L70.9038,47.2695h6.8585l3.1114-10.0498h15.5474L99.5252,47.2695z
-            M82.4744,32.0496l6.1822-19.9684l6.1676,19.9684H82.4744z"/>
-          <path d="M11.8173,11.8174C11.8173,5.2908,17.1081,0,23.6346,0c0,0,11.8173,0,11.8173,0v11.8174H11.8173z
-             M70.9038,11.8174V0c0,0-11.8173,0-11.8173,0C52.56,0,47.2692,5.2908,47.2692,11.8174H70.9038z
-             M-0.0001,23.6348v11.8174h11.8173c0,0,0-23.6348,0-23.6348C5.2907,11.8174-0.0001,17.1082-0.0001,23.6348z
-             M23.6346,47.2695c6.5265,0,11.8173-5.2908,11.8173-11.8174H11.8173v11.8174
-             C11.8173,47.2695,23.6346,47.2695,23.6346,47.2695z M47.2692,47.2695V11.8174H35.4519v23.6348
-             C35.4519,41.9787,40.7427,47.2695,47.2692,47.2695z"/>
-        </g>
-      </svg>
-    </div>
-  </div>
-
-</div><!-- /sheet -->
-
-<!-- ── Reference column ─────────────────────────────────────────── -->
-<div class="legend-col">
-  <h3>Title Block Reference</h3>
-
-  <p>Structure follows <b>BS EN ISO 7200:2004</b> and <b>BS EN ISO 19650</b> (BIM information management).</p>
-
-  <div class="note" style="margin-top:10px;">
-    <b>Document Number</b> format<br>
-    <code style="font-size:8.5px;">PROJ – ORG – TYPE – DISC – NNNN</code><br>
-    e.g. RSC‑AKR‑DR‑CI‑0001
-  </div>
-
-  <div class="note">
-    <b>Revision</b><br>
-    P## = Preliminary issue<br>
-    C## = For construction<br>
-    R## = Record / as-built
-  </div>
-
-  <p style="margin-top:12px; font-size:9.5px; font-weight:700; color:#3f32f1;">Purpose of Issue — ISO 19650 Status Codes</p>
-  <table class="poi-table">
-    <tr><th>Code</th><th>Meaning</th></tr>
-    <tr><td>S0</td><td>Work in progress</td></tr>
-    <tr><td>S1</td><td>Suitable for coordination</td></tr>
-    <tr><td>S2</td><td>Suitable for information</td></tr>
-    <tr><td>S3</td><td>Suitable for construction</td></tr>
-    <tr><td>S4</td><td>Suitable for post-occupancy</td></tr>
-    <tr><td>S5</td><td>Archived</td></tr>
-    <tr><td>S6</td><td>Superseded</td></tr>
-  </table>
-
-  <div class="note" style="margin-top:12px;">
-    <b>Brand colour</b> #3f32f1 used for:<br>
-    field labels, revision code, logo, left accent stripe, POI badge.
-  </div>
-
-  <div class="note">
-    All boxes have field label in<br>
-    top-left corner per CAD convention.
-  </div>
-</div>
+</div><!-- /map-sheet -->
 
 </body>
 </html>
