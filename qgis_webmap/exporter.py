@@ -840,6 +840,11 @@ class WebMapExporter:
             ("Approved",   _html_mod.escape(str(_info.get("approved_name", "") or "")),
                            _html_mod.escape(str(_info.get("approved_date", "") or ""))),
         ]
+        _info_doc_number = _html_mod.escape(str(_info.get("doc_number", "") or ""))
+        _info_revision   = _html_mod.escape(str(_info.get("revision",   "") or ""))
+        _info_purpose    = _html_mod.escape(str(_info.get("purpose",    "") or ""))
+        _client_img_path  = str(_info.get("client_img",  "") or "")
+        _project_img_path = str(_info.get("project_img", "") or "")
         _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
 
         leaflet_css, leaflet_js = _get_leaflet_assets()
@@ -889,11 +894,11 @@ class WebMapExporter:
         if _logo_svg is not None:
             with open(_logo_svg, encoding="utf-8") as _f:
                 _svg_src = _f.read().strip()
-            # Wrap in a sized container so height is constrained
             brand_content = (
                 f'<span style="height:22px;display:flex;align-items:center;">'
                 f'{_svg_src}</span>'
             )
+            _cad_logo_html = f'<div class="cad-logo">{_svg_src}</div>'
         elif os.path.exists(_logo_png):
             import base64 as _b64
             with open(_logo_png, "rb") as _f:
@@ -901,6 +906,10 @@ class WebMapExporter:
             brand_content = (
                 f'<img src="data:image/png;base64,{_logo_b64}"'
                 f' alt="AtkinsRéalis" style="height:22px;display:block;">'
+            )
+            _cad_logo_html = (
+                f'<div class="cad-logo"><img src="data:image/png;base64,{_logo_b64}"'
+                f' alt="AtkinsRéalis" class="cad-logo-img"></div>'
             )
         else:
             brand_content = (
@@ -910,6 +919,7 @@ class WebMapExporter:
                 '</svg>'
                 '<span>AtkinsRéalis</span>'
             )
+            _cad_logo_html = '<div class="cad-logo"><span style="font-weight:700;color:#3f32f1;">AtkinsR&#233;alis</span></div>'
         brand_content_json = json.dumps(brand_content).replace("</", "<\\/")
 
         # Pre-build left panel HTML (map info + optional map views section)
@@ -917,27 +927,93 @@ class WebMapExporter:
         if _left_panel_needed:
             _panel_title_html = _info_title if _info_enabled else "Map Views"
             _footer_parts = []
-            _doc_block_html = ""
+            _cad_block_html = ""
             if _info_enabled:
                 if _info_date:
                     _footer_parts.append(f"<span>{_info_date}</span>")
-                # Formal document title block
-                _proj_rows = (
-                    (f'<tr><th>Client</th><td>{_info_client}</td></tr>' if _info_client else "")
-                    + (f'<tr><th>Project</th><td>{_info_project}</td></tr>' if _info_project else "")
+
+                # ── Helper: embed image file as base64 data URI ────────────────
+                def _embed_img(path):
+                    if not path or not os.path.isfile(path):
+                        return None
+                    ext = os.path.splitext(path)[1].lower().lstrip(".")
+                    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                            "png": "image/png", "gif": "image/gif",
+                            "webp": "image/webp"}.get(ext, "image/png")
+                    try:
+                        with open(path, "rb") as _ef:
+                            return "data:{};base64,{}".format(
+                                mime, _b64.b64encode(_ef.read()).decode())
+                    except Exception:
+                        return None
+
+                # ── Client section content ─────────────────────────────────────
+                _client_b64 = _embed_img(_client_img_path)
+                if _client_b64:
+                    _client_inner = f'<img class="cad-img" src="{_client_b64}" alt="Client">'
+                elif _info_client:
+                    _client_inner = f'<div class="cad-value">{_info_client}</div>'
+                else:
+                    _client_inner = '<div class="cad-img-ph">Client</div>'
+
+                # ── Project section content ────────────────────────────────────
+                _project_b64 = _embed_img(_project_img_path)
+                if _project_b64:
+                    _project_inner = f'<img class="cad-img" src="{_project_b64}" alt="Project">'
+                elif _info_project:
+                    _project_inner = f'<div class="cad-value">{_info_project}</div>'
+                else:
+                    _project_inner = '<div class="cad-img-ph">Project</div>'
+
+                # ── Document control rows ──────────────────────────────────────
+                _cad_dc_rows = "".join(
+                    f'<tr><td class="cad-dc-role">{role}</td>'
+                    f'<td class="cad-dc-name">{name}</td>'
+                    f'<td class="cad-dc-date">{date}</td></tr>'
+                    for role, name, date in _doc_control
                 )
-                _dc_rows = "".join(
-                    f'<tr><th>{role}</th><td>{name}</td><td>{date}</td></tr>'
-                    for role, name, date in _doc_control if name or date
+
+                # ── Assemble CAD title block ───────────────────────────────────
+                _rev_poi_html = ""
+                if _info_revision or _info_purpose:
+                    _rev_poi_html = (
+                        '<div class="cad-split">'
+                        f'<div class="cad-section"><div class="cad-label">Revision</div>'
+                        f'<div class="cad-value">{_info_revision or "&nbsp;"}</div></div>'
+                        f'<div class="cad-section"><div class="cad-label">Purpose of Issue</div>'
+                        f'<div class="cad-value">{_info_purpose or "&nbsp;"}</div></div>'
+                        '</div>'
+                    )
+
+                _dc_section_html = ""
+                if _cad_dc_rows:
+                    _dc_section_html = (
+                        '<div class="cad-section">'
+                        '<div class="cad-label">Document Control</div>'
+                        f'<table class="cad-dc-table">{_cad_dc_rows}</table>'
+                        '</div>'
+                    )
+
+                _cad_block_html = (
+                    '<div class="cad-block">'
+                    f'<div class="cad-section"><div class="cad-label">Produced By</div>'
+                    f'{_cad_logo_html}</div>'
+                    f'<div class="cad-section"><div class="cad-label">Client</div>'
+                    f'{_client_inner}</div>'
+                    f'<div class="cad-section"><div class="cad-label">Project</div>'
+                    f'{_project_inner}</div>'
+                    f'<div class="cad-section"><div class="cad-label">Document Name</div>'
+                    f'<div class="cad-value">{_info_title or "&nbsp;"}</div></div>'
+                    + (
+                        f'<div class="cad-section"><div class="cad-label">Document Number</div>'
+                        f'<div class="cad-value">{_info_doc_number}</div></div>'
+                        if _info_doc_number else ""
+                    )
+                    + _rev_poi_html
+                    + _dc_section_html
+                    + '</div>'
                 )
-                if _proj_rows or _dc_rows:
-                    _proj_tbl = f'<table class="doc-proj-table">{_proj_rows}</table>' if _proj_rows else ""
-                    _dc_tbl = (
-                        f'<table class="doc-ctrl-table"><thead><tr>'
-                        f'<th>Role</th><th>Name</th><th>Date</th>'
-                        f'</tr></thead><tbody>{_dc_rows}</tbody></table>'
-                    ) if _dc_rows else ""
-                    _doc_block_html = f'<div class="doc-block">{_proj_tbl}{_dc_tbl}</div>'
+
             _footer_html = (
                 f'<div id="left-panel-footer">{"".join(_footer_parts)}</div>'
                 if _footer_parts else ""
@@ -947,7 +1023,7 @@ class WebMapExporter:
                     f'<div id="left-panel-body">'
                     f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
                     f'<div id="map-views-section"></div>'
-                    f'{_doc_block_html}'
+                    f'{_cad_block_html}'
                     f'</div>'
                     f'{_footer_html}'
                 )
@@ -1337,54 +1413,98 @@ class WebMapExporter:
     flex-direction: column;
     gap: 2px;
   }}
-  /* ── Formal document title block ─────────────────────────────────── */
-  .doc-block {{
-    margin-top: 14px;
-    border-top: 2px solid #003057;
-    padding-top: 10px;
+  /* ── CAD-style title block ────────────────────────────────────────── */
+  .cad-block {{
+    margin-top: 10px;
+    border: 1.5px solid #1a1a1a;
+    font-family: Arial, sans-serif;
   }}
-  .doc-proj-table {{
-    border-collapse: collapse;
-    width: 100%;
-    margin-bottom: 8px;
-    font-size: 11px;
+  .cad-section {{
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
   }}
-  .doc-proj-table th {{
-    text-align: left;
-    width: 58px;
-    color: #003057;
+  .cad-section:last-child {{ border-bottom: none; }}
+  .cad-label {{
+    background: #f0f0f0;
+    padding: 2px 6px;
+    font-size: 7px;
     font-weight: 700;
-    padding: 2px 6px 2px 0;
-    vertical-align: top;
-  }}
-  .doc-proj-table td {{ color: #222; padding: 2px 0; }}
-  .doc-ctrl-table {{
-    border-collapse: collapse;
-    width: 100%;
-    font-size: 11px;
-  }}
-  .doc-ctrl-table th, .doc-ctrl-table td {{
-    padding: 3px 6px;
-    border: 1px solid #c0cad8;
-    text-align: left;
-  }}
-  .doc-ctrl-table thead th {{
-    background: #003057;
-    color: #fff;
-    font-size: 10px;
-    font-weight: 700;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-color: #002144;
+    color: #3f32f1;
+    border-bottom: 1px solid #d0d0d0;
+    line-height: 1.4;
   }}
-  .doc-ctrl-table tbody th {{
-    background: #eef2f8;
-    color: #003057;
+  .cad-value {{
+    padding: 5px 6px 7px 6px;
+    font-size: 11px;
     font-weight: 700;
-    width: 70px;
-    border-color: #c0cad8;
+    color: #1a1a1a;
+    line-height: 1.3;
+    word-break: break-word;
   }}
-  .doc-ctrl-table tbody tr:nth-child(even) td {{ background: #f7f9fc; }}
+  .cad-logo {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 6px;
+  }}
+  .cad-logo svg {{ max-width: 140px; height: auto; max-height: 40px; display: block; }}
+  .cad-logo-img {{ max-width: 140px; max-height: 40px; object-fit: contain; display: block; }}
+  .cad-split {{
+    display: flex;
+    flex-direction: row;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+  }}
+  .cad-split .cad-section {{
+    flex: 1;
+    border-bottom: none;
+    border-right: 1px solid #1a1a1a;
+  }}
+  .cad-split .cad-section:last-child {{ border-right: none; }}
+  .cad-img {{
+    display: block;
+    max-width: calc(100% - 12px);
+    max-height: 56px;
+    object-fit: contain;
+    margin: 4px 6px 8px 6px;
+  }}
+  .cad-img-ph {{
+    margin: 4px 6px 8px 6px;
+    background: #edf0f5;
+    border: 1px dashed #b0b5be;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #b0b5be;
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    height: 40px;
+  }}
+  .cad-dc-table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5px;
+  }}
+  .cad-dc-table td {{
+    padding: 3px 5px;
+    border-bottom: 1px solid #e8e8e8;
+    color: #1a1a1a;
+    vertical-align: middle;
+  }}
+  .cad-dc-table tr:last-child td {{ border-bottom: none; }}
+  .cad-dc-table td.cad-dc-role {{
+    font-weight: 700;
+    color: #333;
+    white-space: nowrap;
+    width: 38%;
+  }}
+  .cad-dc-table td.cad-dc-name {{ color: #666; width: 31%; }}
+  .cad-dc-table td.cad-dc-date {{ color: #666; width: 31%; }}
   /* ── Label SVG overlay ───────────────────────────────────────────── */
   #label-overlay {{
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;

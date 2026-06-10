@@ -97,7 +97,8 @@ class WebMapExportDialog(QDockWidget):
         date_val = s.value(f"{_SETTINGS_KEY}/info_date", "")
         if date_val:
             self.info_date_edit.setText(date_val)
-        for fld in ("info_client", "info_project"):
+        for fld in ("info_client", "info_client_img", "info_project", "info_project_img",
+                    "info_doc_number", "info_revision", "info_purpose"):
             val = s.value(f"{_SETTINGS_KEY}/{fld}", "")
             if val:
                 getattr(self, f"{fld}_edit").setText(val)
@@ -115,7 +116,8 @@ class WebMapExportDialog(QDockWidget):
         s.setValue(f"{_SETTINGS_KEY}/info_title", self.info_title_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/info_text", self.info_text_edit.toPlainText().strip())
         s.setValue(f"{_SETTINGS_KEY}/info_date", self.info_date_edit.text().strip())
-        for fld in ("info_client", "info_project"):
+        for fld in ("info_client", "info_client_img", "info_project", "info_project_img",
+                    "info_doc_number", "info_revision", "info_purpose"):
             s.setValue(f"{_SETTINGS_KEY}/{fld}", getattr(self, f"{fld}_edit").text().strip())
         for role in ("originated", "checked", "reviewed", "approved"):
             for part in ("name", "date"):
@@ -319,6 +321,18 @@ class WebMapExportDialog(QDockWidget):
         self.info_date_edit.setText(datetime.datetime.now().strftime("%d/%m/%Y"))
         info_form.addRow("Date:", self.info_date_edit)
 
+        self.info_doc_number_edit = QLineEdit()
+        self.info_doc_number_edit.setPlaceholderText("Document number…")
+        info_form.addRow("Doc number:", self.info_doc_number_edit)
+
+        self.info_revision_edit = QLineEdit()
+        self.info_revision_edit.setPlaceholderText("e.g. P1.02…")
+        info_form.addRow("Revision:", self.info_revision_edit)
+
+        self.info_purpose_edit = QLineEdit()
+        self.info_purpose_edit.setPlaceholderText("e.g. S2 – Suitable for information…")
+        info_form.addRow("Purpose of issue:", self.info_purpose_edit)
+
         info_layout.addLayout(info_form)
 
         # ── Project / Client ─────────────────────────────────────────────────
@@ -328,9 +342,35 @@ class WebMapExportDialog(QDockWidget):
         self.info_client_edit = QLineEdit()
         self.info_client_edit.setPlaceholderText("Client name…")
         proj_form.addRow("Client:", self.info_client_edit)
+
+        _client_img_w = QWidget()
+        _client_img_l = QHBoxLayout(_client_img_w)
+        _client_img_l.setContentsMargins(0, 0, 0, 0)
+        self.info_client_img_edit = QLineEdit()
+        self.info_client_img_edit.setPlaceholderText("Client image path (optional)…")
+        _client_img_btn = QPushButton("…")
+        _client_img_btn.setFixedWidth(32)
+        _client_img_btn.clicked.connect(lambda: self._browse_image(self.info_client_img_edit))
+        _client_img_l.addWidget(self.info_client_img_edit)
+        _client_img_l.addWidget(_client_img_btn)
+        proj_form.addRow("Client image:", _client_img_w)
+
         self.info_project_edit = QLineEdit()
         self.info_project_edit.setPlaceholderText("Project name / number…")
         proj_form.addRow("Project:", self.info_project_edit)
+
+        _project_img_w = QWidget()
+        _project_img_l = QHBoxLayout(_project_img_w)
+        _project_img_l.setContentsMargins(0, 0, 0, 0)
+        self.info_project_img_edit = QLineEdit()
+        self.info_project_img_edit.setPlaceholderText("Project image path (optional)…")
+        _project_img_btn = QPushButton("…")
+        _project_img_btn.setFixedWidth(32)
+        _project_img_btn.clicked.connect(lambda: self._browse_image(self.info_project_img_edit))
+        _project_img_l.addWidget(self.info_project_img_edit)
+        _project_img_l.addWidget(_project_img_btn)
+        proj_form.addRow("Project image:", _project_img_w)
+
         info_layout.addWidget(proj_group)
 
         # ── Document control block ───────────────────────────────────────────
@@ -449,8 +489,13 @@ class WebMapExportDialog(QDockWidget):
             "title": self.info_title_edit.text().strip(),
             "text": self.info_text_edit.toPlainText().strip(),
             "date": self.info_date_edit.text().strip(),
+            "doc_number": self.info_doc_number_edit.text().strip(),
+            "revision": self.info_revision_edit.text().strip(),
+            "purpose": self.info_purpose_edit.text().strip(),
             "client": self.info_client_edit.text().strip(),
+            "client_img": self.info_client_img_edit.text().strip(),
             "project": self.info_project_edit.text().strip(),
+            "project_img": self.info_project_img_edit.text().strip(),
         }
         for role in ("originated", "checked", "reviewed", "approved"):
             for part in ("name", "date"):
@@ -488,8 +533,13 @@ class WebMapExportDialog(QDockWidget):
         self.info_title_edit.setText(info.get("title", ""))
         self.info_text_edit.setPlainText(info.get("text", ""))
         self.info_date_edit.setText(info.get("date", ""))
+        self.info_doc_number_edit.setText(info.get("doc_number", ""))
+        self.info_revision_edit.setText(info.get("revision", ""))
+        self.info_purpose_edit.setText(info.get("purpose", ""))
         self.info_client_edit.setText(info.get("client", ""))
+        self.info_client_img_edit.setText(info.get("client_img", ""))
         self.info_project_edit.setText(info.get("project", ""))
+        self.info_project_img_edit.setText(info.get("project_img", ""))
         for role in ("originated", "checked", "reviewed", "approved"):
             for part in ("name", "date"):
                 getattr(self, f"info_{role}_{part}_edit").setText(info.get(f"{role}_{part}", ""))
@@ -909,6 +959,14 @@ class WebMapExportDialog(QDockWidget):
 
     # ── Browse / Export ───────────────────────────────────────────────────────
 
+    def _browse_image(self, target_edit):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select image", "",
+            "Images (*.png *.jpg *.jpeg *.gif *.webp);;All files (*)"
+        )
+        if path:
+            target_edit.setText(path)
+
     def _browse(self):
         current = self.path_edit.text().strip()
         start_dir = os.path.dirname(current) if current else ""
@@ -978,8 +1036,13 @@ class WebMapExportDialog(QDockWidget):
                     "title": self.info_title_edit.text().strip(),
                     "text": self.info_text_edit.toPlainText().strip(),
                     "date": self.info_date_edit.text().strip(),
+                    "doc_number": self.info_doc_number_edit.text().strip(),
+                    "revision": self.info_revision_edit.text().strip(),
+                    "purpose": self.info_purpose_edit.text().strip(),
                     "client": self.info_client_edit.text().strip(),
+                    "client_img": self.info_client_img_edit.text().strip(),
                     "project": self.info_project_edit.text().strip(),
+                    "project_img": self.info_project_img_edit.text().strip(),
                     "originated_name": self.info_originated_name_edit.text().strip(),
                     "originated_date": self.info_originated_date_edit.text().strip(),
                     "checked_name": self.info_checked_name_edit.text().strip(),
