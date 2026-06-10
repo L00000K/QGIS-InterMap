@@ -1097,8 +1097,8 @@ class WebMapExporter:
     align-items: center;
     justify-content: space-between;
     padding: 7px 10px 6px;
-    background: #003057;
-    border-bottom: 1px solid #002144;
+    background: #3f32f1;
+    border-bottom: 1px solid #2b22c0;
     cursor: default;
     user-select: none;
     border-radius: 6px 6px 0 0;
@@ -1131,7 +1131,7 @@ class WebMapExporter:
     user-select: none;
     transition: background 0.1s;
   }}
-  .legend-layer-row:hover {{ background: #e8f0f7; }}
+  .legend-layer-row:hover {{ background: #ede9fe; }}
   .legend-layer-row input[type=checkbox] {{
     margin: 0;
     cursor: pointer;
@@ -1189,8 +1189,8 @@ class WebMapExporter:
     border-top: 1px solid #eee;
   }}
   .legend-group-hdr input[type=checkbox] {{ margin: 0; cursor: pointer; flex-shrink: 0; }}
-  .legend-group-hdr:hover {{ background: #e8f0f7; }}
-  .legend-group-name {{ font-size: 12px; font-weight: 600; color: #003057; }}
+  .legend-group-hdr:hover {{ background: #ede9fe; }}
+  .legend-group-name {{ font-size: 12px; font-weight: 600; color: #3f32f1; }}
   .legend-group-body {{ padding-left: 8px; }}
   .legend-group-body:not(.open) {{ display: none; }}
 
@@ -1208,7 +1208,7 @@ class WebMapExporter:
     align-items: center;
   }}
   .legend-cog-btn:hover {{ color: #444; background: #e8e8e8; }}
-  .legend-cog-btn.active {{ color: #003057; background: #d0e5f0; }}
+  .legend-cog-btn.active {{ color: #3f32f1; background: #d5cffc; }}
 
   /* ── Per-layer settings panel ─────────────────────────────────── */
   .layer-settings {{
@@ -1273,7 +1273,7 @@ class WebMapExporter:
     background: #fff;
     cursor: pointer;
   }}
-  #filterbar button:hover {{ background: #e8f0f7; }}
+  #filterbar button:hover {{ background: #ede9fe; }}
   #filter-values-wrap {{ position: relative; }}
   #filter-values-btn {{
     min-width: 140px;
@@ -1360,13 +1360,13 @@ class WebMapExporter:
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
-    color: #003057;
+    color: #3f32f1;
     line-height: 1;
   }}
 
   /* ── Left info / scenes panel ─────────────────────────────────── */
   #left-panel-hdr {{
-    background: #003057;
+    background: #3f32f1;
     padding: 12px 14px 10px;
     display: flex;
     align-items: flex-start;
@@ -1519,10 +1519,10 @@ class WebMapExporter:
     transition: background 0.12s;
   }}
   .mv-item:last-child {{ border-bottom: none; }}
-  .mv-item:hover {{ background: #f0f4f8; border-left-color: #ccd8e4; }}
-  .mv-item.active {{ background: #e8f0f7; border-left-color: #003057; }}
+  .mv-item:hover {{ background: #f4f3fe; border-left-color: #c9c3f9; }}
+  .mv-item.active {{ background: #ede9fe; border-left-color: #3f32f1; }}
   .mv-item-name {{
-    font-size: 12px; font-weight: 600; color: #003057; line-height: 1.3;
+    font-size: 12px; font-weight: 600; color: #3f32f1; line-height: 1.3;
   }}
   .mv-item-notes {{ font-size: 11px; color: #666; margin-top: 2px; line-height: 1.35; }}
   /* ── Help overlay ───────────────────────────────────────────────── */
@@ -1544,9 +1544,9 @@ class WebMapExporter:
     border: 6px solid transparent;
     border-right-color: #fff; border-left-width: 0;
   }}
-  .help-tip-name {{ font-size: 12px; font-weight: 700; color: #003057; margin-bottom: 3px; }}
+  .help-tip-name {{ font-size: 12px; font-weight: 700; color: #3f32f1; margin-bottom: 3px; }}
   .help-tip-text {{ font-size: 11px; color: #444; line-height: 1.45; }}
-  .help-btn-active {{ background: #003057 !important; color: #fff !important; }}
+  .help-btn-active {{ background: #3f32f1 !important; color: #fff !important; }}
 
   .map-info-toggle {{
     width: 30px; height: 30px;
@@ -1557,7 +1557,7 @@ class WebMapExporter:
     font-size: 16px; font-weight: bold; color: #444;
     padding: 0;
   }}
-  .map-info-toggle:hover {{ background: #e8f0f7; color: #003057; }}
+  .map-info-toggle:hover {{ background: #ede9fe; color: #3f32f1; }}
 
   /* ── Feature info panel */
   #info-panel {{
@@ -1588,8 +1588,8 @@ class WebMapExporter:
   }}
   .info-list-pane .mf-item .mf-swatch {{ flex-shrink: 0; line-height: 0; }}
   .info-list-pane .mf-item .mf-text {{ flex: 1; min-width: 0; }}
-  .info-list-pane .mf-item:hover {{ background: #e8f0f7; }}
-  .info-list-pane .mf-item.active {{ background: #003057; }}
+  .info-list-pane .mf-item:hover {{ background: #ede9fe; }}
+  .info-list-pane .mf-item.active {{ background: #3f32f1; }}
   .info-list-pane .mf-item.active .mf-feature-name {{ color: #fff; }}
   .info-list-pane .mf-item.active .mf-layer-name {{ color: rgba(255,255,255,0.65); }}
   .info-list-pane .mf-item.active .mf-swatch svg {{ opacity: 0.85; }}
@@ -1605,8 +1605,8 @@ class WebMapExporter:
   .info-detail-pane td {{ padding: 2px 0; word-break: break-word; color: #222; }}
   #info-panel-hdr {{
     display: flex; align-items: center; justify-content: space-between;
-    padding: 7px 10px 6px; background: #003057;
-    border-bottom: 1px solid #002144; border-radius: 6px 6px 0 0;
+    padding: 7px 10px 6px; background: #3f32f1;
+    border-bottom: 1px solid #2b22c0; border-radius: 6px 6px 0 0;
     user-select: none;
   }}
   #info-panel-hdr span {{ font-weight: bold; font-size: 13px; color: #fff; }}
@@ -1630,7 +1630,7 @@ class WebMapExporter:
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
   }}
-  .mf-item:hover {{ background: #e8f0f7; }}
+  .mf-item:hover {{ background: #ede9fe; }}
   .mf-feature-name {{ font-size: 12px; color: #222; font-weight: 600; }}
   .mf-layer-name {{ font-size: 10px; color: #888; margin-top: 1px; }}
   .mf-layer {{ font-size: 12px; color: #333; }}
@@ -1641,11 +1641,11 @@ class WebMapExporter:
     border: 2px dashed #3388ff; background: rgba(51,136,255,0.08); z-index: 999;
   }}
   /* ── Drag-select toolbar button active state */
-  .select-btn-active {{ background: #003057 !important; color: #fff !important; }}
+  .select-btn-active {{ background: #3f32f1 !important; color: #fff !important; }}
   /* ── Attr table selection badge */
   #attr-select-badge {{
     display: none; font-size: 11px; padding: 2px 7px;
-    background: #003057; color: #fff; border-radius: 10px; white-space: nowrap;
+    background: #3f32f1; color: #fff; border-radius: 10px; white-space: nowrap;
   }}
   #attr-select-clear {{
     display: none; font-size: 11px; padding: 2px 7px; cursor: pointer;
@@ -1653,11 +1653,11 @@ class WebMapExporter:
   }}
   #attr-select-clear:hover {{ background: #eee; }}
   .mf-back {{
-    display: block; width: 100%; background: #e8f0f7; border: none;
+    display: block; width: 100%; background: #ede9fe; border: none;
     border-bottom: 1px solid #d0dde8; padding: 5px 12px; text-align: left;
-    cursor: pointer; font-size: 11px; color: #003057; margin-bottom: 4px;
+    cursor: pointer; font-size: 11px; color: #3f32f1; margin-bottom: 4px;
   }}
-  .mf-back:hover {{ background: #d0e5f0; }}
+  .mf-back:hover {{ background: #d5cffc; }}
 
   /* ── Attribute table panel */
   #attr-table-panel {{
@@ -1667,7 +1667,7 @@ class WebMapExporter:
     height: 240px;
     z-index: 1002;
     background: #fff;
-    border-top: 2px solid #003057;
+    border-top: 2px solid #3f32f1;
     flex-direction: column;
     overflow: hidden;
   }}
@@ -1675,7 +1675,7 @@ class WebMapExporter:
   #attr-table-hdr {{
     display: flex; align-items: center; gap: 8px;
     padding: 5px 10px;
-    background: #003057; border-bottom: 1px solid #002144;
+    background: #3f32f1; border-bottom: 1px solid #2b22c0;
     flex-shrink: 0;
   }}
   #attr-table-hdr span {{ font-weight: bold; font-size: 13px; color: #fff; }}
@@ -1693,11 +1693,11 @@ class WebMapExporter:
   }}
   #attr-table-body th {{
     position: sticky; top: 0;
-    background: #e8f0f7; border-bottom: 2px solid #003057;
+    background: #ede9fe; border-bottom: 2px solid #3f32f1;
     padding: 4px 8px; text-align: left;
-    cursor: pointer; user-select: none; white-space: nowrap; color: #003057;
+    cursor: pointer; user-select: none; white-space: nowrap; color: #3f32f1;
   }}
-  #attr-table-body th:hover {{ background: #d0e5f0; }}
+  #attr-table-body th:hover {{ background: #d5cffc; }}
   #attr-table-body th.sort-asc::after  {{ content: ' ▲'; font-size: 9px; }}
   #attr-table-body th.sort-desc::after {{ content: ' ▼'; font-size: 9px; }}
   #attr-table-body td {{
@@ -1705,7 +1705,7 @@ class WebMapExporter:
     white-space: nowrap; max-width: 200px;
     overflow: hidden; text-overflow: ellipsis;
   }}
-  #attr-table-body tr:hover td {{ background: #e8f0f7; cursor: pointer; }}
+  #attr-table-body tr:hover td {{ background: #ede9fe; cursor: pointer; }}
   #attr-table-body tr.selected td {{ background: #c0d9ec; }}
 
   /* ── Attribute table search & export ─────────────────────────── */
