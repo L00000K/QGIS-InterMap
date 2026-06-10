@@ -686,6 +686,18 @@ class WebMapExporter:
         _info_text = _html_mod.escape(str(_info.get("text", "") or ""))
         _info_originator = _html_mod.escape(str(_info.get("originator", "") or ""))
         _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
+        _info_client = _html_mod.escape(str(_info.get("client", "") or ""))
+        _info_project = _html_mod.escape(str(_info.get("project", "") or ""))
+        _doc_control = [
+            ("Originated", _html_mod.escape(str(_info.get("originated_name", "") or "")),
+                           _html_mod.escape(str(_info.get("originated_date", "") or ""))),
+            ("Checked",    _html_mod.escape(str(_info.get("checked_name", "") or "")),
+                           _html_mod.escape(str(_info.get("checked_date", "") or ""))),
+            ("Reviewed",   _html_mod.escape(str(_info.get("reviewed_name", "") or "")),
+                           _html_mod.escape(str(_info.get("reviewed_date", "") or ""))),
+            ("Approved",   _html_mod.escape(str(_info.get("approved_name", "") or "")),
+                           _html_mod.escape(str(_info.get("approved_date", "") or ""))),
+        ]
         _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
 
         leaflet_css, leaflet_js = _get_leaflet_assets()
@@ -763,17 +775,38 @@ class WebMapExporter:
         if _left_panel_needed:
             _panel_title_html = _info_title if _info_enabled else "Scenes"
             _footer_parts = []
+            _doc_block_html = ""
             if _info_enabled:
                 if _info_originator:
                     _footer_parts.append(f"<span>{_info_originator}</span>")
                 if _info_date:
                     _footer_parts.append(f"<span>{_info_date}</span>")
+                # Formal document title block
+                _proj_rows = (
+                    (f'<tr><th>Client</th><td>{_info_client}</td></tr>' if _info_client else "")
+                    + (f'<tr><th>Project</th><td>{_info_project}</td></tr>' if _info_project else "")
+                )
+                _dc_rows = "".join(
+                    f'<tr><th>{role}</th><td>{name}</td><td>{date}</td></tr>'
+                    for role, name, date in _doc_control if name or date
+                )
+                if _proj_rows or _dc_rows:
+                    _proj_tbl = f'<table class="doc-proj-table">{_proj_rows}</table>' if _proj_rows else ""
+                    _dc_tbl = (
+                        f'<table class="doc-ctrl-table"><thead><tr>'
+                        f'<th>Role</th><th>Name</th><th>Date</th>'
+                        f'</tr></thead><tbody>{_dc_rows}</tbody></table>'
+                    ) if _dc_rows else ""
+                    _doc_block_html = f'<div class="doc-block">{_proj_tbl}{_dc_tbl}</div>'
             _footer_html = (
                 f'<div id="left-panel-footer">{"".join(_footer_parts)}</div>'
                 if _footer_parts else ""
             )
             _body_html = (
-                f'<div id="left-panel-body">{_info_text or "&nbsp;"}</div>'
+                f'<div id="left-panel-body">'
+                f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
+                f'{_doc_block_html}'
+                f'</div>'
                 f'{_footer_html}'
             ) if _info_enabled else ""
             left_panel_html = (
@@ -918,6 +951,13 @@ class WebMapExporter:
     overflow: hidden;
     text-overflow: ellipsis;
   }}
+  .legend-entry input[type=checkbox] {{
+    margin: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+  }}
+  .legend-entry.class-hidden .legend-entry-label,
+  .legend-entry.class-hidden .legend-swatch {{ opacity: 0.35; }}
   .legend-swatch svg {{ display: block; }}
   .legend-layer.hidden .legend-layer-name {{ opacity: 0.45; }}
   .qgis-marker {{ background: none; border: none; }}
@@ -1155,6 +1195,59 @@ class WebMapExporter:
     flex-direction: column;
     gap: 2px;
   }}
+  /* ── Formal document title block ─────────────────────────────────── */
+  .doc-block {{
+    margin-top: 14px;
+    border-top: 2px solid #003057;
+    padding-top: 10px;
+  }}
+  .doc-proj-table {{
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 8px;
+    font-size: 11px;
+  }}
+  .doc-proj-table th {{
+    text-align: left;
+    width: 58px;
+    color: #003057;
+    font-weight: 700;
+    padding: 2px 6px 2px 0;
+    vertical-align: top;
+  }}
+  .doc-proj-table td {{ color: #222; padding: 2px 0; }}
+  .doc-ctrl-table {{
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 11px;
+  }}
+  .doc-ctrl-table th, .doc-ctrl-table td {{
+    padding: 3px 6px;
+    border: 1px solid #c0cad8;
+    text-align: left;
+  }}
+  .doc-ctrl-table thead th {{
+    background: #003057;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-color: #002144;
+  }}
+  .doc-ctrl-table tbody th {{
+    background: #eef2f8;
+    color: #003057;
+    font-weight: 700;
+    width: 70px;
+    border-color: #c0cad8;
+  }}
+  .doc-ctrl-table tbody tr:nth-child(even) td {{ background: #f7f9fc; }}
+  /* ── Label SVG overlay ───────────────────────────────────────────── */
+  #label-overlay {{
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; z-index: 850; overflow: hidden;
+  }}
   #scenes-section {{
     border-top: 1px solid #e5e5e5;
     padding: 10px 14px;
@@ -1206,6 +1299,30 @@ class WebMapExporter:
     overflow: hidden;
   }}
   #info-panel.open {{ display: flex; }}
+  #info-panel.split {{ min-width: 380px; max-width: 520px; }}
+  #info-panel.split #info-panel-body {{ padding: 0; overflow: hidden; display: flex; flex: 1; min-height: 0; }}
+  .info-split {{ display: flex; flex: 1; overflow: hidden; min-height: 0; }}
+  .info-list-pane {{
+    width: 150px; flex-shrink: 0; border-right: 1px solid #ddd;
+    overflow-y: auto; background: #f7f9fb;
+  }}
+  .info-list-pane .mf-item {{
+    border-bottom: 1px solid #eee; padding: 7px 10px; cursor: pointer; user-select: none;
+  }}
+  .info-list-pane .mf-item:hover {{ background: #e8f0f7; }}
+  .info-list-pane .mf-item.active {{ background: #003057; }}
+  .info-list-pane .mf-item.active .mf-feature-name {{ color: #fff; }}
+  .info-list-pane .mf-item.active .mf-layer-name {{ color: rgba(255,255,255,0.65); }}
+  .info-detail-pane {{
+    flex: 1; overflow-y: auto; padding: 8px 12px;
+    font-size: 12px; color: #666; min-width: 0;
+  }}
+  .info-detail-pane table {{ border-collapse: collapse; width: 100%; }}
+  .info-detail-pane th {{
+    text-align: left; padding: 2px 8px 2px 0;
+    color: #555; font-weight: 600; white-space: nowrap; vertical-align: top;
+  }}
+  .info-detail-pane td {{ padding: 2px 0; word-break: break-word; color: #222; }}
   #info-panel-hdr {{
     display: flex; align-items: center; justify-content: space-between;
     padding: 7px 10px 6px; background: #003057;
@@ -1234,8 +1351,27 @@ class WebMapExporter:
     padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
   }}
   .mf-item:hover {{ background: #e8f0f7; }}
+  .mf-feature-name {{ font-size: 12px; color: #222; font-weight: 600; }}
+  .mf-layer-name {{ font-size: 10px; color: #888; margin-top: 1px; }}
   .mf-layer {{ font-size: 12px; color: #333; }}
-  .mf-arrow {{ color: #aaa; font-size: 16px; }}
+  .mf-arrow {{ color: #aaa; font-size: 16px; flex-shrink: 0; }}
+  /* ── Drag-select rubber-band rectangle */
+  #select-rect {{
+    position: absolute; pointer-events: none; display: none;
+    border: 2px dashed #3388ff; background: rgba(51,136,255,0.08); z-index: 999;
+  }}
+  /* ── Drag-select toolbar button active state */
+  .select-btn-active {{ background: #003057 !important; color: #fff !important; }}
+  /* ── Attr table selection badge */
+  #attr-select-badge {{
+    display: none; font-size: 11px; padding: 2px 7px;
+    background: #003057; color: #fff; border-radius: 10px; white-space: nowrap;
+  }}
+  #attr-select-clear {{
+    display: none; font-size: 11px; padding: 2px 7px; cursor: pointer;
+    border: 1px solid #ccc; border-radius: 3px; background: #fff;
+  }}
+  #attr-select-clear:hover {{ background: #eee; }}
   .mf-back {{
     display: block; width: 100%; background: #e8f0f7; border: none;
     border-bottom: 1px solid #d0dde8; padding: 5px 12px; text-align: left;
@@ -1321,6 +1457,8 @@ class WebMapExporter:
 {left_panel_html}
 <div id="map-wrap">
 <div id="map"></div>
+<div id="select-rect"></div>
+<div id="label-overlay"><svg id="label-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;"></svg></div>
 <div id="filterbar" style="display:none">
   <label>Filter</label>
   <select id="filter-layer" title="Layer"></select>
@@ -1347,6 +1485,8 @@ class WebMapExporter:
   <div id="attr-table-hdr">
     <span>Attribute Table</span>
     <select id="attr-table-layer"></select>
+    <span id="attr-select-badge"></span>
+    <button id="attr-select-clear" title="Clear selection">&#10005; Clear</button>
     <input id="attr-table-search" type="text" placeholder="Search…" autocomplete="off">
     <button id="attr-table-csv" title="Export CSV">&#8595; CSV</button>
     <button id="attr-table-close" title="Close">&#10005;</button>
@@ -1574,6 +1714,29 @@ class WebMapExporter:
     return {{}};
   }}
 
+  function resolveEntryIndex(styleMap, props) {{
+    var t = styleMap.type;
+    if (t === 'categorized') {{
+      var propVal = props[styleMap.field];
+      var val = (propVal == null) ? null : String(propVal);
+      for (var i = 0; i < styleMap.entries.length; i++) {{
+        var ev = styleMap.entries[i].value;
+        var entVal = (ev == null) ? null : String(ev);
+        if (entVal === val) return i;
+      }}
+      return -1;
+    }}
+    if (t === 'graduated') {{
+      var v = parseFloat(props[styleMap.field]);
+      for (var i = 0; i < styleMap.entries.length; i++) {{
+        var e = styleMap.entries[i];
+        if (v >= e.min && v <= e.max) return i;
+      }}
+      return -1;
+    }}
+    return -1;
+  }}
+
   function leafletPathStyle(s) {{
     return {{
       color: s.color || '#3388ff',
@@ -1628,7 +1791,12 @@ class WebMapExporter:
       pane: item.paneName,
       onEachFeature: onEachFeature,
       filter: function(feature) {{
-        return item.filterFn ? item.filterFn(feature) : true;
+        if (item.filterFn && !item.filterFn(feature)) return false;
+        if (item.hiddenClasses && item.hiddenClasses.length) {{
+          var idx = resolveEntryIndex(item.ld.styleMap, feature.properties || {{}});
+          if (item.hiddenClasses.indexOf(idx) !== -1) return false;
+        }}
+        return true;
       }}
     }};
     if (ld.geomType === 'point') {{
@@ -1703,15 +1871,19 @@ class WebMapExporter:
       .map(function(e) {{
         return '<tr><th>'+escHtml(e[0])+'</th><td>'+escHtml(String(e[1]))+'</td></tr>';
       }}).join('');
-    if (rows) layer._infoHtml = '<table>'+rows+'</table>';
+    if (rows) {{
+      layer._infoHtml = '<table>'+rows+'</table>';
+      layer._feature = feature;
+    }}
   }}
 
   // Build Leaflet layers and collect metadata for legend.
   // Each layer gets a dedicated map pane so its opacity can be controlled
   // uniformly (works for vector markers, paths, rasters and WMS alike).
   var legendItems = [];
-  // Declared here so buildLabels (called inside the loop below) can access it.
   var _allLabelItems = [];
+  var _labelPlacementMode = 'candidate';
+  var _labelSvg = document.getElementById('label-svg');
   for (var i = 0; i < LAYERS.length; i++) {{
     var paneName = 'layerPane' + i;
     map.createPane(paneName);
@@ -1725,7 +1897,7 @@ class WebMapExporter:
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
       visible: true, labelsVisible: false, filterFn: null, lfl: null, index: i,
-      clusterEnabled: false
+      clusterEnabled: false, hiddenClasses: []
     }};
     try {{
       item.lfl = buildLayer(item);
@@ -1745,6 +1917,7 @@ class WebMapExporter:
   var infoPanelBody = document.getElementById('info-panel-body');
   document.getElementById('info-panel-close').addEventListener('click', function() {{
     infoPanel.classList.remove('open');
+    infoPanel.classList.remove('split');
   }});
   var InfoBtn = L.Control.extend({{
     onAdd: function() {{
@@ -1777,10 +1950,31 @@ class WebMapExporter:
   }});
   new AttrTableBtn({{position: 'topleft'}}).addTo(map);
 
+  // ── Drag-select button ────────────────────────────────────────────────────
+  var _selectMode = false;
+  var SelectBtn = L.Control.extend({{
+    onAdd: function() {{
+      var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+      btn.title = 'Drag to select features';
+      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;font-size:16px;cursor:pointer;background:white;border-radius:4px;';
+      btn.innerHTML = '&#x2B1A;';
+      L.DomEvent.disableClickPropagation(btn);
+      L.DomEvent.on(btn, 'click', function() {{
+        _selectMode = !_selectMode;
+        btn.classList.toggle('select-btn-active', _selectMode);
+        map.getContainer().style.cursor = _selectMode ? 'crosshair' : '';
+        if (!_selectMode) selectRect.style.display = 'none';
+      }});
+      return btn;
+    }}
+  }});
+  new SelectBtn({{position: 'topleft'}}).addTo(map);
+
   var attrTablePanel = document.getElementById('attr-table-panel');
   var attrTableLayer = document.getElementById('attr-table-layer');
   var attrTableBody  = document.getElementById('attr-table-body');
   var attrTableSearch = document.getElementById('attr-table-search');
+  var _attrSelectSet = null;
 
   var _highlightLayer = null;
   function highlightFeatureOnMap(feat) {{
@@ -1799,6 +1993,11 @@ class WebMapExporter:
   document.getElementById('attr-table-close').addEventListener('click', function() {{
     attrTablePanel.classList.remove('open');
     if (_highlightLayer) {{ map.removeLayer(_highlightLayer); _highlightLayer = null; }}
+  }});
+
+  document.getElementById('attr-select-clear').addEventListener('click', function() {{
+    _attrSelectSet = null;
+    populateAttrTable();
   }});
 
   document.getElementById('attr-table-csv').addEventListener('click', function() {{
@@ -1845,18 +2044,28 @@ class WebMapExporter:
     var feats = item.ld.geojson.features;
     if (!feats || !feats.length) {{ attrTableBody.innerHTML = '<p style="padding:8px;color:#888">No features.</p>'; return; }}
 
-    // Collect columns
+    // Apply drag-select filter: build {fi, f} pairs preserving original indices
+    var pairs = feats.map(function(f, fi) {{ return {{fi: fi, f: f}}; }});
+    if (_attrSelectSet !== null) pairs = pairs.filter(function(p) {{ return _attrSelectSet.indexOf(p.fi) !== -1; }});
+
+    // Update selection badge
+    var badge = document.getElementById('attr-select-badge');
+    var clearBtn = document.getElementById('attr-select-clear');
+    if (badge) {{ badge.textContent = _attrSelectSet !== null ? pairs.length + ' selected' : ''; badge.style.display = _attrSelectSet !== null ? '' : 'none'; }}
+    if (clearBtn) clearBtn.style.display = _attrSelectSet !== null ? '' : 'none';
+
+    // Collect columns from first 100 filtered features
     var cols = [], seen = {{}};
-    for (var i = 0; i < Math.min(feats.length, 100); i++) {{
-      var p = feats[i].properties || {{}};
+    for (var i = 0; i < Math.min(pairs.length, 100); i++) {{
+      var p = pairs[i].f.properties || {{}};
       Object.keys(p).forEach(function(k) {{ if (!(k in seen)) {{ seen[k]=1; cols.push(k); }} }});
     }}
 
-    // Build and sort data rows
-    var rows = feats.map(function(f) {{ return f.properties || {{}}; }});
+    // Sort pairs preserving original feature index
+    var sorted = pairs.slice();
     if (_attrSortCol !== null && cols.indexOf(_attrSortCol) !== -1) {{
-      rows = rows.slice().sort(function(a,b) {{
-        var va = a[_attrSortCol], vb = b[_attrSortCol];
+      sorted.sort(function(a, b) {{
+        var va = (a.f.properties || {{}})[_attrSortCol], vb = (b.f.properties || {{}})[_attrSortCol];
         var na = parseFloat(va), nb = parseFloat(vb);
         var cmp = (!isNaN(na) && !isNaN(nb)) ? (na-nb) : (String(va) < String(vb) ? -1 : String(va) > String(vb) ? 1 : 0);
         return _attrSortAsc ? cmp : -cmp;
@@ -1869,8 +2078,9 @@ class WebMapExporter:
       html += '<th class="'+cls+'" data-col="'+escHtml(c)+'">'+escHtml(c)+'</th>';
     }});
     html += '</tr></thead><tbody>';
-    rows.forEach(function(p, ri) {{
-      html += '<tr data-fi="'+ri+'">';
+    sorted.forEach(function(pair) {{
+      var p = pair.f.properties || {{}};
+      html += '<tr data-fi="'+pair.fi+'">';
       cols.forEach(function(c) {{
         var v = p[c]; html += '<td title="'+(v!=null?escHtml(String(v)):'')+'">'+escHtml(v!=null?String(v):'')+'</td>';
       }});
@@ -1889,15 +2099,14 @@ class WebMapExporter:
       }});
     }});
 
-    // Click row → show in info panel + zoom/pan
+    // Click row → show in info panel + highlight on map
     attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {{
       tr.addEventListener('click', function() {{
         attrTableBody.querySelectorAll('tr.selected').forEach(function(r){{ r.classList.remove('selected'); }});
         tr.classList.add('selected');
-        var fi = parseInt(tr.getAttribute('data-fi'),10);
+        var fi = parseInt(tr.getAttribute('data-fi'), 10);
         var feat = feats[fi];
         if (!feat) return;
-        // Show in info panel
         if (feat.properties) {{
           var rws = Object.entries(feat.properties)
             .filter(function(e){{ return e[1]!=null; }})
@@ -1905,7 +2114,6 @@ class WebMapExporter:
           infoPanelBody.innerHTML = '<table>'+rws+'</table>';
           infoPanel.classList.add('open');
         }}
-        // Highlight + pan/zoom to feature
         highlightFeatureOnMap(feat);
         if (feat.geometry) {{
           try {{
@@ -2027,9 +2235,31 @@ class WebMapExporter:
 
         entriesDiv = document.createElement('div');
         entriesDiv.className = 'legend-entries';
-        sm.entries.forEach(function(entry) {{
+        var classTogglable = sm.type === 'categorized' || sm.type === 'graduated';
+        sm.entries.forEach(function(entry, ei) {{
           var eRow = document.createElement('div');
           eRow.className = 'legend-entry';
+          if (classTogglable) {{
+            var eCb = document.createElement('input');
+            eCb.type = 'checkbox';
+            eCb.checked = true;
+            eCb.title = 'Toggle this class';
+            (function(entryIndex, row) {{
+              eCb.addEventListener('change', function() {{
+                if (!eCb.checked) {{
+                  if (item.hiddenClasses.indexOf(entryIndex) === -1)
+                    item.hiddenClasses.push(entryIndex);
+                  row.classList.add('class-hidden');
+                }} else {{
+                  var pos = item.hiddenClasses.indexOf(entryIndex);
+                  if (pos !== -1) item.hiddenClasses.splice(pos, 1);
+                  row.classList.remove('class-hidden');
+                }}
+                rebuildLayer(item);
+              }});
+            }})(ei, eRow);
+            eRow.appendChild(eCb);
+          }}
           var eSwatch = document.createElement('span');
           eSwatch.className = 'legend-swatch';
           eSwatch.innerHTML = swatchSvg(geomType, entry.style || {{}});
@@ -2081,6 +2311,31 @@ class WebMapExporter:
         lblRow.appendChild(lblLbl);
         lblRow.appendChild(lblCb);
         settingsDiv.appendChild(lblRow);
+
+        // Label placement mode selector (global — applies to all label layers)
+        var modeRow = document.createElement('div');
+        modeRow.className = 'layer-settings-row';
+        var modeLbl = document.createElement('span');
+        modeLbl.className = 'layer-settings-label';
+        modeLbl.textContent = 'Placement';
+        var modeSel = document.createElement('select');
+        modeSel.className = 'label-mode-sel';
+        modeSel.style.cssText = 'font-size:11px;flex:1;border:1px solid #ccc;border-radius:2px;padding:1px 3px;';
+        modeSel.title = 'Label placement algorithm — applies to all label layers';
+        [['candidate','Candidate (fast)'],['force','Force (smooth)']].forEach(function(opt) {{
+          var o = document.createElement('option');
+          o.value = opt[0]; o.textContent = opt[1];
+          if (opt[0] === _labelPlacementMode) o.selected = true;
+          modeSel.appendChild(o);
+        }});
+        modeSel.addEventListener('change', function() {{
+          _labelPlacementMode = modeSel.value;
+          document.querySelectorAll('.label-mode-sel').forEach(function(s) {{ s.value = _labelPlacementMode; }});
+          layoutAllLabels();
+        }});
+        modeRow.appendChild(modeLbl);
+        modeRow.appendChild(modeSel);
+        settingsDiv.appendChild(modeRow);
       }}
 
       // Cluster row (point vector layers only)
@@ -2225,8 +2480,74 @@ class WebMapExporter:
     }})();  // end basemap legend entry
   }} }} catch(legendErr) {{ console.error('Legend build failed:', legendErr); }}
 
-  // ── Map-level click handler (multi-feature stacked points) ───────────────
+  // ── Map-level click + drag-select ────────────────────────────────────────
+  var selectRect = document.getElementById('select-rect');
+  var _dragStart = null, _dragRx, _dragRy, _dragRw, _dragRh;
+
+  map.getContainer().addEventListener('mousedown', function(e) {{
+    if (!_selectMode || e.button !== 0) return;
+    e.preventDefault();
+    map.dragging.disable();
+    var rc = map.getContainer().getBoundingClientRect();
+    _dragStart = {{x: e.clientX - rc.left, y: e.clientY - rc.top}};
+    selectRect.style.cssText += ';left:'+_dragStart.x+'px;top:'+_dragStart.y+'px;width:0;height:0;display:block';
+  }});
+
+  document.addEventListener('mousemove', function(e) {{
+    if (!_selectMode || !_dragStart) return;
+    var rc = map.getContainer().getBoundingClientRect();
+    var cx = e.clientX - rc.left, cy = e.clientY - rc.top;
+    _dragRx = Math.min(_dragStart.x, cx); _dragRy = Math.min(_dragStart.y, cy);
+    _dragRw = Math.abs(cx - _dragStart.x); _dragRh = Math.abs(cy - _dragStart.y);
+    selectRect.style.left = _dragRx+'px'; selectRect.style.top = _dragRy+'px';
+    selectRect.style.width = _dragRw+'px'; selectRect.style.height = _dragRh+'px';
+  }});
+
+  document.addEventListener('mouseup', function(e) {{
+    if (!_selectMode || !_dragStart) return;
+    map.dragging.enable();
+    selectRect.style.display = 'none';
+    _dragStart = null;
+    if (!_dragRw || _dragRw < 5 || _dragRh < 5) return;
+
+    var sw = map.containerPointToLatLng(L.point(_dragRx, _dragRy + _dragRh));
+    var ne = map.containerPointToLatLng(L.point(_dragRx + _dragRw, _dragRy));
+    var bounds = L.latLngBounds(sw, ne);
+
+    // Find the active layer (attr table selection or first visible vector)
+    var selIdx = parseInt(attrTableLayer.value, 10);
+    var targetItem = null;
+    legendItems.forEach(function(it) {{ if (it.index === selIdx && it.ld.kind === 'vector') targetItem = it; }});
+    if (!targetItem) legendItems.forEach(function(it) {{ if (!targetItem && it.ld.kind === 'vector' && it.visible) targetItem = it; }});
+    if (!targetItem) return;
+
+    var selSet = [];
+    targetItem.ld.geojson.features.forEach(function(feat, fi) {{
+      if (!feat.geometry) return;
+      var coords = feat.geometry.type === 'Point' ? [feat.geometry.coordinates]
+                 : feat.geometry.type === 'MultiPoint' ? feat.geometry.coordinates : null;
+      if (coords) {{
+        for (var ci = 0; ci < coords.length; ci++) {{
+          if (bounds.contains(L.latLng(coords[ci][1], coords[ci][0]))) {{ selSet.push(fi); return; }}
+        }}
+      }} else {{
+        try {{
+          var center = L.geoJSON(feat).getBounds().getCenter();
+          if (bounds.contains(center)) selSet.push(fi);
+        }} catch(ex) {{}}
+      }}
+    }});
+
+    if (!selSet.length) return;
+    attrTableLayer.value = targetItem.index;
+    _attrSelectSet = selSet;
+    populateAttrTable();
+    attrTablePanel.classList.add('open');
+  }});
+
+  // ── Click identify ────────────────────────────────────────────────────────
   map.on('click', function(e) {{
+    if (_selectMode) return;
     var clickPt = map.latLngToContainerPoint(e.latlng);
     var found = [];
     legendItems.forEach(function(it) {{
@@ -2237,42 +2558,58 @@ class WebMapExporter:
                    : (fl.getBounds ? fl.getBounds().getCenter() : null);
         if (!latlng) return;
         var pt = map.latLngToContainerPoint(latlng);
-        var d  = Math.sqrt(Math.pow(pt.x - clickPt.x,2) + Math.pow(pt.y - clickPt.y,2));
-        if (d <= 10) found.push({{name: it.ld.name, html: fl._infoHtml}});
+        var d = Math.sqrt(Math.pow(pt.x - clickPt.x, 2) + Math.pow(pt.y - clickPt.y, 2));
+        if (d <= 10) found.push({{layerName: it.ld.name, html: fl._infoHtml, lfl: fl}});
       }});
     }});
     if (!found.length) return;
-    if (found.length === 1) {{
-      infoPanelBody.innerHTML = found[0].html;
-    }} else {{
-      // Build a list; clicking an entry drills into that feature
-      var listHtml = '<div class="mf-list">';
-      found.forEach(function(f, i) {{
-        listHtml += '<div class="mf-item" data-i="'+i+'"><span class="mf-layer">'+escHtml(f.name)+'</span>'
-                  + '<span class="mf-arrow">›</span></div>';
-      }});
-      listHtml += '</div>';
-      infoPanelBody.innerHTML = listHtml;
-      infoPanelBody.querySelectorAll('.mf-item').forEach(function(el) {{
-        el.addEventListener('click', function() {{
-          var idx = parseInt(el.getAttribute('data-i'),10);
-          infoPanelBody.innerHTML = '<button class="mf-back">‹ Back ('+found.length+' features)</button>'
-                                  + found[idx].html;
-          infoPanelBody.querySelector('.mf-back').addEventListener('click', function() {{
-            infoPanelBody.innerHTML = listHtml;
-            // Re-attach drill-in handlers
-            infoPanelBody.querySelectorAll('.mf-item').forEach(function(el2) {{
-              el2.addEventListener('click', function() {{
-                var idx2 = parseInt(el2.getAttribute('data-i'),10);
-                infoPanelBody.innerHTML = '<button class="mf-back">‹ Back ('+found.length+' features)</button>'
-                                        + found[idx2].html;
-                // Note: back button here won't re-attach handlers, but that's OK for depth-2
-              }});
-            }});
-          }});
-        }});
-      }});
+
+    function getDisplayName(f) {{
+      var props = f.lfl._feature && f.lfl._feature.properties || {{}};
+      var vals = Object.values(props).filter(function(v) {{ return v != null && v !== ''; }});
+      return vals.length ? String(vals[0]) : '(feature)';
     }}
+
+    function showSingle(f) {{
+      infoPanel.classList.remove('split');
+      infoPanelBody.innerHTML = f.html;
+      highlightFeatureOnMap(f.lfl._feature);
+    }}
+
+    function showSplit() {{
+      infoPanel.classList.add('split');
+      infoPanelBody.innerHTML = '';
+
+      var splitDiv = document.createElement('div');
+      splitDiv.className = 'info-split';
+
+      var listPane = document.createElement('div');
+      listPane.className = 'info-list-pane';
+
+      var detailPane = document.createElement('div');
+      detailPane.className = 'info-detail-pane';
+
+      found.forEach(function(f) {{
+        var item = document.createElement('div');
+        item.className = 'mf-item';
+        item.innerHTML = '<div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
+                       + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div>';
+        item.addEventListener('click', function() {{
+          listPane.querySelectorAll('.mf-item').forEach(function(el) {{ el.classList.remove('active'); }});
+          item.classList.add('active');
+          detailPane.innerHTML = f.html;
+          highlightFeatureOnMap(f.lfl._feature);
+        }});
+        listPane.appendChild(item);
+      }});
+
+      splitDiv.appendChild(listPane);
+      splitDiv.appendChild(detailPane);
+      infoPanelBody.appendChild(splitDiv);
+      listPane.querySelector('.mf-item').click();
+    }}
+
+    if (found.length === 1) showSingle(found[0]); else showSplit();
     infoPanel.classList.add('open');
   }});
 
@@ -2294,8 +2631,7 @@ class WebMapExporter:
     else map.removeLayer(item.lfl);
     if (item.checkbox) item.checkbox.checked = visible;
     if (item.layerDiv) item.layerDiv.classList.toggle('hidden', !visible);
-    var lp = map.getPane(item.labelPaneName);
-    if (lp) lp.style.display = (visible && item.labelsVisible) ? '' : 'none';
+    if (item.labelGroup) item.labelGroup.style.display = (visible && item.labelsVisible) ? '' : 'none';
     setTimeout(layoutAllLabels, 100);
   }}
 
@@ -2306,96 +2642,183 @@ class WebMapExporter:
 
   function setLayerLabels(item, visible) {{
     item.labelsVisible = visible;
-    var pane = map.getPane(item.labelPaneName);
-    if (pane) pane.style.display = (item.visible && visible) ? '' : 'none';
+    if (item.labelGroup) item.labelGroup.style.display = (item.visible && visible) ? '' : 'none';
     setTimeout(layoutAllLabels, 100);
   }}
 
-  // Global list of items with labels; collision pass runs across all layers at once.
-  function layoutAllLabels() {{
+  // ── Label placement helpers ───────────────────────────────────────────────
+  function _lblDims(text, fontSize) {{
+    return {{ w: text.length * fontSize * 0.55 + 8, h: fontSize * 1.4 }};
+  }}
+
+  function _lblOverlap(ax, ay, aw, ah, bx, by, bw, bh) {{
+    var ox = Math.max(0, (aw + bw) / 2 + 3 - Math.abs(ax - bx));
+    var oy = Math.max(0, (ah + bh) / 2 + 3 - Math.abs(ay - by));
+    return ox * oy;
+  }}
+
+  function _candidatePlacement(labels) {{
+    var DIRS = [
+      [0,-1],[0.71,-0.71],[1,0],[0.71,0.71],
+      [0,1],[-0.71,0.71],[-1,0],[-0.71,-0.71]
+    ];
     var placed = [];
-    // Two passes: first reset all, then greedily place (top-legend-layer wins).
-    for (var li = 0; li < _allLabelItems.length; li++) {{
-      var lp = map.getPane(_allLabelItems[li].labelPaneName);
-      if (!lp || lp.style.display === 'none') continue;
-      var els = lp.querySelectorAll('.leaflet-tooltip');
-      for (var i = 0; i < els.length; i++) els[i].style.visibility = '';
+    labels.forEach(function(lbl) {{
+      var baseR = lbl.h * 0.55 + 6;
+      var best = null, bestScore = Infinity;
+      [1.0, 1.7, 2.6].forEach(function(rm) {{
+        DIRS.forEach(function(d) {{
+          var cx = lbl.ax + d[0] * (lbl.w / 2 + baseR * rm);
+          var cy = lbl.ay + d[1] * (lbl.h / 2 + baseR * rm);
+          var score = 0;
+          placed.forEach(function(p) {{
+            score += _lblOverlap(cx, cy, lbl.w, lbl.h, p.x, p.y, p.w, p.h);
+          }});
+          score += Math.sqrt(Math.pow(cx-lbl.ax,2)+Math.pow(cy-lbl.ay,2)) * 0.08;
+          if (score < bestScore) {{ bestScore = score; best = {{x:cx,y:cy}}; }}
+        }});
+      }});
+      lbl.x = best.x; lbl.y = best.y;
+      placed.push(lbl);
+    }});
+  }}
+
+  function _forcePlacement(labels) {{
+    _candidatePlacement(labels); // warm start
+    labels.forEach(function(l) {{ l.vx = 0; l.vy = 0; }});
+    for (var iter = 0; iter < 45; iter++) {{
+      var alpha = 1 - iter / 45;
+      labels.forEach(function(li) {{
+        li.vx += (li.ax - li.x) * 0.035 * alpha;
+        li.vy += (li.ay - li.y) * 0.035 * alpha;
+        labels.forEach(function(lj) {{
+          if (li === lj) return;
+          var ov = _lblOverlap(li.x, li.y, li.w, li.h, lj.x, lj.y, lj.w, lj.h);
+          if (!ov) return;
+          var dx = (li.x - lj.x) || 0.1, dy = (li.y - lj.y) || 0.1;
+          var dist = Math.sqrt(dx*dx + dy*dy);
+          var f = Math.sqrt(ov) * 0.75;
+          li.vx += dx/dist*f; li.vy += dy/dist*f;
+        }});
+        li.vx *= 0.62; li.vy *= 0.62;
+        li.x += li.vx; li.y += li.vy;
+      }});
     }}
-    for (var li = 0; li < _allLabelItems.length; li++) {{
-      var lp = map.getPane(_allLabelItems[li].labelPaneName);
-      if (!lp || lp.style.display === 'none') continue;
-      var els = lp.querySelectorAll('.leaflet-tooltip');
-      for (var i = 0; i < els.length; i++) {{
-        var el = els[i];
-        var r = el.getBoundingClientRect();
-        if (!r.width && !r.height) continue;
-        var cx = r.left + r.width  / 2;
-        var cy = r.top  + r.height / 2;
-        var clash = false;
-        for (var j = 0; j < placed.length; j++) {{
-          var p = placed[j];
-          // Bounding-box overlap (4px gap tolerance)
-          if (r.left < p.right + 4 && r.right > p.left - 4 &&
-              r.top  < p.bottom + 4 && r.bottom > p.top - 4) {{
-            clash = true; break;
-          }}
-          // Centre-proximity: suppress labels from co-located features in
-          // different layers that Leaflet nudges apart so boxes don't overlap.
-          var dx = cx - p.cx, dy = cy - p.cy;
-          if (dx * dx + dy * dy < 900) {{ clash = true; break; }}  // 30px radius
-        }}
-        if (clash) el.style.visibility = 'hidden';
-        else placed.push({{ left: r.left, right: r.right, top: r.top, bottom: r.bottom, cx: cx, cy: cy }});
+  }}
+
+  // ── SVG label render pass ─────────────────────────────────────────────────
+  function layoutAllLabels() {{
+    if (!_labelSvg) return;
+    var all = [];
+    _allLabelItems.forEach(function(item) {{
+      if (!item.visible || !item.labelsVisible || !item.labelData) return;
+      var cfg = item.labelCfg;
+      var fsz = cfg.fontSize || 11;
+      item.labelData.forEach(function(ld) {{
+        var pt = map.latLngToContainerPoint(ld.latlng);
+        var dims = _lblDims(ld.text, fsz);
+        all.push({{
+          text: ld.text, cfg: cfg,
+          ax: pt.x, ay: pt.y,
+          x: pt.x, y: pt.y - dims.h * 0.6,
+          w: dims.w, h: dims.h,
+          vx: 0, vy: 0,
+          group: item.labelGroup
+        }});
+      }});
+    }});
+
+    // Clear SVG groups
+    _allLabelItems.forEach(function(item) {{
+      if (item.labelGroup) item.labelGroup.innerHTML = '';
+    }});
+    if (!all.length) return;
+
+    if (_labelPlacementMode === 'force') {{
+      _forcePlacement(all);
+    }} else {{
+      _candidatePlacement(all);
+    }}
+
+    // Render labels and callouts
+    var NS = 'http://www.w3.org/2000/svg';
+    all.forEach(function(lbl) {{
+      if (!lbl.group) return;
+      var cfg = lbl.cfg;
+      var fsz = cfg.fontSize || 11;
+      var g = document.createElementNS(NS, 'g');
+
+      // Dashed callout line when displaced > 8 px
+      var dx = lbl.x - lbl.ax, dy = lbl.y - lbl.ay;
+      if (Math.sqrt(dx*dx + dy*dy) > 8) {{
+        var line = document.createElementNS(NS, 'line');
+        line.setAttribute('x1', lbl.ax.toFixed(1));
+        line.setAttribute('y1', lbl.ay.toFixed(1));
+        line.setAttribute('x2', lbl.x.toFixed(1));
+        line.setAttribute('y2', lbl.y.toFixed(1));
+        line.setAttribute('stroke', cfg.fontColor || '#333');
+        line.setAttribute('stroke-width', '0.9');
+        line.setAttribute('stroke-opacity', '0.45');
+        line.setAttribute('stroke-dasharray', '2,2');
+        g.appendChild(line);
       }}
-    }}
+
+      var t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', lbl.x.toFixed(1));
+      t.setAttribute('y', lbl.y.toFixed(1));
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('dominant-baseline', 'central');
+      t.setAttribute('font-size', fsz + 'px');
+      t.setAttribute('font-family', (cfg.fontFamily || 'Arial') + ', Arial, sans-serif');
+      t.setAttribute('fill', cfg.fontColor || '#000');
+      t.setAttribute('fill-opacity', cfg.fontOpacity != null ? cfg.fontOpacity : 1);
+      if (cfg.bold) t.setAttribute('font-weight', 'bold');
+      if (cfg.italic) t.setAttribute('font-style', 'italic');
+      if (cfg.bufferSize > 0) {{
+        t.setAttribute('stroke', cfg.bufferColor || '#fff');
+        t.setAttribute('stroke-width', (cfg.bufferSize * 1.5) + 'px');
+        t.setAttribute('paint-order', 'stroke fill');
+        t.setAttribute('stroke-linejoin', 'round');
+      }}
+      t.textContent = lbl.text;
+      g.appendChild(t);
+      lbl.group.appendChild(g);
+    }});
   }}
 
   function buildLabels(item) {{
     var ld = item.ld;
     if (!ld.labelConfig || ld.kind !== 'vector') return;
     var cfg = ld.labelConfig;
-    var fontSz = cfg.fontSize || 11;
-    var bufSz  = cfg.bufferSize  || 0;
-    var bufCol = cfg.bufferColor || '#ffffff';
-    // Append safe web-font fallbacks so QGIS-specific fonts degrade gracefully
-    var fontFamily = (cfg.fontFamily || 'Arial') + ', Arial, sans-serif';
-    // Use CSS text-stroke for the buffer (paint-order:stroke fill draws the
-    // stroke behind the fill, matching QGIS buffer rendering exactly).
-    // The 8-direction text-shadow approach created ghost copies at large sizes.
-    var bufStyle = bufSz > 0
-      ? ('-webkit-text-stroke:' + bufSz + 'px ' + bufCol + ';'
-         + 'paint-order:stroke fill;')
-      : '';
-    var fontStyle = 'font-size:'+fontSz+'px;color:'+cfg.fontColor+';'
-      + 'font-family:'+fontFamily+';'
-      + (cfg.bold  ?'font-weight:bold;':'')
-      + (cfg.italic?'font-style:italic;':'')
-      + bufStyle + 'white-space:nowrap;';
-    var dir = ld.geomType === 'point' ? 'top' : 'center';
+
+    // Collect label anchor points from rendered features
+    var labelData = [];
     item.lfl.eachLayer(function(fl) {{
       var props = fl.feature && fl.feature.properties;
       if (!props) return;
       var val = props[cfg.field];
       if (val == null || val === '') return;
-      fl.bindTooltip(
-        '<span style="'+fontStyle+'">'+escHtml(String(val))+'</span>',
-        {{ permanent: true, direction: dir, className: 'qgis-label',
-           opacity: cfg.fontOpacity != null ? cfg.fontOpacity : 1,
-           pane: item.labelPaneName }}
-      );
+      var latlng = fl.getLatLng ? fl.getLatLng()
+                 : (fl.getBounds ? fl.getBounds().getCenter() : null);
+      if (latlng) labelData.push({{ text: String(val), latlng: latlng }});
     }});
+    item.labelData = labelData;
+    item.labelCfg = cfg;
 
-    // Register in global list (idempotent) and hook the shared layout pass.
+    // Replace any old SVG group for this item
+    if (item.labelGroup && item.labelGroup.parentNode) {{
+      item.labelGroup.parentNode.removeChild(item.labelGroup);
+    }}
+    var NS = 'http://www.w3.org/2000/svg';
+    var g = document.createElementNS(NS, 'g');
+    g.style.display = (item.visible && item.labelsVisible) ? '' : 'none';
+    if (_labelSvg) _labelSvg.appendChild(g);
+    item.labelGroup = g;
+
     if (_allLabelItems.indexOf(item) === -1) _allLabelItems.push(item);
-    item.labelLayoutFn = layoutAllLabels;
-    // Deduplicate: remove then re-add so exactly one listener exists.
-    map.off('moveend zoomend', layoutAllLabels);
-    map.on('moveend zoomend', layoutAllLabels);
+    map.off('moveend zoomend viewreset', layoutAllLabels);
+    map.on('moveend zoomend viewreset', layoutAllLabels);
     setTimeout(layoutAllLabels, 150);
-
-    // Keep pane hidden until explicitly enabled
-    var lp = map.getPane(item.labelPaneName);
-    if (lp) lp.style.display = item.labelsVisible ? '' : 'none';
   }}
 
   // ── Filter toolbar ─────────────────────────────────────────────────────────

@@ -89,6 +89,15 @@ class WebMapExportDialog(QDialog):
         date_val = s.value(f"{_SETTINGS_KEY}/info_date", "")
         if date_val:
             self.info_date_edit.setText(date_val)
+        for fld in ("info_client", "info_project"):
+            val = s.value(f"{_SETTINGS_KEY}/{fld}", "")
+            if val:
+                getattr(self, f"{fld}_edit").setText(val)
+        for role in ("originated", "checked", "reviewed", "approved"):
+            for part in ("name", "date"):
+                val = s.value(f"{_SETTINGS_KEY}/info_{role}_{part}", "")
+                if val:
+                    getattr(self, f"info_{role}_{part}_edit").setText(val)
 
     def _save_settings(self):
         s = QSettings()
@@ -99,6 +108,12 @@ class WebMapExportDialog(QDialog):
         s.setValue(f"{_SETTINGS_KEY}/info_text", self.info_text_edit.toPlainText().strip())
         s.setValue(f"{_SETTINGS_KEY}/info_originator", self.info_originator_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/info_date", self.info_date_edit.text().strip())
+        for fld in ("info_client", "info_project"):
+            s.setValue(f"{_SETTINGS_KEY}/{fld}", getattr(self, f"{fld}_edit").text().strip())
+        for role in ("originated", "checked", "reviewed", "approved"):
+            for part in ("name", "date"):
+                s.setValue(f"{_SETTINGS_KEY}/info_{role}_{part}",
+                           getattr(self, f"info_{role}_{part}_edit").text().strip())
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -297,6 +312,43 @@ class WebMapExportDialog(QDialog):
         info_form.addRow("Date:", self.info_date_edit)
 
         info_layout.addLayout(info_form)
+
+        # ── Project / Client ─────────────────────────────────────────────────
+        proj_group = QGroupBox("Project")
+        proj_form = QFormLayout(proj_group)
+        proj_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.info_client_edit = QLineEdit()
+        self.info_client_edit.setPlaceholderText("Client name…")
+        proj_form.addRow("Client:", self.info_client_edit)
+        self.info_project_edit = QLineEdit()
+        self.info_project_edit.setPlaceholderText("Project name / number…")
+        proj_form.addRow("Project:", self.info_project_edit)
+        info_layout.addWidget(proj_group)
+
+        # ── Document control block ───────────────────────────────────────────
+        from qgis.PyQt.QtWidgets import QGridLayout
+        dc_group = QGroupBox("Document Control")
+        dc_grid = QGridLayout(dc_group)
+        dc_grid.addWidget(QLabel(""), 0, 0)
+        dc_grid.addWidget(QLabel("<b>Name</b>"), 0, 1)
+        dc_grid.addWidget(QLabel("<b>Date</b>"), 0, 2)
+        for label_obj in dc_grid.findChildren(QLabel):
+            label_obj.setTextFormat(Qt.RichText)
+        _dc_roles = [("Originated", "originated"), ("Checked", "checked"),
+                     ("Reviewed", "reviewed"), ("Approved", "approved")]
+        for row_i, (label_text, key) in enumerate(_dc_roles, start=1):
+            dc_grid.addWidget(QLabel(label_text + ":"), row_i, 0)
+            name_edit = QLineEdit()
+            name_edit.setPlaceholderText("Name…")
+            date_edit = QLineEdit()
+            date_edit.setPlaceholderText("dd/mm/yyyy…")
+            setattr(self, f"info_{key}_name_edit", name_edit)
+            setattr(self, f"info_{key}_date_edit", date_edit)
+            dc_grid.addWidget(name_edit, row_i, 1)
+            dc_grid.addWidget(date_edit, row_i, 2)
+        dc_grid.setColumnStretch(1, 2)
+        dc_grid.setColumnStretch(2, 1)
+        info_layout.addWidget(dc_group)
         info_layout.addStretch()
 
         tabs.addTab(info_tab, "Map Info")
@@ -681,6 +733,16 @@ class WebMapExportDialog(QDialog):
                     "text": self.info_text_edit.toPlainText().strip(),
                     "originator": self.info_originator_edit.text().strip(),
                     "date": self.info_date_edit.text().strip(),
+                    "client": self.info_client_edit.text().strip(),
+                    "project": self.info_project_edit.text().strip(),
+                    "originated_name": self.info_originated_name_edit.text().strip(),
+                    "originated_date": self.info_originated_date_edit.text().strip(),
+                    "checked_name": self.info_checked_name_edit.text().strip(),
+                    "checked_date": self.info_checked_date_edit.text().strip(),
+                    "reviewed_name": self.info_reviewed_name_edit.text().strip(),
+                    "reviewed_date": self.info_reviewed_date_edit.text().strip(),
+                    "approved_name": self.info_approved_name_edit.text().strip(),
+                    "approved_date": self.info_approved_date_edit.text().strip(),
                 }
             exporter = WebMapExporter(
                 layers=layers,
