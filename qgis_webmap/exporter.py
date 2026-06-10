@@ -572,7 +572,7 @@ class WebMapExporter:
     def __init__(self, layers, output_path,
                  include_layer_control=True, include_basemap=True,
                  progress_callback=None,
-                 layer_tree=None, initial_extent=None, scenes=None,
+                 layer_tree=None, initial_extent=None, map_views=None,
                  info_panel=None):
         self.layers = layers
         self.output_path = output_path
@@ -581,7 +581,7 @@ class WebMapExporter:
         self.progress = progress_callback or (lambda v: None)
         self.layer_tree = layer_tree or []
         self.initial_extent = initial_extent
-        self.scenes = scenes or []
+        self.map_views = map_views or []
         self.info_panel = info_panel or {}
 
     def export(self):
@@ -677,7 +677,7 @@ class WebMapExporter:
         include_legend = "true" if self.include_layer_control else "false"
         include_basemap_json = "true" if self.include_basemap else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
-        themes_json = json.dumps(self.scenes, separators=(",", ":")).replace("</", "<\\/")
+        themes_json = json.dumps(self.map_views, separators=(",", ":")).replace("</", "<\\/")
 
         import html as _html_mod
         _info = self.info_panel
@@ -769,10 +769,10 @@ class WebMapExporter:
             )
         brand_content_json = json.dumps(brand_content).replace("</", "<\\/")
 
-        # Pre-build left panel HTML (map info + optional scenes section)
-        _left_panel_needed = _info_enabled or bool(self.scenes)
+        # Pre-build left panel HTML (map info + optional map views section)
+        _left_panel_needed = _info_enabled or bool(self.map_views)
         if _left_panel_needed:
-            _panel_title_html = _info_title if _info_enabled else "Scenes"
+            _panel_title_html = _info_title if _info_enabled else "Map Views"
             _footer_parts = []
             _doc_block_html = ""
             if _info_enabled:
@@ -799,13 +799,21 @@ class WebMapExporter:
                 f'<div id="left-panel-footer">{"".join(_footer_parts)}</div>'
                 if _footer_parts else ""
             )
-            _body_html = (
-                f'<div id="left-panel-body">'
-                f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
-                f'{_doc_block_html}'
-                f'</div>'
-                f'{_footer_html}'
-            ) if _info_enabled else ""
+            if _info_enabled:
+                _body_html = (
+                    f'<div id="left-panel-body">'
+                    f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
+                    f'<div id="map-views-section"></div>'
+                    f'{_doc_block_html}'
+                    f'</div>'
+                    f'{_footer_html}'
+                )
+            else:
+                _body_html = (
+                    f'<div id="left-panel-body">'
+                    f'<div id="map-views-section"></div>'
+                    f'</div>'
+                )
             left_panel_html = (
                 f'<div id="left-panel">'
                 f'<div id="left-panel-hdr">'
@@ -813,12 +821,6 @@ class WebMapExporter:
                 f'<button id="left-panel-close" title="Close">&#10005;</button>'
                 f'</div>'
                 f'{_body_html}'
-                f'<div id="scenes-section" style="display:none">'
-                f'<div class="scenes-hdr">Scenes</div>'
-                f'<select id="theme-select">'
-                f'<option value="">&#8212; Select scene &#8212;</option>'
-                f'</select>'
-                f'</div>'
                 f'</div>'
             )
         else:
@@ -1245,30 +1247,21 @@ class WebMapExporter:
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
     pointer-events: none; z-index: 850; overflow: hidden;
   }}
-  #scenes-section {{
-    border-top: 1px solid #e5e5e5;
-    padding: 10px 14px;
-    flex-shrink: 0;
-  }}
-  .scenes-hdr {{
-    font-size: 11px;
-    font-weight: bold;
-    color: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 5px;
-  }}
-  #theme-select {{
-    width: 100%;
-    font-size: 13px;
-    padding: 4px 6px;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    background: #fff;
+  #map-views-section {{ flex-shrink: 0; }}
+  .mv-item {{
+    padding: 9px 14px 9px 12px;
+    border-left: 3px solid transparent;
     cursor: pointer;
-    outline: none;
-    box-sizing: border-box;
+    border-bottom: 1px solid #eee;
+    transition: background 0.12s;
   }}
+  .mv-item:last-child {{ border-bottom: none; }}
+  .mv-item:hover {{ background: #f0f4f8; border-left-color: #ccd8e4; }}
+  .mv-item.active {{ background: #e8f0f7; border-left-color: #003057; }}
+  .mv-item-name {{
+    font-size: 12px; font-weight: 600; color: #003057; line-height: 1.3;
+  }}
+  .mv-item-notes {{ font-size: 11px; color: #666; margin-top: 2px; line-height: 1.35; }}
   .map-info-toggle {{
     width: 30px; height: 30px;
     background: white;
@@ -3016,7 +3009,7 @@ class WebMapExporter:
     if (first) updateCount(first);
   }})();
 
-  // ── Scenes (shown in left panel below map info) ───────────────────────────
+  // ── Map Views (header items below description, above doc metadata) ──────────
   if (THEMES.length > 0) {{
     function applyTheme(idx) {{
       var theme = THEMES[idx];
@@ -3034,20 +3027,19 @@ class WebMapExporter:
       }}
     }}
 
-    var scenesSection = document.getElementById('scenes-section');
-    if (scenesSection) scenesSection.style.display = '';
-
-    var themeSelect = document.getElementById('theme-select');
-    if (themeSelect) {{
+    var mvSection = document.getElementById('map-views-section');
+    if (mvSection) {{
       THEMES.forEach(function(th, i) {{
-        var opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = escHtml(th.name || 'Scene ' + (i + 1));
-        themeSelect.appendChild(opt);
-      }});
-      themeSelect.addEventListener('change', function() {{
-        var idx = parseInt(themeSelect.value, 10);
-        if (!isNaN(idx)) applyTheme(idx);
+        var item = document.createElement('div');
+        item.className = 'mv-item';
+        item.innerHTML = '<div class="mv-item-name">' + escHtml(th.name || 'Map View ' + (i + 1)) + '</div>'
+                       + (th.notes ? '<div class="mv-item-notes">' + escHtml(th.notes) + '</div>' : '');
+        item.addEventListener('click', function() {{
+          mvSection.querySelectorAll('.mv-item').forEach(function(el) {{ el.classList.remove('active'); }});
+          item.classList.add('active');
+          applyTheme(i);
+        }});
+        mvSection.appendChild(item);
       }});
     }}
   }}
