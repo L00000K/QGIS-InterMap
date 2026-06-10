@@ -1,25 +1,29 @@
 import os
+import json
 import datetime
 from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDockWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QFileDialog, QLineEdit,
     QMessageBox, QProgressBar, QCheckBox, QGroupBox,
     QTabWidget, QTextEdit, QFormLayout, QWidget,
-    QTreeWidget, QTreeWidgetItem, QComboBox,
+    QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
 )
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.core import QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer
 
 _SETTINGS_KEY = "QgsWebMapExporter"
+_INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"
 
 
-class WebMapExportDialog(QDialog):
+class WebMapExportDialog(QDockWidget):
+    """Dockable Web Map export panel with a saved-instance manager."""
+
     def __init__(self, iface, parent=None):
-        super().__init__(parent or iface.mainWindow())
+        super().__init__("Export to Web Map", parent or iface.mainWindow())
         self.iface = iface
-        self.setWindowTitle("Export to Web Map")
-        self.setMinimumWidth(520)
+        self.setObjectName("WebMapExportPanel")
+        self.setMinimumWidth(420)
         self._initial_extent = self._capture_canvas_extent()
         self._map_views = []
         self._editing_map_view_idx = None
@@ -29,10 +33,17 @@ class WebMapExportDialog(QDialog):
         self.path_edit.setText(self._default_output_path())
         self._populate_layers()
         self._load_settings()
+        self._instances_refresh_combo()
 
-    def reject(self):
+    # ── Lifecycle ──────────────────────────────────────────────────────────────
+
+    def closeEvent(self, event):
         self._save_settings()
-        super().reject()
+        super().closeEvent(event)
+
+    def _on_close_clicked(self):
+        self._save_settings()
+        self.hide()
 
     # ── Canvas / path helpers ─────────────────────────────────────────────────
 
@@ -61,7 +72,7 @@ class WebMapExportDialog(QDialog):
         ).strip() or "webmap"
         return os.path.join(downloads, f"{ts} - {safe_name}.html")
 
-    # ── Settings ──────────────────────────────────────────────────────────────
+    # ── Settings (last-used state) ──────────────────────────────────────────────
 
     def _load_settings(self):
         s = QSettings()
@@ -114,7 +125,12 @@ class WebMapExportDialog(QDialog):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        # ── Instance manager bar ──────────────────────────────────────────────
+        layout.addWidget(self._build_instance_bar())
+
         tabs = QTabWidget()
         layout.addWidget(tabs)
 
@@ -170,7 +186,7 @@ class WebMapExportDialog(QDialog):
         recapture_btn = QPushButton("📷 Re-capture initial view")
         recapture_btn.setToolTip(
             "Sets the map's opening extent to the current QGIS canvas view.\n"
-            "Default is the view at the time the dialog was opened."
+            "Default is the view at the time the panel was opened."
         )
         recapture_btn.clicked.connect(self._recapture_initial_extent)
         view_row.addWidget(recapture_btn)
@@ -354,12 +370,202 @@ class WebMapExportDialog(QDialog):
         self.export_btn = QPushButton("Export")
         self.export_btn.setDefault(True)
         self.export_btn.clicked.connect(self._export)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self._on_close_clicked)
         bottom.addStretch()
         bottom.addWidget(self.export_btn)
-        bottom.addWidget(cancel_btn)
+        bottom.addWidget(close_btn)
         layout.addLayout(bottom)
+
+        self.setWidget(container)
+
+    def _build_instance_bar(self):
+        """Top bar to save / load / delete named export instances."""
+        group = QGroupBox("Saved instances")
+        outer = QVBoxLayout(group)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Instance:"))
+        self.instance_combo = QComboBox()
+        self.instance_combo.setToolTip("Saved export configurations")
+        self.instance_combo.setMinimumWidth(140)
+        row.addWidget(self.instance_combo, 1)
+        load_btn = QPushButton("Load")
+        load_btn.setToolTip("Load the selected instance into the panel")
+        load_btn.clicked.connect(self._instance_load)
+        row.addWidget(load_btn)
+        outer.addLayout(row)
+
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        save_btn.setToolTip("Update the selected instance with the current settings")
+        save_btn.clicked.connect(self._instance_save)
+        save_as_btn = QPushButton("Save As…")
+        save_as_btn.setToolTip("Save the current settings as a new named instance")
+        save_as_btn.clicked.connect(self._instance_save_as)
+        del_btn = QPushButton("Delete")
+        del_btn.setToolTip("Delete the selected instance")
+        del_btn.clicked.connect(self._instance_delete)
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(save_as_btn)
+        btn_row.addWidget(del_btn)
+        outer.addLayout(btn_row)
+
+        return group
+
+    # ── Instance manager ────────────────────────────────────────────────────────
+
+    def _instances_load_all(self):
+        raw = QSettings().value(_INSTANCES_KEY, "")
+        if raw:
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+        return {}
+
+    def _instances_save_all(self, data):
+        QSettings().setValue(_INSTANCES_KEY, json.dumps(data))
+
+    def _instances_refresh_combo(self, select_name=None):
+        data = self._instances_load_all()
+        self.instance_combo.blockSignals(True)
+        self.instance_combo.clear()
+        self.instance_combo.addItem("— None —", "")
+        for name in sorted(data.keys(), key=str.lower):
+            self.instance_combo.addItem(name, name)
+        if select_name:
+            idx = self.instance_combo.findData(select_name)
+            if idx >= 0:
+                self.instance_combo.setCurrentIndex(idx)
+        self.instance_combo.blockSignals(False)
+
+    def _collect_state(self):
+        """Capture all filled-in panel settings as a serialisable dict."""
+        info = {
+            "enabled": self.include_info_cb.isChecked(),
+            "title": self.info_title_edit.text().strip(),
+            "text": self.info_text_edit.toPlainText().strip(),
+            "date": self.info_date_edit.text().strip(),
+            "client": self.info_client_edit.text().strip(),
+            "project": self.info_project_edit.text().strip(),
+        }
+        for role in ("originated", "checked", "reviewed", "approved"):
+            for part in ("name", "date"):
+                info[f"{role}_{part}"] = getattr(self, f"info_{role}_{part}_edit").text().strip()
+        return {
+            "layer_names": self._checked_layer_names(),
+            "include_layer_control": self.layer_control_cb.isChecked(),
+            "include_basemap": self.basemap_cb.isChecked(),
+            "initial_extent": self._initial_extent,
+            "map_views": self._map_views,
+            "output_path": self.path_edit.text().strip(),
+            "info": info,
+        }
+
+    def _apply_state(self, state):
+        """Repopulate the panel from a saved instance dict."""
+        self.layer_control_cb.setChecked(bool(state.get("include_layer_control", True)))
+        self.basemap_cb.setChecked(bool(state.get("include_basemap", False)))
+
+        ext = state.get("initial_extent")
+        if ext:
+            self._initial_extent = ext
+            self._update_initial_extent_label()
+
+        self._map_views = [dict(mv) for mv in state.get("map_views", [])]
+        self._map_view_clear_form()
+        self._map_views_list_refresh()
+
+        out = state.get("output_path", "")
+        if out:
+            self.path_edit.setText(out)
+
+        info = state.get("info", {})
+        self.include_info_cb.setChecked(bool(info.get("enabled", True)))
+        self.info_title_edit.setText(info.get("title", ""))
+        self.info_text_edit.setPlainText(info.get("text", ""))
+        self.info_date_edit.setText(info.get("date", ""))
+        self.info_client_edit.setText(info.get("client", ""))
+        self.info_project_edit.setText(info.get("project", ""))
+        for role in ("originated", "checked", "reviewed", "approved"):
+            for part in ("name", "date"):
+                getattr(self, f"info_{role}_{part}_edit").setText(info.get(f"{role}_{part}", ""))
+
+        self._set_checked_layers_by_name(state.get("layer_names", []))
+
+    def _instance_load(self):
+        name = self.instance_combo.currentData()
+        if not name:
+            QMessageBox.information(self, "No instance", "Please select a saved instance to load.")
+            return
+        data = self._instances_load_all()
+        state = data.get(name)
+        if state is None:
+            QMessageBox.warning(self, "Not found", f"Instance '{name}' could not be found.")
+            self._instances_refresh_combo()
+            return
+        self._apply_state(state)
+        missing = self._missing_layer_names(state.get("layer_names", []))
+        if missing:
+            QMessageBox.information(
+                self, "Loaded with missing layers",
+                "Instance '{}' loaded.\n\nThe following layers are not in the current "
+                "project and were skipped:\n  • {}".format(name, "\n  • ".join(missing))
+            )
+
+    def _instance_save(self):
+        name = self.instance_combo.currentData()
+        if not name:
+            # Nothing selected — fall back to Save As
+            self._instance_save_as()
+            return
+        data = self._instances_load_all()
+        data[name] = self._collect_state()
+        self._instances_save_all(data)
+        self._instances_refresh_combo(select_name=name)
+        self.iface.messageBar().pushInfo("Web Map Exporter", f"Instance '{name}' updated.")
+
+    def _instance_save_as(self):
+        name, ok = QInputDialog.getText(self, "Save instance as", "Instance name:")
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            QMessageBox.warning(self, "Name required", "Please enter a name for the instance.")
+            return
+        data = self._instances_load_all()
+        if name in data:
+            resp = QMessageBox.question(
+                self, "Overwrite?",
+                f"An instance named '{name}' already exists. Overwrite it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if resp != QMessageBox.Yes:
+                return
+        data[name] = self._collect_state()
+        self._instances_save_all(data)
+        self._instances_refresh_combo(select_name=name)
+        self.iface.messageBar().pushInfo("Web Map Exporter", f"Instance '{name}' saved.")
+
+    def _instance_delete(self):
+        name = self.instance_combo.currentData()
+        if not name:
+            QMessageBox.information(self, "No instance", "Please select a saved instance to delete.")
+            return
+        resp = QMessageBox.question(
+            self, "Delete instance",
+            f"Delete the saved instance '{name}'?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if resp != QMessageBox.Yes:
+            return
+        data = self._instances_load_all()
+        data.pop(name, None)
+        self._instances_save_all(data)
+        self._instances_refresh_combo()
 
     # ── Layer tree ────────────────────────────────────────────────────────────
 
@@ -492,6 +698,69 @@ class WebMapExportDialog(QDialog):
         self._set_children_check_state(self.layer_tree_widget.invisibleRootItem(), Qt.Unchecked)
         self.layer_tree_widget.blockSignals(False)
 
+    def _checked_layer_names(self):
+        """Names of all currently checked layers in the Layers tab."""
+        names = []
+
+        def walk(parent_item):
+            for i in range(parent_item.childCount()):
+                item = parent_item.child(i)
+                layer_id = item.data(0, Qt.UserRole)
+                if layer_id is not None:
+                    if item.checkState(0) == Qt.Checked:
+                        layer = QgsProject.instance().mapLayer(layer_id)
+                        if layer:
+                            names.append(layer.name())
+                else:
+                    walk(item)
+
+        walk(self.layer_tree_widget.invisibleRootItem())
+        return names
+
+    def _missing_layer_names(self, names):
+        """Subset of names that don't match any layer in the current tree."""
+        present = set()
+
+        def walk(parent_item):
+            for i in range(parent_item.childCount()):
+                item = parent_item.child(i)
+                layer_id = item.data(0, Qt.UserRole)
+                if layer_id is not None:
+                    layer = QgsProject.instance().mapLayer(layer_id)
+                    if layer:
+                        present.add(layer.name())
+                else:
+                    walk(item)
+
+        walk(self.layer_tree_widget.invisibleRootItem())
+        return [n for n in names if n not in present]
+
+    def _set_checked_layers_by_name(self, names):
+        """Check exactly the layers whose names appear in `names`."""
+        nameset = set(names)
+        self.layer_tree_widget.blockSignals(True)
+
+        def walk(parent_item):
+            for i in range(parent_item.childCount()):
+                item = parent_item.child(i)
+                layer_id = item.data(0, Qt.UserRole)
+                if layer_id is not None:
+                    layer = QgsProject.instance().mapLayer(layer_id)
+                    checked = layer is not None and layer.name() in nameset
+                    item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+                else:
+                    walk(item)
+
+        walk(self.layer_tree_widget.invisibleRootItem())
+
+        root = self.layer_tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            child = root.child(i)
+            if child.childCount() > 0:
+                self._update_parent_check_state(child)
+
+        self.layer_tree_widget.blockSignals(False)
+
     def _update_initial_extent_label(self):
         ext = self._initial_extent
         if ext:
@@ -553,22 +822,7 @@ class WebMapExportDialog(QDialog):
 
     def _map_view_checked_layer_names(self):
         """Return names of currently checked layers in the Layers tab."""
-        names = []
-
-        def walk(parent_item):
-            for i in range(parent_item.childCount()):
-                item = parent_item.child(i)
-                layer_id = item.data(0, Qt.UserRole)
-                if layer_id is not None:
-                    if item.checkState(0) == Qt.Checked:
-                        layer = QgsProject.instance().mapLayer(layer_id)
-                        if layer:
-                            names.append(layer.name())
-                else:
-                    walk(item)
-
-        walk(self.layer_tree_widget.invisibleRootItem())
-        return names
+        return self._checked_layer_names()
 
     def _map_view_save(self):
         name = self.map_view_name_edit.text().strip()
@@ -749,7 +1003,6 @@ class WebMapExportDialog(QDialog):
             exporter.export()
             self._save_settings()
             self._show_success(output_path)
-            self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Export failed", str(e))
         finally:

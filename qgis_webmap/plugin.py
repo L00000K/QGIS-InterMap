@@ -1,7 +1,7 @@
 import os
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtCore import QCoreApplication
+from qgis.PyQt.QtCore import QCoreApplication, Qt
 
 
 class WebMapExporterPlugin:
@@ -25,14 +25,14 @@ class WebMapExporterPlugin:
         self.iface.removePluginWebMenu(self.tr("Web Map Exporter"), self.action)
         self.iface.removeToolBarIcon(self.action)
         if self._dlg:
-            self._dlg.close()
+            self.iface.removeDockWidget(self._dlg)
+            self._dlg.deleteLater()
             self._dlg = None
 
     def run(self):
         from .dialog import WebMapExportDialog
         if self._dlg is None:
             self._dlg = WebMapExportDialog(self.iface)
-            self._dlg.finished.connect(lambda _result: setattr(self, '_dlg', None))
+            self.iface.addDockWidget(Qt.RightDockWidgetArea, self._dlg)
         self._dlg.show()
         self._dlg.raise_()
-        self._dlg.activateWindow()
