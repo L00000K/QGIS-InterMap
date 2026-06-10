@@ -686,6 +686,18 @@ class WebMapExporter:
         _info_text = _html_mod.escape(str(_info.get("text", "") or ""))
         _info_originator = _html_mod.escape(str(_info.get("originator", "") or ""))
         _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
+        _info_client = _html_mod.escape(str(_info.get("client", "") or ""))
+        _info_project = _html_mod.escape(str(_info.get("project", "") or ""))
+        _doc_control = [
+            ("Originated", _html_mod.escape(str(_info.get("originated_name", "") or "")),
+                           _html_mod.escape(str(_info.get("originated_date", "") or ""))),
+            ("Checked",    _html_mod.escape(str(_info.get("checked_name", "") or "")),
+                           _html_mod.escape(str(_info.get("checked_date", "") or ""))),
+            ("Reviewed",   _html_mod.escape(str(_info.get("reviewed_name", "") or "")),
+                           _html_mod.escape(str(_info.get("reviewed_date", "") or ""))),
+            ("Approved",   _html_mod.escape(str(_info.get("approved_name", "") or "")),
+                           _html_mod.escape(str(_info.get("approved_date", "") or ""))),
+        ]
         _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
 
         leaflet_css, leaflet_js = _get_leaflet_assets()
@@ -763,17 +775,38 @@ class WebMapExporter:
         if _left_panel_needed:
             _panel_title_html = _info_title if _info_enabled else "Scenes"
             _footer_parts = []
+            _doc_block_html = ""
             if _info_enabled:
                 if _info_originator:
                     _footer_parts.append(f"<span>{_info_originator}</span>")
                 if _info_date:
                     _footer_parts.append(f"<span>{_info_date}</span>")
+                # Formal document title block
+                _proj_rows = (
+                    (f'<tr><th>Client</th><td>{_info_client}</td></tr>' if _info_client else "")
+                    + (f'<tr><th>Project</th><td>{_info_project}</td></tr>' if _info_project else "")
+                )
+                _dc_rows = "".join(
+                    f'<tr><th>{role}</th><td>{name}</td><td>{date}</td></tr>'
+                    for role, name, date in _doc_control if name or date
+                )
+                if _proj_rows or _dc_rows:
+                    _proj_tbl = f'<table class="doc-proj-table">{_proj_rows}</table>' if _proj_rows else ""
+                    _dc_tbl = (
+                        f'<table class="doc-ctrl-table"><thead><tr>'
+                        f'<th>Role</th><th>Name</th><th>Date</th>'
+                        f'</tr></thead><tbody>{_dc_rows}</tbody></table>'
+                    ) if _dc_rows else ""
+                    _doc_block_html = f'<div class="doc-block">{_proj_tbl}{_dc_tbl}</div>'
             _footer_html = (
                 f'<div id="left-panel-footer">{"".join(_footer_parts)}</div>'
                 if _footer_parts else ""
             )
             _body_html = (
-                f'<div id="left-panel-body">{_info_text or "&nbsp;"}</div>'
+                f'<div id="left-panel-body">'
+                f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
+                f'{_doc_block_html}'
+                f'</div>'
                 f'{_footer_html}'
             ) if _info_enabled else ""
             left_panel_html = (
@@ -1162,6 +1195,59 @@ class WebMapExporter:
     flex-direction: column;
     gap: 2px;
   }}
+  /* ── Formal document title block ─────────────────────────────────── */
+  .doc-block {{
+    margin-top: 14px;
+    border-top: 2px solid #003057;
+    padding-top: 10px;
+  }}
+  .doc-proj-table {{
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 8px;
+    font-size: 11px;
+  }}
+  .doc-proj-table th {{
+    text-align: left;
+    width: 58px;
+    color: #003057;
+    font-weight: 700;
+    padding: 2px 6px 2px 0;
+    vertical-align: top;
+  }}
+  .doc-proj-table td {{ color: #222; padding: 2px 0; }}
+  .doc-ctrl-table {{
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 11px;
+  }}
+  .doc-ctrl-table th, .doc-ctrl-table td {{
+    padding: 3px 6px;
+    border: 1px solid #c0cad8;
+    text-align: left;
+  }}
+  .doc-ctrl-table thead th {{
+    background: #003057;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-color: #002144;
+  }}
+  .doc-ctrl-table tbody th {{
+    background: #eef2f8;
+    color: #003057;
+    font-weight: 700;
+    width: 70px;
+    border-color: #c0cad8;
+  }}
+  .doc-ctrl-table tbody tr:nth-child(even) td {{ background: #f7f9fc; }}
+  /* ── Label SVG overlay ───────────────────────────────────────────── */
+  #label-overlay {{
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; z-index: 850; overflow: hidden;
+  }}
   #scenes-section {{
     border-top: 1px solid #e5e5e5;
     padding: 10px 14px;
@@ -1372,6 +1458,7 @@ class WebMapExporter:
 <div id="map-wrap">
 <div id="map"></div>
 <div id="select-rect"></div>
+<div id="label-overlay"><svg id="label-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;"></svg></div>
 <div id="filterbar" style="display:none">
   <label>Filter</label>
   <select id="filter-layer" title="Layer"></select>
@@ -1794,8 +1881,9 @@ class WebMapExporter:
   // Each layer gets a dedicated map pane so its opacity can be controlled
   // uniformly (works for vector markers, paths, rasters and WMS alike).
   var legendItems = [];
-  // Declared here so buildLabels (called inside the loop below) can access it.
   var _allLabelItems = [];
+  var _labelPlacementMode = 'candidate';
+  var _labelSvg = document.getElementById('label-svg');
   for (var i = 0; i < LAYERS.length; i++) {{
     var paneName = 'layerPane' + i;
     map.createPane(paneName);
@@ -2223,6 +2311,31 @@ class WebMapExporter:
         lblRow.appendChild(lblLbl);
         lblRow.appendChild(lblCb);
         settingsDiv.appendChild(lblRow);
+
+        // Label placement mode selector (global — applies to all label layers)
+        var modeRow = document.createElement('div');
+        modeRow.className = 'layer-settings-row';
+        var modeLbl = document.createElement('span');
+        modeLbl.className = 'layer-settings-label';
+        modeLbl.textContent = 'Placement';
+        var modeSel = document.createElement('select');
+        modeSel.className = 'label-mode-sel';
+        modeSel.style.cssText = 'font-size:11px;flex:1;border:1px solid #ccc;border-radius:2px;padding:1px 3px;';
+        modeSel.title = 'Label placement algorithm — applies to all label layers';
+        [['candidate','Candidate (fast)'],['force','Force (smooth)']].forEach(function(opt) {{
+          var o = document.createElement('option');
+          o.value = opt[0]; o.textContent = opt[1];
+          if (opt[0] === _labelPlacementMode) o.selected = true;
+          modeSel.appendChild(o);
+        }});
+        modeSel.addEventListener('change', function() {{
+          _labelPlacementMode = modeSel.value;
+          document.querySelectorAll('.label-mode-sel').forEach(function(s) {{ s.value = _labelPlacementMode; }});
+          layoutAllLabels();
+        }});
+        modeRow.appendChild(modeLbl);
+        modeRow.appendChild(modeSel);
+        settingsDiv.appendChild(modeRow);
       }}
 
       // Cluster row (point vector layers only)
@@ -2518,8 +2631,7 @@ class WebMapExporter:
     else map.removeLayer(item.lfl);
     if (item.checkbox) item.checkbox.checked = visible;
     if (item.layerDiv) item.layerDiv.classList.toggle('hidden', !visible);
-    var lp = map.getPane(item.labelPaneName);
-    if (lp) lp.style.display = (visible && item.labelsVisible) ? '' : 'none';
+    if (item.labelGroup) item.labelGroup.style.display = (visible && item.labelsVisible) ? '' : 'none';
     setTimeout(layoutAllLabels, 100);
   }}
 
@@ -2530,96 +2642,183 @@ class WebMapExporter:
 
   function setLayerLabels(item, visible) {{
     item.labelsVisible = visible;
-    var pane = map.getPane(item.labelPaneName);
-    if (pane) pane.style.display = (item.visible && visible) ? '' : 'none';
+    if (item.labelGroup) item.labelGroup.style.display = (item.visible && visible) ? '' : 'none';
     setTimeout(layoutAllLabels, 100);
   }}
 
-  // Global list of items with labels; collision pass runs across all layers at once.
-  function layoutAllLabels() {{
+  // ── Label placement helpers ───────────────────────────────────────────────
+  function _lblDims(text, fontSize) {{
+    return {{ w: text.length * fontSize * 0.55 + 8, h: fontSize * 1.4 }};
+  }}
+
+  function _lblOverlap(ax, ay, aw, ah, bx, by, bw, bh) {{
+    var ox = Math.max(0, (aw + bw) / 2 + 3 - Math.abs(ax - bx));
+    var oy = Math.max(0, (ah + bh) / 2 + 3 - Math.abs(ay - by));
+    return ox * oy;
+  }}
+
+  function _candidatePlacement(labels) {{
+    var DIRS = [
+      [0,-1],[0.71,-0.71],[1,0],[0.71,0.71],
+      [0,1],[-0.71,0.71],[-1,0],[-0.71,-0.71]
+    ];
     var placed = [];
-    // Two passes: first reset all, then greedily place (top-legend-layer wins).
-    for (var li = 0; li < _allLabelItems.length; li++) {{
-      var lp = map.getPane(_allLabelItems[li].labelPaneName);
-      if (!lp || lp.style.display === 'none') continue;
-      var els = lp.querySelectorAll('.leaflet-tooltip');
-      for (var i = 0; i < els.length; i++) els[i].style.visibility = '';
+    labels.forEach(function(lbl) {{
+      var baseR = lbl.h * 0.55 + 6;
+      var best = null, bestScore = Infinity;
+      [1.0, 1.7, 2.6].forEach(function(rm) {{
+        DIRS.forEach(function(d) {{
+          var cx = lbl.ax + d[0] * (lbl.w / 2 + baseR * rm);
+          var cy = lbl.ay + d[1] * (lbl.h / 2 + baseR * rm);
+          var score = 0;
+          placed.forEach(function(p) {{
+            score += _lblOverlap(cx, cy, lbl.w, lbl.h, p.x, p.y, p.w, p.h);
+          }});
+          score += Math.sqrt(Math.pow(cx-lbl.ax,2)+Math.pow(cy-lbl.ay,2)) * 0.08;
+          if (score < bestScore) {{ bestScore = score; best = {{x:cx,y:cy}}; }}
+        }});
+      }});
+      lbl.x = best.x; lbl.y = best.y;
+      placed.push(lbl);
+    }});
+  }}
+
+  function _forcePlacement(labels) {{
+    _candidatePlacement(labels); // warm start
+    labels.forEach(function(l) {{ l.vx = 0; l.vy = 0; }});
+    for (var iter = 0; iter < 45; iter++) {{
+      var alpha = 1 - iter / 45;
+      labels.forEach(function(li) {{
+        li.vx += (li.ax - li.x) * 0.035 * alpha;
+        li.vy += (li.ay - li.y) * 0.035 * alpha;
+        labels.forEach(function(lj) {{
+          if (li === lj) return;
+          var ov = _lblOverlap(li.x, li.y, li.w, li.h, lj.x, lj.y, lj.w, lj.h);
+          if (!ov) return;
+          var dx = (li.x - lj.x) || 0.1, dy = (li.y - lj.y) || 0.1;
+          var dist = Math.sqrt(dx*dx + dy*dy);
+          var f = Math.sqrt(ov) * 0.75;
+          li.vx += dx/dist*f; li.vy += dy/dist*f;
+        }});
+        li.vx *= 0.62; li.vy *= 0.62;
+        li.x += li.vx; li.y += li.vy;
+      }});
     }}
-    for (var li = 0; li < _allLabelItems.length; li++) {{
-      var lp = map.getPane(_allLabelItems[li].labelPaneName);
-      if (!lp || lp.style.display === 'none') continue;
-      var els = lp.querySelectorAll('.leaflet-tooltip');
-      for (var i = 0; i < els.length; i++) {{
-        var el = els[i];
-        var r = el.getBoundingClientRect();
-        if (!r.width && !r.height) continue;
-        var cx = r.left + r.width  / 2;
-        var cy = r.top  + r.height / 2;
-        var clash = false;
-        for (var j = 0; j < placed.length; j++) {{
-          var p = placed[j];
-          // Bounding-box overlap (4px gap tolerance)
-          if (r.left < p.right + 4 && r.right > p.left - 4 &&
-              r.top  < p.bottom + 4 && r.bottom > p.top - 4) {{
-            clash = true; break;
-          }}
-          // Centre-proximity: suppress labels from co-located features in
-          // different layers that Leaflet nudges apart so boxes don't overlap.
-          var dx = cx - p.cx, dy = cy - p.cy;
-          if (dx * dx + dy * dy < 900) {{ clash = true; break; }}  // 30px radius
-        }}
-        if (clash) el.style.visibility = 'hidden';
-        else placed.push({{ left: r.left, right: r.right, top: r.top, bottom: r.bottom, cx: cx, cy: cy }});
+  }}
+
+  // ── SVG label render pass ─────────────────────────────────────────────────
+  function layoutAllLabels() {{
+    if (!_labelSvg) return;
+    var all = [];
+    _allLabelItems.forEach(function(item) {{
+      if (!item.visible || !item.labelsVisible || !item.labelData) return;
+      var cfg = item.labelCfg;
+      var fsz = cfg.fontSize || 11;
+      item.labelData.forEach(function(ld) {{
+        var pt = map.latLngToContainerPoint(ld.latlng);
+        var dims = _lblDims(ld.text, fsz);
+        all.push({{
+          text: ld.text, cfg: cfg,
+          ax: pt.x, ay: pt.y,
+          x: pt.x, y: pt.y - dims.h * 0.6,
+          w: dims.w, h: dims.h,
+          vx: 0, vy: 0,
+          group: item.labelGroup
+        }});
+      }});
+    }});
+
+    // Clear SVG groups
+    _allLabelItems.forEach(function(item) {{
+      if (item.labelGroup) item.labelGroup.innerHTML = '';
+    }});
+    if (!all.length) return;
+
+    if (_labelPlacementMode === 'force') {{
+      _forcePlacement(all);
+    }} else {{
+      _candidatePlacement(all);
+    }}
+
+    // Render labels and callouts
+    var NS = 'http://www.w3.org/2000/svg';
+    all.forEach(function(lbl) {{
+      if (!lbl.group) return;
+      var cfg = lbl.cfg;
+      var fsz = cfg.fontSize || 11;
+      var g = document.createElementNS(NS, 'g');
+
+      // Dashed callout line when displaced > 8 px
+      var dx = lbl.x - lbl.ax, dy = lbl.y - lbl.ay;
+      if (Math.sqrt(dx*dx + dy*dy) > 8) {{
+        var line = document.createElementNS(NS, 'line');
+        line.setAttribute('x1', lbl.ax.toFixed(1));
+        line.setAttribute('y1', lbl.ay.toFixed(1));
+        line.setAttribute('x2', lbl.x.toFixed(1));
+        line.setAttribute('y2', lbl.y.toFixed(1));
+        line.setAttribute('stroke', cfg.fontColor || '#333');
+        line.setAttribute('stroke-width', '0.9');
+        line.setAttribute('stroke-opacity', '0.45');
+        line.setAttribute('stroke-dasharray', '2,2');
+        g.appendChild(line);
       }}
-    }}
+
+      var t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', lbl.x.toFixed(1));
+      t.setAttribute('y', lbl.y.toFixed(1));
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('dominant-baseline', 'central');
+      t.setAttribute('font-size', fsz + 'px');
+      t.setAttribute('font-family', (cfg.fontFamily || 'Arial') + ', Arial, sans-serif');
+      t.setAttribute('fill', cfg.fontColor || '#000');
+      t.setAttribute('fill-opacity', cfg.fontOpacity != null ? cfg.fontOpacity : 1);
+      if (cfg.bold) t.setAttribute('font-weight', 'bold');
+      if (cfg.italic) t.setAttribute('font-style', 'italic');
+      if (cfg.bufferSize > 0) {{
+        t.setAttribute('stroke', cfg.bufferColor || '#fff');
+        t.setAttribute('stroke-width', (cfg.bufferSize * 1.5) + 'px');
+        t.setAttribute('paint-order', 'stroke fill');
+        t.setAttribute('stroke-linejoin', 'round');
+      }}
+      t.textContent = lbl.text;
+      g.appendChild(t);
+      lbl.group.appendChild(g);
+    }});
   }}
 
   function buildLabels(item) {{
     var ld = item.ld;
     if (!ld.labelConfig || ld.kind !== 'vector') return;
     var cfg = ld.labelConfig;
-    var fontSz = cfg.fontSize || 11;
-    var bufSz  = cfg.bufferSize  || 0;
-    var bufCol = cfg.bufferColor || '#ffffff';
-    // Append safe web-font fallbacks so QGIS-specific fonts degrade gracefully
-    var fontFamily = (cfg.fontFamily || 'Arial') + ', Arial, sans-serif';
-    // Use CSS text-stroke for the buffer (paint-order:stroke fill draws the
-    // stroke behind the fill, matching QGIS buffer rendering exactly).
-    // The 8-direction text-shadow approach created ghost copies at large sizes.
-    var bufStyle = bufSz > 0
-      ? ('-webkit-text-stroke:' + bufSz + 'px ' + bufCol + ';'
-         + 'paint-order:stroke fill;')
-      : '';
-    var fontStyle = 'font-size:'+fontSz+'px;color:'+cfg.fontColor+';'
-      + 'font-family:'+fontFamily+';'
-      + (cfg.bold  ?'font-weight:bold;':'')
-      + (cfg.italic?'font-style:italic;':'')
-      + bufStyle + 'white-space:nowrap;';
-    var dir = ld.geomType === 'point' ? 'top' : 'center';
+
+    // Collect label anchor points from rendered features
+    var labelData = [];
     item.lfl.eachLayer(function(fl) {{
       var props = fl.feature && fl.feature.properties;
       if (!props) return;
       var val = props[cfg.field];
       if (val == null || val === '') return;
-      fl.bindTooltip(
-        '<span style="'+fontStyle+'">'+escHtml(String(val))+'</span>',
-        {{ permanent: true, direction: dir, className: 'qgis-label',
-           opacity: cfg.fontOpacity != null ? cfg.fontOpacity : 1,
-           pane: item.labelPaneName }}
-      );
+      var latlng = fl.getLatLng ? fl.getLatLng()
+                 : (fl.getBounds ? fl.getBounds().getCenter() : null);
+      if (latlng) labelData.push({{ text: String(val), latlng: latlng }});
     }});
+    item.labelData = labelData;
+    item.labelCfg = cfg;
 
-    // Register in global list (idempotent) and hook the shared layout pass.
+    // Replace any old SVG group for this item
+    if (item.labelGroup && item.labelGroup.parentNode) {{
+      item.labelGroup.parentNode.removeChild(item.labelGroup);
+    }}
+    var NS = 'http://www.w3.org/2000/svg';
+    var g = document.createElementNS(NS, 'g');
+    g.style.display = (item.visible && item.labelsVisible) ? '' : 'none';
+    if (_labelSvg) _labelSvg.appendChild(g);
+    item.labelGroup = g;
+
     if (_allLabelItems.indexOf(item) === -1) _allLabelItems.push(item);
-    item.labelLayoutFn = layoutAllLabels;
-    // Deduplicate: remove then re-add so exactly one listener exists.
-    map.off('moveend zoomend', layoutAllLabels);
-    map.on('moveend zoomend', layoutAllLabels);
+    map.off('moveend zoomend viewreset', layoutAllLabels);
+    map.on('moveend zoomend viewreset', layoutAllLabels);
     setTimeout(layoutAllLabels, 150);
-
-    // Keep pane hidden until explicitly enabled
-    var lp = map.getPane(item.labelPaneName);
-    if (lp) lp.style.display = item.labelsVisible ? '' : 'none';
   }}
 
   // ── Filter toolbar ─────────────────────────────────────────────────────────
