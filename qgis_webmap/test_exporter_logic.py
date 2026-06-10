@@ -51,6 +51,39 @@ def _flatten_coords(geom):
             yield from _flatten_coords(g)
 
 
+# ── SVG symbol helpers (mirrors exporter.py, no QGIS needed) ─────────────────
+_svg_id_counter = [0]
+
+
+def _reset_svg_counter():
+    _svg_id_counter[0] = 0
+
+
+def _svg_inner(svg_text):
+    try:
+        lt = svg_text.index("<svg")
+        gt = svg_text.index(">", lt) + 1
+        end = svg_text.rindex("</svg>")
+        return svg_text[gt:end].strip()
+    except Exception:
+        return ""
+
+
+def _uniquify_svg_ids(inner):
+    import re
+    ids = set(re.findall(r'id="([^"]+)"', inner))
+    if not ids:
+        return inner
+    _svg_id_counter[0] += 1
+    prefix = "s%d_" % _svg_id_counter[0]
+    for i in sorted(ids, key=len, reverse=True):
+        inner = inner.replace('id="%s"' % i, 'id="%s%s"' % (prefix, i))
+        inner = inner.replace('url(#%s)' % i, 'url(#%s%s)' % (prefix, i))
+        inner = inner.replace('"#%s"' % i, '"#%s%s"' % (prefix, i))
+        inner = inner.replace("'#%s'" % i, "'#%s%s'" % (prefix, i))
+    return inner
+
+
 # ── Tests ──────────────────────────────────────────────────────────────────
 
 def test_color_to_hex():
@@ -227,6 +260,49 @@ def test_marker_style_serialisable_with_shape():
     loaded = json.loads(json.dumps(style))
     assert loaded["markerShape"] == "star"
     assert loaded["markerSize"] == 12
+
+
+def test_svg_inner_extracts_body():
+    svg = ('<?xml version="1.0"?>\n<!DOCTYPE svg>\n'
+           '<svg width="10" height="10"><g><circle r="3"/></g></svg>\n')
+    assert _svg_inner(svg) == '<g><circle r="3"/></g>'
+
+
+def test_svg_inner_bad_input_returns_empty():
+    assert _svg_inner("not svg at all") == ""
+
+
+def test_uniquify_svg_ids_namespaces_refs():
+    _reset_svg_counter()
+    inner = '<clipPath id="clip0"><rect/></clipPath><path clip-path="url(#clip0)"/>'
+    out = _uniquify_svg_ids(inner)
+    assert 'id="s1_clip0"' in out
+    assert 'url(#s1_clip0)' in out
+    assert 'url(#clip0)' not in out
+
+
+def test_uniquify_svg_ids_distinct_per_call():
+    _reset_svg_counter()
+    a = _uniquify_svg_ids('<g id="g0"/>')
+    b = _uniquify_svg_ids('<g id="g0"/>')
+    assert 'id="s1_g0"' in a
+    assert 'id="s2_g0"' in b
+
+
+def test_uniquify_svg_ids_noop_without_ids():
+    inner = '<circle r="3"/>'
+    assert _uniquify_svg_ids(inner) == inner
+
+
+def test_marker_svg_payload_serialisable():
+    style = {
+        "markerColor": "#ff0000", "markerSize": 12, "markerShape": "circle",
+        "markerSvg": {"w": 18.0, "h": 20.0, "ax": 9.0, "ay": 10.0,
+                      "inner": '<g><circle r="3" fill="#f00"/></g>'},
+    }
+    loaded = json.loads(json.dumps(style))
+    assert loaded["markerSvg"]["w"] == 18.0
+    assert "circle" in loaded["markerSvg"]["inner"]
 
 
 def test_wms_layer_def_serialisable():
