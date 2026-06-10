@@ -1262,6 +1262,29 @@ class WebMapExporter:
     font-size: 12px; font-weight: 600; color: #003057; line-height: 1.3;
   }}
   .mv-item-notes {{ font-size: 11px; color: #666; margin-top: 2px; line-height: 1.35; }}
+  /* ── Help overlay ───────────────────────────────────────────────── */
+  #help-overlay {{
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.38); z-index: 2000;
+    display: none; cursor: pointer;
+  }}
+  #help-overlay.active {{ display: block; }}
+  .help-tip {{
+    position: fixed; background: #fff; border-radius: 4px;
+    padding: 8px 12px; box-shadow: 0 3px 16px rgba(0,0,0,0.28);
+    min-width: 160px; max-width: 230px;
+    pointer-events: none; z-index: 2001;
+  }}
+  .help-tip::before {{
+    content: ''; position: absolute;
+    left: -6px; top: 14px;
+    border: 6px solid transparent;
+    border-right-color: #fff; border-left-width: 0;
+  }}
+  .help-tip-name {{ font-size: 12px; font-weight: 700; color: #003057; margin-bottom: 3px; }}
+  .help-tip-text {{ font-size: 11px; color: #444; line-height: 1.45; }}
+  .help-btn-active {{ background: #003057 !important; color: #fff !important; }}
+
   .map-info-toggle {{
     width: 30px; height: 30px;
     background: white;
@@ -1448,6 +1471,7 @@ class WebMapExporter:
 </style>
 </head>
 <body>
+<div id="help-overlay"></div>
 {left_panel_html}
 <div id="map-wrap">
 <div id="map"></div>
@@ -3043,6 +3067,67 @@ class WebMapExporter:
       }});
     }}
   }}
+
+  // ── Help button & overlay ────────────────────────────────────────────────────
+  var _helpActive = false;
+  var helpOverlay = document.getElementById('help-overlay');
+
+  var _helpTools = [
+    {{ sel: '.leaflet-control-zoom-in',           name: 'Zoom In',           text: 'Zoom in on the map. You can also scroll the mouse wheel or press the + key.' }},
+    {{ sel: '.leaflet-control-zoom-out',          name: 'Zoom Out',          text: 'Zoom out on the map. You can also scroll the mouse wheel or press the − key.' }},
+    {{ sel: '[title="About this map"]',           name: 'Map Information',   text: 'Open the information panel showing the project title, description and document metadata.' }},
+    {{ sel: '[title="Feature info"]',             name: 'Identify Features', text: 'Click a feature on the map to view its attributes. When features overlap, a list appears on the left — click each to inspect.' }},
+    {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and row selection.' }},
+    {{ sel: '[title="Drag to select features"]',  name: 'Select Features',   text: 'Click and drag a rectangle on the map to select features. Selected rows are highlighted in the attribute table.' }},
+    {{ sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' }},
+    {{ sel: '.leaflet-control-fullscreen-button', name: 'Full Screen',       text: 'Toggle full-screen mode.' }},
+  ];
+
+  var _helpBtn;
+
+  function buildHelpTips() {{
+    helpOverlay.innerHTML = '';
+    _helpTools.forEach(function(tool) {{
+      var el = document.querySelector(tool.sel);
+      if (!el) return;
+      var r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      var tip = document.createElement('div');
+      tip.className = 'help-tip';
+      tip.innerHTML = '<div class="help-tip-name">' + escHtml(tool.name) + '</div>'
+                    + '<div class="help-tip-text">' + escHtml(tool.text) + '</div>';
+      tip.style.left = (r.right + 10) + 'px';
+      tip.style.top  = Math.max(4, r.top + r.height / 2 - 24) + 'px';
+      helpOverlay.appendChild(tip);
+    }});
+  }}
+
+  function toggleHelp() {{
+    _helpActive = !_helpActive;
+    if (_helpActive) {{ buildHelpTips(); helpOverlay.classList.add('active'); }}
+    else {{ helpOverlay.classList.remove('active'); }}
+    if (_helpBtn) _helpBtn.classList.toggle('help-btn-active', _helpActive);
+  }}
+
+  helpOverlay.addEventListener('click', function() {{
+    _helpActive = false;
+    helpOverlay.classList.remove('active');
+    if (_helpBtn) _helpBtn.classList.remove('help-btn-active');
+  }});
+
+  var HelpControl = L.Control.extend({{
+    onAdd: function() {{
+      var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+      btn.title = 'Help — tool guide';
+      btn.innerHTML = '?';
+      btn.style.cssText = 'font-weight:700;font-size:14px;';
+      _helpBtn = btn;
+      L.DomEvent.disableClickPropagation(btn);
+      L.DomEvent.on(btn, 'click', toggleHelp);
+      return btn;
+    }}
+  }});
+  new HelpControl({{position: 'topleft'}}).addTo(map);
 
   // ── Brand watermark (bottomleft Leaflet control, above scale bar) ─────────
   var BrandControl = L.Control.extend({{
