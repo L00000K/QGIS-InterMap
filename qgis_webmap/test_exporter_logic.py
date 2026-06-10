@@ -305,6 +305,86 @@ def test_marker_svg_payload_serialisable():
     assert "circle" in loaded["markerSvg"]["inner"]
 
 
+# ── Fill symbology helpers (mirrors exporter.py, no QGIS needed) ─────────────
+
+def _snap_hatch_angle(angle):
+    a = float(angle) % 180.0
+    if a < 22.5 or a >= 157.5:
+        return "hor"
+    if a < 67.5:
+        return "bdiag"
+    if a < 112.5:
+        return "ver"
+    return "fdiag"
+
+
+class _Pen:
+    NoPen, SolidLine, DashLine, DotLine, DashDotLine, DashDotDotLine = range(6)
+
+
+def _pen_style_dash(pen):
+    if pen == _Pen.DashLine:
+        return "8 4"
+    if pen == _Pen.DotLine:
+        return "2 4"
+    if pen == _Pen.DashDotLine:
+        return "8 4 2 4"
+    if pen == _Pen.DashDotDotLine:
+        return "8 4 2 4 2 4"
+    return None
+
+
+def _blend_hex_rgb(r1, g1, b1, r2, g2, b2):
+    return "#{:02x}{:02x}{:02x}".format((r1 + r2) // 2, (g1 + g2) // 2, (b1 + b2) // 2)
+
+
+def test_snap_hatch_angle_cardinals():
+    assert _snap_hatch_angle(0) == "hor"
+    assert _snap_hatch_angle(45) == "bdiag"
+    assert _snap_hatch_angle(90) == "ver"
+    assert _snap_hatch_angle(135) == "fdiag"
+
+
+def test_snap_hatch_angle_wraps_and_rounds():
+    assert _snap_hatch_angle(180) == "hor"
+    assert _snap_hatch_angle(170) == "hor"
+    assert _snap_hatch_angle(225) == "bdiag"   # 225 % 180 = 45
+    assert _snap_hatch_angle(100) == "ver"
+    assert _snap_hatch_angle(-45) == "fdiag"   # -45 % 180 = 135
+
+
+def test_pen_style_dash():
+    assert _pen_style_dash(_Pen.DashLine) == "8 4"
+    assert _pen_style_dash(_Pen.DotLine) == "2 4"
+    assert _pen_style_dash(_Pen.SolidLine) is None
+    assert _pen_style_dash(_Pen.NoPen) is None
+
+
+def test_blend_hex_midpoint():
+    assert _blend_hex_rgb(0, 0, 0, 255, 255, 255) == "#7f7f7f"
+    assert _blend_hex_rgb(255, 0, 0, 0, 0, 255) == "#7f007f"
+
+
+def test_fill_hatch_style_serialisable():
+    style = {
+        "fillHatch": {"kind": "bdiag", "color": "#ff0000", "opacity": 0.8,
+                      "width": 1.5, "spacing": 6.0},
+        "color": "#000000", "weight": 1.5, "opacity": 1, "dashArray": "8 4",
+    }
+    loaded = json.loads(json.dumps(style))
+    assert loaded["fillHatch"]["kind"] == "bdiag"
+    assert loaded["fillHatch"]["spacing"] == 6.0
+    assert loaded["dashArray"] == "8 4"
+
+
+def test_outline_only_polygon_style():
+    # No-brush fill with a stroke: fill must be fully transparent
+    style = {"fillOpacity": 0, "color": "#222222", "weight": 2, "opacity": 1}
+    loaded = json.loads(json.dumps(style))
+    assert loaded["fillOpacity"] == 0
+    assert loaded["weight"] == 2
+
+
 def test_wms_layer_def_serialisable():
     ld = {
         "kind": "wms", "name": "WMS", "bounds": [[0, 0], [1, 1]],

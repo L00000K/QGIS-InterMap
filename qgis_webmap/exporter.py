@@ -24,6 +24,21 @@ try:
 except ImportError:
     _QgsSimpleMarkerBase = None
 
+# Optional fill symbol layer classes (availability varies across QGIS versions)
+def _opt_import(name):
+    try:
+        import qgis.core as _qc
+        return getattr(_qc, name, None)
+    except Exception:
+        return None
+
+_QgsGradientFill     = _opt_import("QgsGradientFillSymbolLayer")
+_QgsLinePatternFill  = _opt_import("QgsLinePatternFillSymbolLayer")
+_QgsPointPatternFill = _opt_import("QgsPointPatternFillSymbolLayer")
+_QgsSVGFill          = _opt_import("QgsSVGFillSymbolLayer")
+_QgsShapeburstFill   = _opt_import("QgsShapeburstFillSymbolLayer")
+_QgsCentroidFill     = _opt_import("QgsCentroidFillSymbolLayer")
+
 try:
     from qgis.core import QgsPalLayerSettings as _QgsPalLayerSettings
     _HAS_PAL = True
@@ -418,6 +433,244 @@ def _render_marker_symbol_to_svg(symbol, dpi: float = 96.0):
     }
 
 
+# Qt hatch brush styles → tileable pattern kinds understood by the JS side
+_HATCH_BRUSH_KINDS = {
+    Qt.HorPattern: "hor", Qt.VerPattern: "ver", Qt.CrossPattern: "cross",
+    Qt.BDiagPattern: "bdiag", Qt.FDiagPattern: "fdiag",
+    Qt.DiagCrossPattern: "diagcross",
+}
+
+# Qt density brushes → approximate coverage fraction (used to scale opacity)
+_DENSE_BRUSH_FACTORS = {
+    Qt.Dense1Pattern: 0.9, Qt.Dense2Pattern: 0.75, Qt.Dense3Pattern: 0.6,
+    Qt.Dense4Pattern: 0.5, Qt.Dense5Pattern: 0.35, Qt.Dense6Pattern: 0.2,
+    Qt.Dense7Pattern: 0.1,
+}
+
+
+def _pen_style_dash(pen) -> str | None:
+    """Translate a Qt pen style to an SVG/Leaflet dashArray string."""
+    if pen == Qt.DashLine:
+        return "8 4"
+    if pen == Qt.DotLine:
+        return "2 4"
+    if pen == Qt.DashDotLine:
+        return "8 4 2 4"
+    if pen == Qt.DashDotDotLine:
+        return "8 4 2 4 2 4"
+    return None
+
+
+def _snap_hatch_angle(angle) -> str:
+    """Snap a line-pattern angle (degrees) to the nearest supported hatch kind."""
+    a = float(angle) % 180.0
+    if a < 22.5 or a >= 157.5:
+        return "hor"
+    if a < 67.5:
+        return "bdiag"   # rising lines (/)
+    if a < 112.5:
+        return "ver"
+    return "fdiag"        # falling lines (\)
+
+
+def _blend_hex(c1, c2):
+    """Mid-point blend of two QColors as hex (gradient fill fallback)."""
+    return "#{:02x}{:02x}{:02x}".format(
+        (c1.red() + c2.red()) // 2,
+        (c1.green() + c2.green()) // 2,
+        (c1.blue() + c2.blue()) // 2,
+    )
+
+
+def _sl_enabled(sl) -> bool:
+    try:
+        return bool(sl.enabled())
+    except Exception:
+        return True
+
+
+def _extract_fill_symbol_style(symbol, sym_opacity) -> dict:
+    """
+    Extract polygon style by walking ALL symbol layers of a Fill symbol.
+
+    Unlike marker/line symbols, QGIS polygon symbols routinely combine
+    several layers (e.g. a fill layer plus a separate Simple Line outline)
+    and use non-solid brushes (hatch, no-brush) and pattern fills.  The
+    first fill-contributing layer wins the fill; the first stroke source
+    wins the outline.
+    """
+    style = {}
+    have_fill = False
+    have_stroke = False
+
+    for i in range(symbol.symbolLayerCount()):
+        sl = symbol.symbolLayer(i)
+        if not _sl_enabled(sl):
+            continue
+
+        if isinstance(sl, QgsSimpleFillSymbolLayer):
+            if not have_fill:
+                try:
+                    brush = sl.brushStyle()
+                except Exception:
+                    brush = Qt.SolidPattern
+                fill_color = sl.fillColor()
+                if brush == Qt.NoBrush:
+                    pass  # outline-only layer: contributes no fill
+                elif brush in _HATCH_BRUSH_KINDS:
+                    style["fillHatch"] = {
+                        "kind": _HATCH_BRUSH_KINDS[brush],
+                        "color": _color_to_hex(fill_color),
+                        "opacity": round(fill_color.alphaF() * sym_opacity, 3),
+                        "width": 1, "spacing": 6,
+                    }
+                    have_fill = True
+                elif brush in _DENSE_BRUSH_FACTORS:
+                    style["fillColor"] = _color_to_hex(fill_color)
+                    style["fillOpacity"] = round(
+                        fill_color.alphaF() * sym_opacity * _DENSE_BRUSH_FACTORS[brush], 3)
+                    have_fill = True
+                else:  # solid / texture / unknown → solid colour
+                    style["fillColor"] = _color_to_hex(fill_color)
+                    style["fillOpacity"] = round(fill_color.alphaF() * sym_opacity, 3)
+                    have_fill = True
+            if not have_stroke:
+                try:
+                    pen = sl.strokeStyle()
+                except Exception:
+                    pen = Qt.SolidLine
+                if pen != Qt.NoPen:
+                    stroke_color = sl.strokeColor()
+                    style["color"] = _color_to_hex(stroke_color)
+                    style["opacity"] = round(stroke_color.alphaF() * sym_opacity, 3)
+                    style["weight"] = round(
+                        max(0.0, _size_to_px(sl.strokeWidth(), sl.strokeWidthUnit())), 1) or 1
+                    dash = _pen_style_dash(pen)
+                    if dash:
+                        style["dashArray"] = dash
+                    have_stroke = True
+
+        elif isinstance(sl, QgsSimpleLineSymbolLayer):
+            # Outline drawn as a separate line layer inside the fill symbol —
+            # this must NOT zero the fill (the old code did exactly that).
+            if not have_stroke:
+                try:
+                    pen = sl.penStyle()
+                except Exception:
+                    pen = Qt.SolidLine
+                if pen != Qt.NoPen:
+                    color = sl.color()
+                    style["color"] = _color_to_hex(color)
+                    style["opacity"] = round(color.alphaF() * sym_opacity, 3)
+                    style["weight"] = round(max(0.5, _size_to_px(sl.width(), sl.widthUnit())), 1)
+                    dash = _pen_style_dash(pen)
+                    if dash:
+                        style["dashArray"] = dash
+                    elif pen == Qt.CustomDashLine:
+                        try:
+                            dv = sl.customDashVector()
+                            unit = sl.customDashPatternUnit()
+                            parts = [str(round(_size_to_px(v, unit), 1)) for v in dv]
+                            if parts:
+                                style["dashArray"] = " ".join(parts)
+                        except Exception:
+                            pass
+                    have_stroke = True
+
+        elif _QgsLinePatternFill is not None and isinstance(sl, _QgsLinePatternFill):
+            if not have_fill:
+                try:
+                    sub = sl.subSymbol()
+                    line_color = sub.color() if sub else sl.color()
+                    line_w = 1.0
+                    if sub and sub.symbolLayerCount():
+                        lsl = sub.symbolLayer(0)
+                        if isinstance(lsl, QgsSimpleLineSymbolLayer):
+                            line_w = max(0.5, _size_to_px(lsl.width(), lsl.widthUnit()))
+                    spacing = max(3.0, _size_to_px(sl.distance(), sl.distanceUnit()))
+                    style["fillHatch"] = {
+                        "kind": _snap_hatch_angle(sl.lineAngle()),
+                        "color": _color_to_hex(line_color),
+                        "opacity": round(line_color.alphaF() * sym_opacity, 3),
+                        "width": round(line_w, 1),
+                        "spacing": round(spacing, 1),
+                    }
+                    have_fill = True
+                except Exception:
+                    pass
+
+        elif _QgsPointPatternFill is not None and isinstance(sl, _QgsPointPatternFill):
+            if not have_fill:
+                try:
+                    sub = sl.subSymbol()
+                    dot_color = sub.color() if sub else QColor(0, 0, 0)
+                    dot_size = 2.0
+                    if sub and sub.symbolLayerCount():
+                        msl = sub.symbolLayer(0)
+                        if isinstance(msl, QgsSimpleMarkerSymbolLayer):
+                            dot_size = max(1.0, _size_to_px(msl.size(), msl.sizeUnit()))
+                    dx = _size_to_px(sl.distanceX(), sl.distanceXUnit())
+                    dy = _size_to_px(sl.distanceY(), sl.distanceYUnit())
+                    style["fillHatch"] = {
+                        "kind": "dots",
+                        "color": _color_to_hex(dot_color),
+                        "opacity": round(dot_color.alphaF() * sym_opacity, 3),
+                        "size": round(dot_size, 1),
+                        "spacing": round(max(3.0, dx, dy), 1),
+                    }
+                    have_fill = True
+                except Exception:
+                    pass
+
+        elif _QgsGradientFill is not None and isinstance(sl, _QgsGradientFill):
+            if not have_fill:
+                try:
+                    c1, c2 = sl.color(), sl.color2()
+                    style["fillColor"] = _blend_hex(c1, c2)
+                    style["fillOpacity"] = round(
+                        (c1.alphaF() + c2.alphaF()) / 2.0 * sym_opacity, 3)
+                    have_fill = True
+                except Exception:
+                    pass
+
+        elif _QgsShapeburstFill is not None and isinstance(sl, _QgsShapeburstFill):
+            if not have_fill:
+                c = sl.color()
+                style["fillColor"] = _color_to_hex(c)
+                style["fillOpacity"] = round(c.alphaF() * sym_opacity, 3)
+                have_fill = True
+
+        elif _QgsSVGFill is not None and isinstance(sl, _QgsSVGFill):
+            if not have_fill:
+                try:
+                    c = sl.svgFillColor()
+                    style["fillColor"] = _color_to_hex(c)
+                    style["fillOpacity"] = round(c.alphaF() * sym_opacity * 0.6, 3)
+                    have_fill = True
+                except Exception:
+                    pass
+
+        elif _QgsCentroidFill is not None and isinstance(sl, _QgsCentroidFill):
+            continue  # centroid markers contribute neither fill nor outline
+
+    if not have_fill and "fillHatch" not in style:
+        style["fillOpacity"] = 0
+    if not have_stroke and not have_fill:
+        # Nothing usable found — fall back to the flattened symbol colour
+        c = symbol.color()
+        style["fillColor"] = _color_to_hex(c)
+        style["fillOpacity"] = round(c.alphaF() * sym_opacity, 3)
+        style["color"] = "#000000"
+        style["weight"] = 1
+        style["opacity"] = 1
+    elif not have_stroke:
+        # Borderless polygon: match QGIS by drawing no outline
+        style["color"] = style.get("fillColor", "#000000")
+        style["opacity"] = 0.0
+        style["weight"] = 0
+    return style
+
+
 def _extract_symbol_style(symbol) -> dict:
     """Extract Leaflet path/marker style from a QGIS symbol."""
     style = {}
@@ -432,30 +685,16 @@ def _extract_symbol_style(symbol) -> dict:
     except Exception:
         sym_opacity = 1.0
 
+    # Fill symbols need a multi-layer walk (fill + separate outline layers,
+    # hatch brushes, pattern fills) — handled by a dedicated extractor.
+    if geom_type == QgsSymbol.Fill:
+        return _extract_fill_symbol_style(symbol, sym_opacity)
+
     # Walk symbol layers to find the primary paint layer
     for i in range(symbol.symbolLayerCount()):
         sl = symbol.symbolLayer(i)
 
-        if isinstance(sl, QgsSimpleFillSymbolLayer):
-            fill_color = sl.fillColor()
-            stroke_color = sl.strokeColor()
-            style["fillColor"] = _color_to_hex(fill_color)
-            style["fillOpacity"] = round(fill_color.alphaF() * sym_opacity, 3)
-            try:
-                no_border = sl.strokeStyle() == Qt.NoPen
-            except Exception:
-                no_border = False
-            if no_border:
-                style["color"] = _color_to_hex(fill_color)
-                style["opacity"] = 0.0
-                style["weight"] = 0
-            else:
-                style["color"] = _color_to_hex(stroke_color)
-                style["opacity"] = round(stroke_color.alphaF() * sym_opacity, 3)
-                style["weight"] = round(max(0.0, _size_to_px(sl.strokeWidth(), sl.strokeWidthUnit())), 1) or 1
-            break
-
-        elif isinstance(sl, QgsSimpleLineSymbolLayer):
+        if isinstance(sl, QgsSimpleLineSymbolLayer):
             color = sl.color()
             style["color"] = _color_to_hex(color)
             style["opacity"] = round(color.alphaF() * sym_opacity, 3)
@@ -520,16 +759,7 @@ def _extract_symbol_style(symbol) -> dict:
             style["markerShape"] = "circle"
             break
 
-    # Defaults for fill polygons if nothing matched
-    if geom_type == QgsSymbol.Fill and "fillColor" not in style:
-        c = symbol.color()
-        style["fillColor"] = _color_to_hex(c)
-        style["fillOpacity"] = round(c.alphaF(), 3)
-        style["color"] = "#000000"
-        style["weight"] = 1
-        style["opacity"] = 1
-
-    elif geom_type == QgsSymbol.Line and "color" not in style:
+    if geom_type == QgsSymbol.Line and "color" not in style:
         c = symbol.color()
         style["color"] = _color_to_hex(c)
         style["opacity"] = round(c.alphaF(), 3)
@@ -1115,6 +1345,103 @@ class WebMapExporter:
     line-height: 1.4;
   }}
   #legend-toggle-all:hover {{ background: rgba(255,255,255,0.25); }}
+  #legend-tools-btn {{
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.12);
+    line-height: 1;
+    display: flex;
+    align-items: center;
+  }}
+  #legend-tools-btn:hover {{ background: rgba(255,255,255,0.25); }}
+  #legend-tools-btn.active {{ background: #fff; color: #3f32f1; }}
+  /* ── Per-layer tool buttons (revealed by the header tools toggle) ── */
+  .layer-actions {{
+    display: none;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+    margin-right: 2px;
+  }}
+  #legend.tools-mode .layer-actions {{ display: inline-flex; }}
+  .layer-act-btn {{
+    width: 19px; height: 19px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    color: #555;
+    cursor: pointer;
+  }}
+  .layer-act-btn:hover {{ background: #ede9fe; color: #3f32f1; }}
+  .layer-act-btn.active {{ background: #3f32f1; border-color: #2b22c0; color: #fff; }}
+  .layer-act-btn.filtered {{ box-shadow: 0 0 0 2px #c9c3f9; }}
+  .layer-act-btn:disabled {{ opacity: 0.4; cursor: default; }}
+  .layer-act-sel {{
+    font-size: 9px;
+    max-width: 48px;
+    height: 19px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    color: #555;
+  }}
+  /* ── Per-layer filter panel ── */
+  .layer-filter {{
+    display: none;
+    padding: 6px 10px 8px 28px;
+    background: #fafafa;
+    border-top: 1px solid #eee;
+  }}
+  .layer-filter.open {{ display: block; }}
+  .layer-filter .lf-attr {{
+    width: 100%;
+    font-size: 11px;
+    padding: 2px 3px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    margin-bottom: 4px;
+  }}
+  .layer-filter .lf-search {{
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 11px;
+    padding: 3px 5px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    margin-bottom: 4px;
+    outline: none;
+  }}
+  .layer-filter .lf-values {{
+    max-height: 130px;
+    overflow-y: auto;
+    border: 1px solid #e4e4e4;
+    border-radius: 3px;
+    background: #fff;
+    margin-bottom: 4px;
+  }}
+  .layer-filter .lf-values .filter-value-item {{ font-size: 11px; padding: 2px 6px; }}
+  .layer-filter .lf-foot {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }}
+  .layer-filter .lf-foot button {{
+    font-size: 11px;
+    padding: 2px 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+  }}
+  .layer-filter .lf-foot button:hover {{ background: #ede9fe; }}
   #legend-body {{
     overflow-y: auto;
     padding: 4px 0;
@@ -1325,6 +1652,42 @@ class WebMapExporter:
     text-overflow: ellipsis;
   }}
   .filter-count {{ color: #888; font-size: 11px; }}
+
+  /* ── Global search bar ─────────────────────────────────────────── */
+  #searchbar {{
+    position: absolute;
+    top: 52px; left: 50px;
+    z-index: 1000;
+    background: rgba(255,255,255,0.96);
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: calc(100vw - 320px);
+    font-size: 12px;
+  }}
+  #searchbar label {{ font-weight: bold; color: #444; }}
+  #searchbar input {{
+    font-size: 12px;
+    padding: 3px 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    width: 240px;
+    outline: none;
+  }}
+  #searchbar input:focus {{ border-color: #3f32f1; }}
+  #searchbar button {{
+    font-size: 12px;
+    padding: 3px 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    cursor: pointer;
+  }}
+  #searchbar button:hover {{ background: #ede9fe; }}
 
   /* ── Filter toggle button (Leaflet control) ───────────────────── */
   .leaflet-control-filter {{
@@ -1754,6 +2117,12 @@ class WebMapExporter:
   <button id="filter-clear" type="button">Clear</button>
   <span id="filter-count" class="filter-count"></span>
 </div>
+<div id="searchbar" style="display:none">
+  <label>Search</label>
+  <input id="search-input" type="text" placeholder="Highlight features containing… (press Enter)" autocomplete="off">
+  <button id="search-clear" type="button">Clear</button>
+  <span id="search-count" class="filter-count"></span>
+</div>
 <div id="legend" style="display:none"></div>
 <div id="info-panel">
   <div id="info-panel-hdr">
@@ -2030,16 +2399,75 @@ class WebMapExporter:
   }}
 
   function leafletPathStyle(s) {{
-    return {{
+    var ps = {{
       color: s.color || '#3388ff',
       weight: s.weight != null ? s.weight : 2,
       opacity: s.opacity != null ? s.opacity : 1,
       fillColor: s.fillColor || s.color || '#3388ff',
       fillOpacity: s.fillOpacity != null ? s.fillOpacity : 0.4
     }};
+    if (s.dashArray) ps.dashArray = s.dashArray;
+    return ps;
+  }}
+
+  // ── Hatch / pattern fills (canvas renderer accepts CanvasPattern as fillStyle)
+  var _hatchCache = {{}};
+  function hatchPattern(h) {{
+    var key = JSON.stringify(h);
+    if (key in _hatchCache) return _hatchCache[key];
+    var pat = null;
+    try {{
+      var s = Math.max(4, Math.round(h.spacing || 6));
+      var cv = document.createElement('canvas');
+      cv.width = s; cv.height = s;
+      var ctx = cv.getContext('2d');
+      ctx.globalAlpha = h.opacity != null ? h.opacity : 1;
+      ctx.strokeStyle = h.color || '#000';
+      ctx.fillStyle = h.color || '#000';
+      ctx.lineWidth = h.width || 1;
+      var k = h.kind;
+      if (k === 'dots') {{
+        ctx.beginPath();
+        ctx.arc(s / 2, s / 2, Math.min(s / 2 - 0.5, Math.max(0.8, (h.size || 2) / 2)), 0, Math.PI * 2);
+        ctx.fill();
+      }} else {{
+        ctx.beginPath();
+        if (k === 'hor' || k === 'cross') {{ ctx.moveTo(0, s / 2); ctx.lineTo(s, s / 2); }}
+        if (k === 'ver' || k === 'cross') {{ ctx.moveTo(s / 2, 0); ctx.lineTo(s / 2, s); }}
+        if (k === 'bdiag' || k === 'diagcross') {{
+          ctx.moveTo(0, s); ctx.lineTo(s, 0);
+          ctx.moveTo(-1, 1); ctx.lineTo(1, -1);
+          ctx.moveTo(s - 1, s + 1); ctx.lineTo(s + 1, s - 1);
+        }}
+        if (k === 'fdiag' || k === 'diagcross') {{
+          ctx.moveTo(0, 0); ctx.lineTo(s, s);
+          ctx.moveTo(s - 1, -1); ctx.lineTo(s + 1, 1);
+          ctx.moveTo(-1, s - 1); ctx.lineTo(1, s + 1);
+        }}
+        ctx.stroke();
+      }}
+      pat = ctx.createPattern(cv, 'repeat');
+    }} catch (e) {{ pat = null; }}
+    _hatchCache[key] = pat;
+    return pat;
+  }}
+
+  function polygonPathStyle(s) {{
+    var ps = leafletPathStyle(s);
+    if (s.fillHatch) {{
+      var pat = hatchPattern(s.fillHatch);
+      if (pat) {{ ps.fillColor = pat; ps.fillOpacity = 1; }}
+      else {{
+        // Pattern creation failed — approximate with translucent solid colour
+        ps.fillColor = s.fillHatch.color || '#888';
+        ps.fillOpacity = (s.fillHatch.opacity != null ? s.fillHatch.opacity : 1) * 0.35;
+      }}
+    }}
+    return ps;
   }}
 
   // ── Swatch SVG ───────────────────────────────────────────────────────────
+  var _swatchPatternId = 0;
   function swatchSvg(geomType, style) {{
     var W = 20, H = 16;
     var svg = '<svg width="' + W + '" height="' + H + '" xmlns="http://www.w3.org/2000/svg">';
@@ -2073,11 +2501,32 @@ class WebMapExporter:
           + '<rect x="1" y="1" width="' + (W-2) + '" height="' + (H-2) + '"'
           + ' fill="url(#hatch)" stroke="#999" stroke-width="1"/>';
     }} else {{
+      var fillAttr = escHtml(style.fillColor || '#3388ff');
+      var fillOpAttr = (style.fillOpacity != null ? style.fillOpacity : 0.4);
+      if (style.fillHatch) {{
+        var h = style.fillHatch, sp = 5, pid = 'swp' + (++_swatchPatternId);
+        var pi = '';
+        if (h.kind === 'dots') {{
+          pi = '<circle cx="' + (sp/2) + '" cy="' + (sp/2) + '" r="1" fill="' + escHtml(h.color || '#000') + '"/>';
+        }} else {{
+          var d = '';
+          if (h.kind === 'hor'   || h.kind === 'cross')     d += 'M0 ' + (sp/2) + ' H' + sp + ' ';
+          if (h.kind === 'ver'   || h.kind === 'cross')     d += 'M' + (sp/2) + ' 0 V' + sp + ' ';
+          if (h.kind === 'bdiag' || h.kind === 'diagcross') d += 'M0 ' + sp + ' L' + sp + ' 0 ';
+          if (h.kind === 'fdiag' || h.kind === 'diagcross') d += 'M0 0 L' + sp + ' ' + sp + ' ';
+          pi = '<path d="' + d + '" stroke="' + escHtml(h.color || '#000') + '" stroke-width="' + (h.width || 1) + '"/>';
+        }}
+        svg += '<defs><pattern id="' + pid + '" patternUnits="userSpaceOnUse" width="' + sp + '" height="' + sp + '">'
+            + pi + '</pattern></defs>';
+        fillAttr = 'url(#' + pid + ')';
+        fillOpAttr = (h.opacity != null ? h.opacity : 1);
+      }}
       svg += '<rect x="1" y="1" width="' + (W-2) + '" height="' + (H-2) + '"'
-          + ' fill="' + escHtml(style.fillColor || '#3388ff') + '"'
-          + ' fill-opacity="' + (style.fillOpacity != null ? style.fillOpacity : 0.4) + '"'
+          + ' fill="' + fillAttr + '"'
+          + ' fill-opacity="' + fillOpAttr + '"'
           + ' stroke="' + escHtml(style.color || '#333') + '"'
           + ' stroke-opacity="' + (style.opacity != null ? style.opacity : 1) + '"'
+          + (style.dashArray ? ' stroke-dasharray="3 2"' : '')
           + ' stroke-width="' + Math.min(3, style.weight || 1) + '"/>';
     }}
     return svg + '</svg>';
@@ -2091,6 +2540,7 @@ class WebMapExporter:
       onEachFeature: onEachFeature,
       filter: function(feature) {{
         if (item.filterFn && !item.filterFn(feature)) return false;
+        if (item.layerFilterFn && !item.layerFilterFn(feature)) return false;
         if (item.hiddenClasses && item.hiddenClasses.length) {{
           var idx = resolveEntryIndex(item.ld.styleMap, feature.properties || {{}});
           if (item.hiddenClasses.indexOf(idx) !== -1) return false;
@@ -2104,7 +2554,7 @@ class WebMapExporter:
       }};
     }} else {{
       opts.style = function(feature) {{
-        return leafletPathStyle(resolveStyle(ld.styleMap, feature.properties || {{}}));
+        return polygonPathStyle(resolveStyle(ld.styleMap, feature.properties || {{}}));
       }};
     }}
     var geoLayer = L.geoJSON(ld.geojson, opts);
@@ -2195,8 +2645,8 @@ class WebMapExporter:
 
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
-      visible: true, labelsVisible: false, filterFn: null, lfl: null, index: i,
-      clusterEnabled: false, hiddenClasses: []
+      visible: true, labelsVisible: false, filterFn: null, layerFilterFn: null,
+      lfl: null, index: i, clusterEnabled: false, hiddenClasses: []
     }};
     try {{
       item.lfl = buildLayer(item);
@@ -2434,8 +2884,21 @@ class WebMapExporter:
     // Header
     var hdr = document.getElementById('legend-header') || document.createElement('div');
     hdr.id = 'legend-header';
-    hdr.innerHTML = '<span>Layers</span><button id="legend-toggle-all">Hide all</button>';
+    hdr.innerHTML = '<span>Layers</span>'
+      + '<span style="display:flex;align-items:center;gap:4px;">'
+      + '<button id="legend-tools-btn" title="Show layer tools">'
+      + '<svg width="13" height="13" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">'
+      + '<path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/>'
+      + '</svg></button>'
+      + '<button id="legend-toggle-all">Hide all</button></span>';
     panel.appendChild(hdr);
+
+    var toolsBtn = document.getElementById('legend-tools-btn');
+    toolsBtn.addEventListener('click', function() {{
+      var on = panel.classList.toggle('tools-mode');
+      toolsBtn.classList.toggle('active', on);
+      toolsBtn.title = on ? 'Hide layer tools' : 'Show layer tools';
+    }});
 
     var body = document.createElement('div');
     body.id = 'legend-body';
@@ -2478,6 +2941,233 @@ class WebMapExporter:
       return btn;
     }}
 
+    // ── Per-layer filter panel (same setup as the global filter, layer-scoped)
+    function buildLayerFilterPanel(item) {{
+      var div = document.createElement('div');
+      div.className = 'layer-filter';
+
+      var attrSel = document.createElement('select');
+      attrSel.className = 'lf-attr';
+      attrSel.title = 'Attribute to filter on';
+      var feats = item.ld.geojson.features || [];
+      var keys = [], seen = {{}};
+      for (var i = 0; i < Math.min(feats.length, 50); i++) {{
+        var p = feats[i].properties || {{}};
+        for (var k in p) {{ if (!(k in seen)) {{ seen[k] = 1; keys.push(k); }} }}
+      }}
+      keys.forEach(function(k) {{
+        var o = document.createElement('option');
+        o.value = k; o.textContent = k;
+        attrSel.appendChild(o);
+      }});
+
+      var search = document.createElement('input');
+      search.type = 'text';
+      search.className = 'lf-search';
+      search.placeholder = 'Contains…';
+      search.autocomplete = 'off';
+
+      var list = document.createElement('div');
+      list.className = 'lf-values';
+
+      var foot = document.createElement('div');
+      foot.className = 'lf-foot';
+      var clearB = document.createElement('button');
+      clearB.type = 'button';
+      clearB.textContent = 'Clear';
+      var countS = document.createElement('span');
+      countS.className = 'filter-count';
+      foot.appendChild(clearB);
+      foot.appendChild(countS);
+
+      function checkedVals() {{
+        var out = [];
+        Array.prototype.forEach.call(list.querySelectorAll('input:checked'), function(c) {{
+          out.push(c.value);
+        }});
+        return out;
+      }}
+
+      function apply() {{
+        var attr = attrSel.value;
+        var q = search.value.trim().toLowerCase();
+        var sel = checkedVals();
+        if (!attr || (sel.length === 0 && !q)) {{
+          item.layerFilterFn = null;
+        }} else {{
+          item.layerFilterFn = function(feature) {{
+            var v = (feature.properties || {{}})[attr];
+            var sv = (v == null ? '' : String(v));
+            if (sel.length) return sel.indexOf(sv) !== -1;
+            return sv.toLowerCase().indexOf(q) !== -1;
+          }};
+        }}
+        rebuildLayer(item);
+        var total = feats.length;
+        var shown = item.layerFilterFn ? feats.filter(item.layerFilterFn).length : total;
+        countS.textContent = shown + ' / ' + total;
+        if (item._actFilterBtn) item._actFilterBtn.classList.toggle('filtered', !!item.layerFilterFn);
+      }}
+
+      function populateVals() {{
+        list.innerHTML = '';
+        var attr = attrSel.value;
+        if (!attr) return;
+        var vseen = {{}}, vals = [];
+        for (var i = 0; i < feats.length; i++) {{
+          var v = (feats[i].properties || {{}})[attr];
+          var sv = (v == null ? '' : String(v));
+          if (!(sv in vseen)) {{ vseen[sv] = 1; vals.push(sv); }}
+          if (vals.length > 2000) break;
+        }}
+        vals.sort(function(a, b) {{
+          var na = parseFloat(a), nb = parseFloat(b);
+          if (!isNaN(na) && !isNaN(nb)) return na - nb;
+          return a < b ? -1 : (a > b ? 1 : 0);
+        }});
+        vals.forEach(function(val) {{
+          var lab = document.createElement('label');
+          lab.className = 'filter-value-item';
+          var c = document.createElement('input');
+          c.type = 'checkbox'; c.value = val;
+          c.addEventListener('change', apply);
+          var s = document.createElement('span');
+          s.textContent = (val === '' ? '(empty)' : val);
+          s.title = val;
+          lab.appendChild(c); lab.appendChild(s);
+          list.appendChild(lab);
+        }});
+      }}
+
+      attrSel.addEventListener('change', function() {{ search.value = ''; populateVals(); apply(); }});
+      search.addEventListener('input', function() {{
+        var q = search.value.trim().toLowerCase();
+        Array.prototype.forEach.call(list.children, function(el) {{
+          el.style.display = el.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+        }});
+        apply();
+      }});
+      clearB.addEventListener('click', function() {{
+        search.value = '';
+        Array.prototype.forEach.call(list.querySelectorAll('input:checked'), function(c) {{ c.checked = false; }});
+        Array.prototype.forEach.call(list.children, function(el) {{ el.style.display = ''; }});
+        apply();
+      }});
+
+      div.appendChild(attrSel);
+      div.appendChild(search);
+      div.appendChild(list);
+      div.appendChild(foot);
+      populateVals();
+      var total0 = feats.length;
+      countS.textContent = total0 + ' / ' + total0;
+      return div;
+    }}
+
+    // ── Per-layer tool buttons, revealed by the header tools toggle ──────
+    function buildLayerActions(item, layerDiv) {{
+      var acts = document.createElement('span');
+      acts.className = 'layer-actions';
+      var cfg = item.ld.labelConfig || null;
+      var layerFilterDiv = null;
+
+      function mkBtn(title, svg) {{
+        var b = document.createElement('button');
+        b.className = 'layer-act-btn';
+        b.title = title;
+        b.innerHTML = svg;
+        return b;
+      }}
+
+      // Attribute table
+      var tBtn = mkBtn('Open attribute table',
+        '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+        + '<rect x="1" y="1" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+        + '<line x1="1" y1="5.5" x2="15" y2="5.5" stroke="currentColor" stroke-width="1.4"/>'
+        + '<line x1="1" y1="10" x2="15" y2="10" stroke="currentColor" stroke-width="1"/>'
+        + '<line x1="6" y1="5.5" x2="6" y2="15" stroke="currentColor" stroke-width="1"/>'
+        + '<line x1="10.5" y1="5.5" x2="10.5" y2="15" stroke="currentColor" stroke-width="1"/></svg>');
+      tBtn.addEventListener('click', function(e) {{
+        e.stopPropagation();
+        var panel = document.getElementById('attr-table-panel');
+        var sel = document.getElementById('attr-table-layer');
+        sel.value = item.index;
+        panel.classList.add('open');
+        populateAttrTable();
+      }});
+      acts.appendChild(tBtn);
+
+      // Layer filter
+      var fBtn = mkBtn('Filter this layer',
+        '<svg width="11" height="11" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">'
+        + '<path d="M2 3h14l-5 5.5V15l-4-2V8.5z" fill="currentColor"/></svg>');
+      item._actFilterBtn = fBtn;
+      fBtn.addEventListener('click', function(e) {{
+        e.stopPropagation();
+        if (!layerFilterDiv) {{
+          layerFilterDiv = buildLayerFilterPanel(item);
+          layerDiv.appendChild(layerFilterDiv);
+        }}
+        var open = layerFilterDiv.classList.toggle('open');
+        fBtn.classList.toggle('active', open);
+      }});
+      acts.appendChild(fBtn);
+
+      // Labels on/off + placement method pulldown
+      if (cfg) {{
+        var lBtn = mkBtn('Toggle labels',
+          '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+          + '<text x="8" y="12" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor" font-family="serif">T</text></svg>');
+        lBtn.classList.toggle('active', !!item.labelsVisible);
+        item._actLblBtn = lBtn;
+        lBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          var on = !item.labelsVisible;
+          setLayerLabels(item, on);
+          lBtn.classList.toggle('active', on);
+          if (item._cogLblCb) item._cogLblCb.checked = on;
+        }});
+        acts.appendChild(lBtn);
+
+        var mSel = document.createElement('select');
+        mSel.className = 'label-mode-sel layer-act-sel';
+        mSel.title = 'Label placement method';
+        [['candidate', 'Cand.'], ['force', 'Force']].forEach(function(opt) {{
+          var o = document.createElement('option');
+          o.value = opt[0]; o.textContent = opt[1];
+          if (opt[0] === _labelPlacementMode) o.selected = true;
+          mSel.appendChild(o);
+        }});
+        mSel.addEventListener('click', function(e) {{ e.stopPropagation(); }});
+        mSel.addEventListener('change', function() {{
+          _labelPlacementMode = mSel.value;
+          document.querySelectorAll('.label-mode-sel').forEach(function(s) {{ s.value = _labelPlacementMode; }});
+          layoutAllLabels();
+        }});
+        acts.appendChild(mSel);
+      }}
+
+      // Cluster (point layers)
+      if (item.ld.geomType === 'point') {{
+        var cBtn = mkBtn('Toggle clustering',
+          '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">'
+          + '<circle cx="5" cy="5" r="2.4"/><circle cx="11.5" cy="6.5" r="1.8"/><circle cx="7" cy="11.5" r="1.8"/></svg>');
+        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
+        if (!clusterAvail) {{ cBtn.disabled = true; cBtn.title = 'Marker cluster plugin not loaded'; }}
+        item._actClBtn = cBtn;
+        cBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          item.clusterEnabled = !item.clusterEnabled;
+          cBtn.classList.toggle('active', item.clusterEnabled);
+          if (item._cogClCb) item._cogClCb.checked = item.clusterEnabled;
+          rebuildLayer(item);
+        }});
+        acts.appendChild(cBtn);
+      }}
+
+      return acts;
+    }}
+
     function buildLayerRow(item, container) {{
       var ld = item.ld;
       var sm = ld.styleMap || {{}};
@@ -2514,6 +3204,7 @@ class WebMapExporter:
       nameEl.title = ld.name;
       nameEl.textContent = ld.name;
 
+      if (ld.kind === 'vector') row.appendChild(buildLayerActions(item, layerDiv));
       row.appendChild(cb);
       row.appendChild(swatch);
       row.appendChild(nameEl);
@@ -2604,8 +3295,10 @@ class WebMapExporter:
         lblCb.type = 'checkbox';
         lblCb.checked = cfg.enabled || false;
         lblCb.title = 'Toggle feature labels';
+        item._cogLblCb = lblCb;
         lblCb.addEventListener('change', function() {{
           setLayerLabels(item, lblCb.checked);
+          if (item._actLblBtn) item._actLblBtn.classList.toggle('active', lblCb.checked);
         }});
         lblRow.appendChild(lblLbl);
         lblRow.appendChild(lblCb);
@@ -2650,8 +3343,10 @@ class WebMapExporter:
         var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
         clCb.title = clusterAvail ? 'Toggle marker clustering' : 'Marker cluster plugin not loaded';
         clCb.disabled = !clusterAvail;
+        item._cogClCb = clCb;
         clCb.addEventListener('change', function() {{
           item.clusterEnabled = clCb.checked;
+          if (item._actClBtn) item._actClBtn.classList.toggle('active', clCb.checked);
           rebuildLayer(item);
         }});
         clRow.appendChild(clLbl);
@@ -3314,6 +4009,101 @@ class WebMapExporter:
     if (first) updateCount(first);
   }})();
 
+  // ── Global smart search (greys out non-matching features in all layers) ────
+  (function initGlobalSearch() {{
+    var vectorItems = legendItems.filter(function(it) {{ return it.ld.kind === 'vector'; }});
+    if (vectorItems.length === 0) return;
+
+    var bar     = document.getElementById('searchbar');
+    var input   = document.getElementById('search-input');
+    var clearB  = document.getElementById('search-clear');
+    var countEl = document.getElementById('search-count');
+    var _searchQ = '';
+
+    var SearchToggle = L.Control.extend({{
+      onAdd: function() {{
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-control-filter');
+        btn.title = 'Search all layers';
+        btn.setAttribute('aria-label', 'Search all layers');
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">'
+          + '<path d="M9.2 3.2 L6.0 8.0 h2.2 L7.0 12.4 L10.8 7.4 h-2.3 z" fill="#f5a623"/>'
+          + '<circle cx="8" cy="8" r="5.2" fill="none" stroke="#444" stroke-width="1.8"/>'
+          + '<line x1="12.2" y1="12.2" x2="17.2" y2="17.2" stroke="#444" stroke-width="2.4" stroke-linecap="round"/></svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.on(btn, 'click', function() {{
+          var isOpen = bar.style.display === 'flex';
+          bar.style.display = isOpen ? 'none' : 'flex';
+          btn.classList.toggle('active', !isOpen);
+          if (!isOpen) input.focus();
+        }});
+        return btn;
+      }}
+    }});
+    new SearchToggle({{ position: 'topleft' }}).addTo(map);
+
+    function featureText(f) {{
+      var p = (f && f.properties) || {{}};
+      var out = [];
+      for (var k in p) {{
+        var v = p[k];
+        if (v != null) out.push(String(v).toLowerCase());
+      }}
+      return out.join('\\u0001');
+    }}
+
+    function dimLayer(lyr) {{
+      if (lyr.setStyle) {{
+        try {{
+          lyr.setStyle({{ color: '#9e9e9e', fillColor: '#9e9e9e',
+                          opacity: 0.1, fillOpacity: 0.1 }});
+        }} catch (e) {{}}
+      }}
+      if (lyr.setOpacity) {{
+        try {{ lyr.setOpacity(0.1); }} catch (e) {{}}
+      }}
+      try {{
+        var el = lyr.getElement && lyr.getElement();
+        if (el && el.style) el.style.filter = 'grayscale(1)';
+      }} catch (e) {{}}
+    }}
+
+    function walkFeatureLayers(group, fn) {{
+      group.eachLayer(function(l) {{
+        if (l.feature || l._feature) fn(l);
+        else if (typeof l.eachLayer === 'function') walkFeatureLayers(l, fn);
+      }});
+    }}
+
+    function applySearch() {{
+      var q = input.value.trim().toLowerCase();
+      _searchQ = q;
+      // Reset all vector layers to their true symbology first
+      vectorItems.forEach(function(it) {{ rebuildLayer(it); }});
+      if (!q) {{ countEl.textContent = ''; return; }}
+      var matched = 0, total = 0;
+      vectorItems.forEach(function(it) {{
+        if (!it.lfl || !it.visible) return;
+        walkFeatureLayers(it.lfl, function(l) {{
+          var f = l.feature || l._feature;
+          if (!f) return;
+          total++;
+          if (featureText(f).indexOf(q) !== -1) {{ matched++; return; }}
+          dimLayer(l);
+        }});
+      }});
+      countEl.textContent = matched + ' / ' + total + ' match';
+    }}
+
+    input.addEventListener('keydown', function(e) {{
+      if (e.key === 'Enter') applySearch();
+      if (e.key === 'Escape') {{ input.value = ''; applySearch(); }}
+    }});
+    clearB.addEventListener('click', function() {{
+      input.value = '';
+      applySearch();
+    }});
+  }})();
+
   // ── Map Views (header items below description, above doc metadata) ──────────
   if (THEMES.length > 0) {{
     function applyTheme(idx) {{
@@ -3361,6 +4151,7 @@ class WebMapExporter:
     {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and row selection.' }},
     {{ sel: '[title="Drag to select features"]',  name: 'Select Features',   text: 'Click and drag a rectangle on the map to select features. Selected rows are highlighted in the attribute table.' }},
     {{ sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' }},
+    {{ sel: '[title="Search all layers"]',        name: 'Smart Search',      text: 'Type a search term and press Enter. Features in every layer that do not contain the term in their attributes are greyed out and faded.' }},
     {{ sel: '.leaflet-control-fullscreen-button', name: 'Full Screen',       text: 'Toggle full-screen mode.' }},
   ];
 
