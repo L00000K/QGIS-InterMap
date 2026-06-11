@@ -1273,16 +1273,14 @@ class WebMapExporter:
                 )
 
                 # ── Assemble CAD title block ───────────────────────────────────
-                _rev_poi_html = ""
-                if _info_revision or _info_purpose:
-                    _rev_poi_html = (
-                        '<div class="cad-split">'
-                        f'<div class="cad-section"><div class="cad-label">Revision</div>'
-                        f'<div class="cad-value">{_info_revision or "&nbsp;"}</div></div>'
-                        f'<div class="cad-section"><div class="cad-label">Purpose</div>'
-                        f'<div class="cad-value">{_info_purpose or "&nbsp;"}</div></div>'
-                        '</div>'
-                    )
+                _rev_poi_html = (
+                    '<div class="cad-split">'
+                    f'<div class="cad-section"><div class="cad-label">Revision</div>'
+                    f'<div class="cad-value">{_info_revision or "&nbsp;"}</div></div>'
+                    f'<div class="cad-section"><div class="cad-label">Purpose</div>'
+                    f'<div class="cad-value">{_info_purpose or "&nbsp;"}</div></div>'
+                    '</div>'
+                )
 
                 _dc_section_html = ""
                 if _cad_dc_rows:
@@ -1987,7 +1985,6 @@ class WebMapExporter:
     font-size: 12px; font-weight: 600; color: {_th_acc}; line-height: 1.3;
   }}
   .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid {_th_acc_md}; }}
-  .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid #d5cffc; }}
   .mv-item.active .mv-item-notes {{ display: block; }}
   /* ── Help overlay ───────────────────────────────────────────────── */
   #help-overlay {{
@@ -2007,6 +2004,11 @@ class WebMapExporter:
     left: -6px; top: 14px;
     border: 6px solid transparent;
     border-right-color: #fff; border-left-width: 0;
+  }}
+  .help-tip[style*="--arrow-side: right"]::before {{
+    left: auto; right: -6px;
+    border-right-color: transparent; border-left-color: #fff;
+    border-right-width: 0; border-left-width: 6px;
   }}
   .help-tip-name {{ font-size: 12px; font-weight: 700; color: {_th_acc}; margin-bottom: 3px; }}
   .help-tip-text {{ font-size: 11px; color: #444; line-height: 1.45; }}
@@ -2076,11 +2078,12 @@ class WebMapExporter:
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.18);
     min-width: 220px; max-width: 600px; width: 300px;
-    max-height: calc(100vh - 180px);
+    max-height: calc(100% - 120px);
     flex-direction: column;
     overflow: hidden;
-    position: relative;
   }}
+  /* push left-side controls down when the title chip is visible */
+  .chip-visible .leaflet-top.leaflet-left {{ margin-top: 54px; }}
   #info-panel.open {{ display: flex; }}
   #info-panel.split {{ width: 420px; }}
   #info-panel.split #info-panel-body {{ padding: 0; overflow: hidden; display: flex; flex: 1; min-height: 0; }}
@@ -2345,12 +2348,14 @@ class WebMapExporter:
       if (!panel) return;
       panel.style.display = 'flex';
       if (chip) chip.classList.remove('visible');
+      map.getContainer().classList.remove('chip-visible');
       map.invalidateSize();
     }}
     function hidePanel() {{
       if (!panel) return;
       panel.style.display = 'none';
       if (chip) chip.classList.add('visible');
+      map.getContainer().classList.add('chip-visible');
       map.invalidateSize();
     }}
 
@@ -2853,6 +2858,14 @@ class WebMapExporter:
   document.getElementById('info-panel-close').addEventListener('click', function() {{
     infoPanel.classList.remove('open');
     infoPanel.classList.remove('split');
+    // also deactivate identify mode
+    if (_identifyMode) {{
+      _identifyMode = false;
+      var iBtn = document.getElementById('identify-btn');
+      if (iBtn) iBtn.classList.remove('ident-active');
+      map.getContainer().classList.remove('identify-mode');
+      selectRect.style.display = 'none';
+    }}
   }});
 
   // Info panel resize handle
@@ -2925,7 +2938,7 @@ class WebMapExporter:
       btn.id = 'identify-btn';
       btn.title = 'Identify features';
       btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
-      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><path d="M3 1L3 15L6.5 11.5L9.5 17.5L11.5 16.5L8.5 10.5L13.5 10.5Z" fill="currentColor"/><text x="13.5" y="8" font-family="serif" font-weight="bold" font-size="8.5" fill="%233f32f1">i</text></svg>';
+      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><path d="M3 1L3 15L6.5 11.5L9.5 17.5L11.5 16.5L8.5 10.5L13.5 10.5Z" fill="currentColor"/><circle cx="14.5" cy="5" r="4" fill="{_th_acc}"/><text x="14.5" y="8" font-family="Georgia,serif" font-weight="bold" font-size="7" fill="#fff" text-anchor="middle">i</text></svg>';
       L.DomEvent.disableClickPropagation(btn);
       L.DomEvent.on(btn, 'click', function() {{
         _identifyMode = !_identifyMode;
@@ -2943,8 +2956,8 @@ class WebMapExporter:
     onAdd: function() {{
       var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
       btn.title = 'Attribute table';
-      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;font-size:14px;cursor:pointer;background:white;border-radius:4px;';
-      btn.innerHTML = '&#8801;';
+      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"/><line x1="2" y1="7.5" x2="18" y2="7.5" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="13" x2="18" y2="13" stroke="currentColor" stroke-width="1"/><line x1="9" y1="7.5" x2="9" y2="18" stroke="currentColor" stroke-width="1"/></svg>';
       L.DomEvent.disableClickPropagation(btn);
       L.DomEvent.on(btn, 'click', function() {{
         var panel = document.getElementById('attr-table-panel');
@@ -2962,8 +2975,8 @@ class WebMapExporter:
     onAdd: function() {{
       var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
       btn.title = 'Drag to select features';
-      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;font-size:16px;cursor:pointer;background:white;border-radius:4px;';
-      btn.innerHTML = '&#x2B1A;';
+      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="1" width="9" height="6.5" rx="0.6" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="9" y1="3.8" x2="18" y2="3.8" stroke="currentColor" stroke-width="1"/><line x1="13.5" y1="3.8" x2="13.5" y2="7.5" stroke="currentColor" stroke-width="1"/><path d="M2 9L2 19L5.5 15.5L8.5 20.5L10.5 19.5L7.5 14.5L12 14.5Z" fill="currentColor"/></svg>';
       L.DomEvent.disableClickPropagation(btn);
       L.DomEvent.on(btn, 'click', function() {{
         _selectMode = !_selectMode;
@@ -4356,9 +4369,9 @@ class WebMapExporter:
         btn.title = 'Search all layers';
         btn.setAttribute('aria-label', 'Search all layers');
         btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">'
-          + '<path d="M9.2 3.2 L6.0 8.0 h2.2 L7.0 12.4 L10.8 7.4 h-2.3 z" fill="#f5a623"/>'
-          + '<circle cx="8" cy="8" r="5.2" fill="none" stroke="#444" stroke-width="1.8"/>'
-          + '<line x1="12.2" y1="12.2" x2="17.2" y2="17.2" stroke="#444" stroke-width="2.4" stroke-linecap="round"/></svg>';
+          + '<circle cx="8" cy="8" r="5.4" fill="none" stroke="#444" stroke-width="1.9"/>'
+          + '<path d="M9.8 2.5 L6.0 8.5 h2.8 L7.2 13.5 L12.2 7.5 h-3 z" fill="#f5a623" stroke="#c47f00" stroke-width="0.6" stroke-linejoin="round"/>'
+          + '<line x1="12.2" y1="12.2" x2="17.2" y2="17.2" stroke="#444" stroke-width="2.5" stroke-linecap="round"/></svg>';
         L.DomEvent.disableClickPropagation(btn);
         L.DomEvent.on(btn, 'click', function() {{
           var isOpen = bar.style.display === 'flex';
@@ -4477,14 +4490,23 @@ class WebMapExporter:
   var helpOverlay = document.getElementById('help-overlay');
 
   var _helpTools = [
+    // ── Left panel / project info
+    {{ sel: '#map-title-chip',                    name: 'Project Info',      text: 'Click to re-open the project info panel. Shows the map title, description, and title block.', side:'right' }},
+    {{ sel: '#left-panel-close',                  name: 'Close Info Panel',  text: 'Collapse the left panel. The map title chip will appear at the top-left — click it to reopen.', side:'right' }},
+    // ── Legend / layers
+    {{ sel: '#legend-header',                     name: 'Layers Panel',      text: 'The layers panel lists all map layers. Click the eye icon to toggle visibility. Drag layers to re-order. The gear icon opens per-layer settings.', side:'right' }},
+    {{ sel: '.legend-cog-btn',                    name: 'Layer Settings',    text: 'Open layer settings: adjust opacity, symbol colours, and attribute filters for this layer.', side:'right' }},
+    {{ sel: '#legend-tools-btn',                  name: 'Legend Options',    text: 'Toggle the label column and other legend display options.', side:'right' }},
+    // ── Map controls
     {{ sel: '.leaflet-control-zoom-in',           name: 'Zoom In',           text: 'Zoom in on the map. You can also scroll the mouse wheel or press the + key.' }},
     {{ sel: '.leaflet-control-zoom-out',          name: 'Zoom Out',          text: 'Zoom out on the map. You can also scroll the mouse wheel or press the − key.' }},
-    {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Activate identify mode, then click a feature or drag a box to view attribute data. Also queries WMS layers via GetFeatureInfo. Resize the panel by dragging its right edge.' }},
-    {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and row selection.' }},
-    {{ sel: '[title="Drag to select features"]',  name: 'Select Features',   text: 'Click and drag a rectangle on the map to select features. Selected rows are highlighted in the attribute table.' }},
+    {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Activate identify mode, then click a feature or drag a box to view attributes. Also queries WMS layers via GetFeatureInfo. Close the panel using the × button or click this button again.' }},
+    {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and CSV export.' }},
+    {{ sel: '[title="Drag to select features"]',  name: 'Select &amp; Highlight', text: 'Click and drag a rectangle to select features. Selected rows are highlighted in the attribute table.' }},
     {{ sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' }},
-    {{ sel: '[title="Search all layers"]',        name: 'Smart Search',      text: 'Type a search term and press Enter. Features in every layer that do not contain the term in their attributes are greyed out and faded.' }},
+    {{ sel: '[title="Search all layers"]',        name: 'Smart Search',      text: 'Type a term and press Enter to search all layers at once. Non-matching features are greyed out. Click the lightning bolt to activate.' }},
     {{ sel: '.leaflet-control-fullscreen-button', name: 'Full Screen',       text: 'Toggle full-screen mode.' }},
+    {{ sel: '.leaflet-control-minimap',           name: 'Minimap',           text: 'Overview minimap showing your current extent. Click to toggle.' }},
   ];
 
   var _helpBtn;
@@ -4498,10 +4520,19 @@ class WebMapExporter:
       if (!r.width || !r.height) return;
       var tip = document.createElement('div');
       tip.className = 'help-tip';
-      tip.innerHTML = '<div class="help-tip-name">' + escHtml(tool.name) + '</div>'
+      tip.innerHTML = '<div class="help-tip-name">' + tool.name + '</div>'
                     + '<div class="help-tip-text">' + escHtml(tool.text) + '</div>';
-      tip.style.left = (r.right + 10) + 'px';
-      tip.style.top  = Math.max(4, r.top + r.height / 2 - 24) + 'px';
+      var side = tool.side || 'right';
+      // Check if placing right would overflow; fall back to left of element
+      var tipW = 240;
+      if (side === 'right' && r.right + 10 + tipW > window.innerWidth) side = 'left';
+      if (side === 'right') {{
+        tip.style.left = (r.right + 10) + 'px';
+      }} else {{
+        tip.style.left = Math.max(4, r.left - tipW - 10) + 'px';
+        tip.style.setProperty('--arrow-side', 'right');
+      }}
+      tip.style.top = Math.max(4, Math.min(window.innerHeight - 80, r.top + r.height / 2 - 24)) + 'px';
       helpOverlay.appendChild(tip);
     }});
   }}
@@ -4523,8 +4554,8 @@ class WebMapExporter:
     onAdd: function() {{
       var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
       btn.title = 'Help — tool guide';
-      btn.innerHTML = '?';
-      btn.style.cssText = 'font-weight:700;font-size:14px;';
+      btn.innerHTML = '<svg viewBox="0 0 20 20" width="16" height="16" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="10" y="15" font-family="Georgia,serif" font-weight="bold" font-size="13" fill="currentColor" text-anchor="middle">?</text></svg>';
+      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
       _helpBtn = btn;
       L.DomEvent.disableClickPropagation(btn);
       L.DomEvent.on(btn, 'click', toggleHelp);
