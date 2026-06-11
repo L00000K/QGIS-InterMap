@@ -989,8 +989,9 @@ class WebMapExporter:
                     tr  = QgsCoordinateTransform(layer.crs(), _WGS84, QgsProject.instance())
                     wgs = tr.transformBoundingBox(ext)
                     layer_defs.append({
-                        "kind":   "wms",
-                        "name":   layer.name(),
+                        "kind":    "wms",
+                        "name":    layer.name(),
+                        "opacity": round(layer.opacity(), 3),
                         "bounds": [
                             [wgs.yMinimum(), wgs.xMinimum()],
                             [wgs.yMaximum(), wgs.xMaximum()],
@@ -1210,7 +1211,7 @@ class WebMapExporter:
                         '<div class="cad-split">'
                         f'<div class="cad-section"><div class="cad-label">Revision</div>'
                         f'<div class="cad-value">{_info_revision or "&nbsp;"}</div></div>'
-                        f'<div class="cad-section"><div class="cad-label">Purpose of Issue</div>'
+                        f'<div class="cad-section"><div class="cad-label">Purpose</div>'
                         f'<div class="cad-value">{_info_purpose or "&nbsp;"}</div></div>'
                         '</div>'
                     )
@@ -1251,8 +1252,10 @@ class WebMapExporter:
             if _info_enabled:
                 _body_html = (
                     f'<div id="left-panel-body">'
+                    f'<div class="left-panel-body-top">'
                     f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
                     f'<div id="map-views-section"></div>'
+                    f'</div>'
                     f'{_cad_block_html}'
                     f'</div>'
                     f'{_footer_html}'
@@ -1260,7 +1263,9 @@ class WebMapExporter:
             else:
                 _body_html = (
                     f'<div id="left-panel-body">'
+                    f'<div class="left-panel-body-top">'
                     f'<div id="map-views-section"></div>'
+                    f'</div>'
                     f'</div>'
                 )
             left_panel_html = (
@@ -1285,7 +1290,7 @@ class WebMapExporter:
 {leaflet_head}
 {plugin_heads}
 <style>
-  html, body {{ margin: 0; padding: 0; height: 100%; font-family: sans-serif; overflow: hidden; }}
+  html, body {{ margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', 'Helvetica Neue', Arial, system-ui, sans-serif; overflow: hidden; }}
   body {{ display: flex; }}
   #left-panel {{
     width: 300px;
@@ -1335,7 +1340,7 @@ class WebMapExporter:
     user-select: none;
     border-radius: 6px 6px 0 0;
   }}
-  #legend-header span {{ font-weight: bold; font-size: 13px; color: #fff; }}
+  #legend-header span {{ font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -0.01em; }}
   #legend-toggle-all {{
     font-size: 11px;
     color: rgba(255,255,255,0.85);
@@ -1467,7 +1472,8 @@ class WebMapExporter:
     flex-shrink: 0;
   }}
   .legend-layer-name {{
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 500;
     color: #222;
     flex: 1;
     white-space: nowrap;
@@ -1740,12 +1746,13 @@ class WebMapExporter:
     flex-shrink: 0;
   }}
   #left-panel-title {{
-    font-size: 15px;
-    font-weight: bold;
+    font-size: 16px;
+    font-weight: 700;
     color: #fff;
     flex: 1;
     line-height: 1.3;
     margin: 0;
+    letter-spacing: -0.01em;
   }}
   #left-panel-close {{
     background: none;
@@ -1760,19 +1767,31 @@ class WebMapExporter:
   }}
   #left-panel-close:hover {{ color: #fff; }}
   #left-panel-body {{
-    padding: 12px 14px;
-    overflow-y: auto;
+    padding: 0;
     flex: 1;
-    font-size: 13px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }}
+  .left-panel-body-top {{
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px 0 14px;
+    min-height: 0;
+  }}
+  .left-panel-desc {{
+    font-size: 11px;
     color: #333;
     line-height: 1.55;
     white-space: pre-line;
+    margin-bottom: 4px;
   }}
   #left-panel-footer {{
-    padding: 8px 14px;
+    padding: 6px 14px;
     border-top: 1px solid #e5e5e5;
-    font-size: 11px;
-    color: #888;
+    font-size: 9px;
+    color: #999;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -1780,41 +1799,47 @@ class WebMapExporter:
   }}
   /* ── CAD-style title block ────────────────────────────────────────── */
   .cad-block {{
-    margin-top: 10px;
+    flex-shrink: 0;
     border: 1.5px solid #1a1a1a;
-    font-family: Arial, sans-serif;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, system-ui, sans-serif;
   }}
   .cad-section {{
+    position: relative;
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     border-bottom: 1px solid #1a1a1a;
     flex-shrink: 0;
+    min-height: 46px;
   }}
   .cad-section:last-child {{ border-bottom: none; }}
   .cad-label {{
-    background: #f0f0f0;
-    padding: 2px 6px;
+    position: absolute;
+    top: 3px; left: 5px;
     font-size: 7px;
     font-weight: 700;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: #3f32f1;
-    border-bottom: 1px solid #d0d0d0;
-    line-height: 1.4;
+    line-height: 1.2;
+    pointer-events: none;
   }}
   .cad-value {{
-    padding: 5px 6px 7px 6px;
+    padding: 18px 8px 6px 8px;
     font-size: 11px;
     font-weight: 700;
     color: #1a1a1a;
     line-height: 1.3;
     word-break: break-word;
+    text-align: center;
+    width: 100%;
   }}
   .cad-logo {{
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 8px 6px;
+    padding: 10px 8px;
+    width: 100%;
   }}
   .cad-logo svg {{ max-width: 140px; height: auto; max-height: 40px; display: block; }}
   .cad-logo-img {{ max-width: 140px; max-height: 40px; object-fit: contain; display: block; }}
@@ -1828,19 +1853,20 @@ class WebMapExporter:
     flex: 1;
     border-bottom: none;
     border-right: 1px solid #1a1a1a;
+    min-height: 46px;
   }}
   .cad-split .cad-section:last-child {{ border-right: none; }}
   .cad-img {{
     display: block;
-    max-width: calc(100% - 12px);
-    max-height: 56px;
+    max-width: calc(100% - 16px);
+    max-height: 52px;
     object-fit: contain;
-    margin: 4px 6px 8px 6px;
+    margin: 18px auto 6px auto;
   }}
   .cad-img-ph {{
-    margin: 4px 6px 8px 6px;
-    background: #edf0f5;
-    border: 1px dashed #b0b5be;
+    margin: 18px 8px 6px 8px;
+    background: transparent;
+    border: 1px dashed #c0c4cc;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1848,28 +1874,31 @@ class WebMapExporter:
     font-size: 8px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    height: 40px;
+    height: 32px;
+    width: calc(100% - 16px);
   }}
   .cad-dc-table {{
     width: 100%;
     border-collapse: collapse;
-    font-size: 8.5px;
+    font-size: 9px;
+    margin-top: 16px;
+    margin-bottom: 4px;
   }}
   .cad-dc-table td {{
-    padding: 3px 5px;
-    border-bottom: 1px solid #e8e8e8;
+    padding: 2px 5px;
+    border-bottom: 1px solid #ececec;
     color: #1a1a1a;
     vertical-align: middle;
   }}
   .cad-dc-table tr:last-child td {{ border-bottom: none; }}
   .cad-dc-table td.cad-dc-role {{
-    font-weight: 700;
+    font-weight: 600;
     color: #333;
     white-space: nowrap;
-    width: 38%;
+    width: 36%;
   }}
-  .cad-dc-table td.cad-dc-name {{ color: #666; width: 31%; }}
-  .cad-dc-table td.cad-dc-date {{ color: #666; width: 31%; }}
+  .cad-dc-table td.cad-dc-name {{ color: #666; width: 32%; }}
+  .cad-dc-table td.cad-dc-date {{ color: #666; width: 32%; }}
   /* ── Label SVG overlay ───────────────────────────────────────────── */
   #label-overlay {{
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -1889,7 +1918,7 @@ class WebMapExporter:
   .mv-item-name {{
     font-size: 12px; font-weight: 600; color: #3f32f1; line-height: 1.3;
   }}
-  .mv-item-notes {{ display: none; font-size: 11px; color: #666; margin-top: 4px; line-height: 1.35; padding-top: 4px; border-top: 1px solid #d5cffc; }}
+  .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid #d5cffc; }}
   .mv-item.active .mv-item-notes {{ display: block; }}
   /* ── Help overlay ───────────────────────────────────────────────── */
   #help-overlay {{
@@ -1922,26 +1951,34 @@ class WebMapExporter:
     z-index: 1001;
     background: #3f32f1;
     color: #fff;
-    padding: 0 8px 0 14px;
-    height: 40px;
+    padding: 7px 10px 7px 14px;
     flex-direction: row;
     align-items: center;
-    gap: 6px;
-    max-width: 300px;
+    gap: 8px;
+    max-width: 310px;
     border-radius: 0 0 10px 0;
     user-select: none;
-    box-shadow: 2px 2px 8px rgba(0,0,0,0.22);
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.25);
+    cursor: pointer;
   }}
   #map-title-chip.visible {{ display: flex; }}
+  #map-title-chip:hover {{ background: #2b22c0; }}
+  #map-title-chip-inner {{ flex: 1; min-width: 0; }}
   #map-title-chip-text {{
-    font-size: 13px; font-weight: 700;
+    font-size: 13px; font-weight: 700; line-height: 1.2;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    letter-spacing: -0.01em;
+  }}
+  #map-title-chip-hint {{
+    font-size: 9px; color: rgba(255,255,255,0.65);
+    margin-top: 2px; letter-spacing: 0.04em;
   }}
   #map-title-chip-btn {{
-    background: none; border: none; color: rgba(255,255,255,0.75);
-    font-size: 15px; cursor: pointer; padding: 0 3px; line-height: 1; flex-shrink: 0;
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 4px; color: rgba(255,255,255,0.9);
+    font-size: 12px; cursor: pointer; padding: 2px 6px; line-height: 1; flex-shrink: 0;
   }}
-  #map-title-chip-btn:hover {{ color: #fff; }}
+  #map-title-chip-btn:hover {{ background: rgba(255,255,255,0.28); color: #fff; }}
   /* ── Identify mode cursor ──────────────────────────────────────────── */
   .identify-mode .leaflet-container {{ cursor: crosshair !important; }}
   .identify-mode .leaflet-interactive {{ cursor: crosshair !important; }}
@@ -1996,7 +2033,7 @@ class WebMapExporter:
   .info-list-pane .mf-item.active .mf-swatch svg {{ opacity: 0.85; }}
   .info-detail-pane {{
     flex: 1; overflow-y: auto; padding: 8px 12px;
-    font-size: 12px; color: #666; min-width: 0;
+    font-size: 11px; color: #666; min-width: 0;
   }}
   .info-detail-pane table {{ border-collapse: collapse; width: 100%; }}
   .info-detail-pane th {{
@@ -2011,7 +2048,7 @@ class WebMapExporter:
     border-bottom: 1px solid #2b22c0; border-radius: 6px 6px 0 0;
     user-select: none;
   }}
-  #info-panel-hdr span {{ font-weight: bold; font-size: 13px; color: #fff; }}
+  #info-panel-hdr span {{ font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -0.01em; }}
   #info-panel-close {{
     background: none; border: none; cursor: pointer;
     font-size: 14px; color: rgba(255,255,255,0.65); padding: 0 2px; line-height: 1;
@@ -2019,7 +2056,7 @@ class WebMapExporter:
   #info-panel-close:hover {{ color: #fff; }}
   #info-panel-body {{
     padding: 8px 12px; overflow-y: auto; flex: 1;
-    font-size: 12px; color: #666;
+    font-size: 11px; color: #666;
   }}
   #info-panel-body table {{ border-collapse: collapse; width: 100%; }}
   #info-panel-body th {{
@@ -2034,9 +2071,9 @@ class WebMapExporter:
     padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
   }}
   .mf-item:hover {{ background: #ede9fe; }}
-  .mf-feature-name {{ font-size: 12px; color: #222; font-weight: 600; }}
-  .mf-layer-name {{ font-size: 10px; color: #888; margin-top: 1px; }}
-  .mf-layer {{ font-size: 12px; color: #333; }}
+  .mf-feature-name {{ font-size: 11px; color: #222; font-weight: 600; }}
+  .mf-layer-name {{ font-size: 9px; color: #888; margin-top: 1px; }}
+  .mf-layer {{ font-size: 11px; color: #333; }}
   .mf-arrow {{ color: #aaa; font-size: 16px; flex-shrink: 0; }}
   /* ── Drag-select rubber-band rectangle */
   #select-rect {{
@@ -2081,7 +2118,7 @@ class WebMapExporter:
     background: #3f32f1; border-bottom: 1px solid #2b22c0;
     flex-shrink: 0;
   }}
-  #attr-table-hdr span {{ font-weight: bold; font-size: 13px; color: #fff; }}
+  #attr-table-hdr span {{ font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -0.01em; }}
   #attr-table-layer {{ font-size: 12px; padding: 2px 4px; border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; background: rgba(255,255,255,0.12); color: #fff; }}
   #attr-table-close {{
     margin-left: auto; background: none; border: none;
@@ -2092,7 +2129,7 @@ class WebMapExporter:
     overflow: auto; flex: 1;
   }}
   #attr-table-body table {{
-    border-collapse: collapse; width: 100%; font-size: 12px;
+    border-collapse: collapse; width: 100%; font-size: 11px;
   }}
   #attr-table-body th {{
     position: sticky; top: 0;
@@ -2141,7 +2178,10 @@ class WebMapExporter:
 {left_panel_html}
 <div id="map-wrap">
 <div id="map-title-chip">
-  <span id="map-title-chip-text"></span>
+  <div id="map-title-chip-inner">
+    <div id="map-title-chip-text"></div>
+    <div id="map-title-chip-hint">click to open project info</div>
+  </div>
   <button id="map-title-chip-btn" title="Expand info panel">&#9654;</button>
 </div>
 <div id="map"></div>
@@ -2655,9 +2695,10 @@ class WebMapExporter:
 
   function buildWmsLayer(item) {{
     var ld = item.ld;
+    var op = (ld.opacity != null) ? ld.opacity : 1;
     // XYZ and WMTS tile services use a URL template — serve directly as tile layer
     if (ld.tileType === 'xyz' || ld.tileType === 'wmts') {{
-      return L.tileLayer(ld.wmsUrl, {{ pane: item.paneName, maxZoom: 23 }});
+      return L.tileLayer(ld.wmsUrl, {{ pane: item.paneName, maxZoom: 23, opacity: op }});
     }}
     return L.tileLayer.wms(ld.wmsUrl, {{
       layers:      ld.wmsLayers,
@@ -2665,7 +2706,7 @@ class WebMapExporter:
       styles:      ld.wmsStyles  || '',
       version:     ld.wmsVersion || '1.1.1',
       transparent: true,
-      opacity:     1,
+      opacity:     op,
       pane:        item.paneName,
       maxZoom:     23
     }});
@@ -3422,11 +3463,14 @@ class WebMapExporter:
       opLbl.textContent = 'Opacity';
       var slider = document.createElement('input');
       slider.type = 'range';
-      slider.min = '0'; slider.max = '100'; slider.value = '100';
+      slider.min = '0'; slider.max = '100';
+      slider.value = String(Math.round((ld.opacity != null ? ld.opacity : 1) * 100));
       slider.title = 'Layer opacity';
       slider.addEventListener('input', function() {{
         setLayerOpacity(item, parseInt(slider.value, 10) / 100);
       }});
+      // Apply initial opacity if not 100%
+      if (ld.opacity != null && ld.opacity < 1) setLayerOpacity(item, ld.opacity);
       opRow.appendChild(opLbl);
       opRow.appendChild(slider);
       settingsDiv.appendChild(opRow);
@@ -4353,6 +4397,9 @@ class WebMapExporter:
         }});
         mvSection.appendChild(item);
       }});
+      // Auto-select the first map view on load
+      var firstItem = mvSection.querySelector('.mv-item');
+      if (firstItem) setTimeout(function() {{ firstItem.click(); }}, 100);
     }}
   }}
 
