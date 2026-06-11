@@ -13,7 +13,7 @@ from qgis.PyQt.QtGui import QDesktopServices
 from qgis.core import QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer
 
 _SETTINGS_KEY = "QgsWebMapExporter"
-_INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"
+_INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"  # legacy global key (kept for migration)
 
 
 class WebMapExportDialog(QDockWidget):
@@ -477,8 +477,18 @@ class WebMapExportDialog(QDockWidget):
 
     # ── Instance manager ────────────────────────────────────────────────────────
 
+    def _project_instances_key(self):
+        """Return a QSettings key scoped to the current QGIS project file."""
+        path = QgsProject.instance().fileName()
+        if not path:
+            return f"{_SETTINGS_KEY}/instances/__no_project__"
+        import hashlib
+        h = hashlib.md5(path.encode("utf-8")).hexdigest()[:16]
+        return f"{_SETTINGS_KEY}/project_instances/{h}"
+
     def _instances_load_all(self):
-        raw = QSettings().value(_INSTANCES_KEY, "")
+        key = self._project_instances_key()
+        raw = QSettings().value(key, "")
         if raw:
             try:
                 data = json.loads(raw)
@@ -486,10 +496,19 @@ class WebMapExportDialog(QDockWidget):
                     return data
             except Exception:
                 pass
+        # Migration: load from old global key on first use per project
+        old = QSettings().value(_INSTANCES_KEY, "")
+        if old:
+            try:
+                data = json.loads(old)
+                if isinstance(data, dict) and data:
+                    return data
+            except Exception:
+                pass
         return {}
 
     def _instances_save_all(self, data):
-        QSettings().setValue(_INSTANCES_KEY, json.dumps(data))
+        QSettings().setValue(self._project_instances_key(), json.dumps(data))
 
     def _instances_refresh_combo(self, select_name=None):
         data = self._instances_load_all()

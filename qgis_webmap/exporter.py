@@ -2040,10 +2040,15 @@ class WebMapExporter:
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     letter-spacing: -0.01em;
   }}
-  #map-title-chip-hint {{
-    font-size: 9px; color: rgba(255,255,255,0.65);
-    margin-top: 2px; letter-spacing: 0.04em;
+  #map-title-chip-views {{ display: flex; flex-direction: column; gap: 2px; margin-top: 5px; }}
+  .mv-chip-item {{
+    font-size: 10px; padding: 3px 8px; border-radius: 4px;
+    background: rgba(255,255,255,0.15); cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: rgba(255,255,255,0.88); transition: background 0.12s;
   }}
+  .mv-chip-item:hover {{ background: rgba(255,255,255,0.25); }}
+  .mv-chip-item.active {{ background: rgba(255,255,255,0.32); color: #fff; font-weight: 600; }}
   #map-title-chip-btn {{
     background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
     border-radius: 4px; color: rgba(255,255,255,0.9);
@@ -2077,7 +2082,7 @@ class WebMapExporter:
     border: 1px solid #bbb;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    min-width: 220px; max-width: 600px; width: 300px;
+    min-width: 280px; max-width: 560px; width: 380px;
     max-height: calc(100% - 120px);
     flex-direction: column;
     overflow: hidden;
@@ -2130,13 +2135,13 @@ class WebMapExporter:
     padding: 8px 12px; overflow-y: auto; flex: 1;
     font-size: 11px; color: #666;
   }}
-  #info-panel-body table {{ border-collapse: collapse; width: 100%; }}
+  #info-panel-body table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
   #info-panel-body th {{
-    text-align: left; padding: 2px 8px 2px 0;
-    color: #555; font-weight: 600; word-break: break-word; vertical-align: top;
-    max-width: 130px;
+    text-align: left; padding: 3px 12px 3px 0;
+    color: #555; font-weight: 600; vertical-align: top;
+    width: 38%; word-break: break-word;
   }}
-  #info-panel-body td {{ padding: 2px 0; word-break: break-word; color: #222; }}
+  #info-panel-body td {{ padding: 3px 0; word-break: break-word; color: #222; width: 62%; }}
   .mf-list {{ padding: 4px 0; }}
   .mf-item {{
     display: flex; align-items: center; justify-content: space-between;
@@ -2252,9 +2257,9 @@ class WebMapExporter:
 <div id="map-title-chip">
   <div id="map-title-chip-inner">
     <div id="map-title-chip-text"></div>
-    <div id="map-title-chip-hint">click to open project info</div>
+    <div id="map-title-chip-views"></div>
   </div>
-  <button id="map-title-chip-btn" title="Expand info panel">&#9654;</button>
+  <button id="map-title-chip-btn" title="Open project info">&#9660;</button>
 </div>
 <div id="map"></div>
 <div id="select-rect"></div>
@@ -2311,6 +2316,7 @@ class WebMapExporter:
   var map = L.map('map', {{
     center: [0, 0], zoom: 2,
     maxZoom: 23,
+    zoomControl: false,
     preferCanvas: true,
     contextmenu: true,
     contextmenuWidth: 180,
@@ -2363,14 +2369,50 @@ class WebMapExporter:
     }}
 
     if (!panel) {{
-      // No info panel - still show chip if there's a title
       return;
     }}
 
     var closeBtn = document.getElementById('left-panel-close');
     if (closeBtn) closeBtn.addEventListener('click', hidePanel);
-    if (chipBtn) chipBtn.addEventListener('click', showPanel);
+    // Only the ▼ button opens the panel; clicking a view item must NOT open the panel
+    if (chipBtn) chipBtn.addEventListener('click', function(e) {{ e.stopPropagation(); showPanel(); }});
     if (chip) chip.addEventListener('click', showPanel);
+
+    // ── Populate chip map-view list ──────────────────────────────────────────
+    var chipViews = document.getElementById('map-title-chip-views');
+    if (chipViews && typeof THEMES !== 'undefined' && THEMES.length > 0) {{
+      var _chipViewEls = [];
+      THEMES.forEach(function(th, i) {{
+        var el = document.createElement('div');
+        el.className = 'mv-chip-item';
+        el.textContent = th.name || ('Map View ' + (i + 1));
+        el.title = th.name || '';
+        el.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          _chipViewEls.forEach(function(x) {{ x.classList.remove('active'); }});
+          el.classList.add('active');
+          if (typeof applyTheme === 'function') applyTheme(i);
+        }});
+        _chipViewEls.push(el);
+        chipViews.appendChild(el);
+      }});
+      // Also mark active when map-views-section items are clicked
+      var mvSection = document.getElementById('map-views-section');
+      if (mvSection) {{
+        mvSection.addEventListener('click', function(e) {{
+          var idx = parseInt(e.target.closest && e.target.closest('[data-mv-idx]') && e.target.closest('[data-mv-idx]').dataset.mvIdx, 10);
+          if (!isNaN(idx)) {{
+            _chipViewEls.forEach(function(x) {{ x.classList.remove('active'); }});
+            if (_chipViewEls[idx]) _chipViewEls[idx].classList.add('active');
+          }}
+        }});
+      }}
+      // Mirror the active state when first map view auto-loads
+      window._setChipViewActive = function(idx) {{
+        _chipViewEls.forEach(function(x) {{ x.classList.remove('active'); }});
+        if (_chipViewEls[idx]) _chipViewEls[idx].classList.add('active');
+      }};
+    }}
 
     // Left-panel resize handle
     var rh = document.getElementById('left-panel-resize-h');
@@ -2804,6 +2846,12 @@ class WebMapExporter:
     if (item.lfl) map.removeLayer(item.lfl);
     item.lfl = buildLayer(item);
     if (wasVisible) item.lfl.addTo(map);
+    // Repopulate spreadMarkers from the newly-built layer so the explode system
+    // always references live markers, not the old detached ones.
+    if (item.ld.geomType === 'point' && item.ld.kind === 'vector') {{
+      item.spreadMarkers = [];
+      item.lfl.eachLayer(function(lyr) {{ if (lyr._origLatLng) item.spreadMarkers.push(lyr); }});
+    }}
     if (item.ld.labelConfig) {{
       buildLabels(item);
       setLayerLabels(item, item.labelsVisible);
@@ -3463,8 +3511,10 @@ class WebMapExporter:
         gBtn.addEventListener('click', function(e) {{
           e.stopPropagation();
           if (!item.groupEnabled) {{
+            // Store prior label placement so we can restore it on turn-off
+            item._preLabelMode = item._preLabelMode || _labelPlacementMode;
             item.groupEnabled = true;
-            item.groupMode = item._cogGrpModeSel ? item._cogGrpModeSel.value : 'spread';
+            item.groupMode = (item._cogGrpModeSel && item._cogGrpModeSel.value) || 'spread';
             if (item._cogGrpCb) item._cogGrpCb.checked = true;
             if (item._cogGrpModeSel) item._cogGrpModeSel.disabled = false;
             rebuildLayer(item);
@@ -3473,10 +3523,10 @@ class WebMapExporter:
             item.groupEnabled = false;
             item.spreadMarkers.forEach(function(mkr) {{ if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng); }});
             if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
-            layoutAllLabels();
             if (item._cogGrpCb) item._cogGrpCb.checked = false;
             if (item._cogGrpModeSel) item._cogGrpModeSel.disabled = true;
             rebuildLayer(item);
+            layoutAllLabels();
           }}
           _refreshGBtn();
         }});
@@ -3667,15 +3717,17 @@ class WebMapExporter:
         grpCb.addEventListener('change', function() {{
           item.groupEnabled = grpCb.checked;
           grpModeSel.disabled = !grpCb.checked;
-          if (!grpCb.checked) {{
+          if (grpCb.checked) {{
+            item._preLabelMode = item._preLabelMode || _labelPlacementMode;
+          }} else {{
             item.spreadMarkers.forEach(function(mkr) {{
               if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng);
             }});
             if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
-            layoutAllLabels();
           }}
           rebuildLayer(item);
           if (item.groupEnabled) spreadMarkers();
+          else layoutAllLabels();
           if (item._refreshActGrpBtn) item._refreshActGrpBtn();
         }});
         grpModeSel.addEventListener('change', function() {{
@@ -4636,41 +4688,41 @@ class WebMapExporter:
     }});
   }})();
 
-  // ── Map Views (header items below description, above doc metadata) ──────────
-  if (THEMES.length > 0) {{
-    function applyTheme(idx) {{
-      var theme = THEMES[idx];
-      if (!theme) return;
-      if (theme.layerIds) {{
-        legendItems.forEach(function(it) {{
-          var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
-          setLayerVisible(it, vis);
-          if (it.checkbox) it.checkbox.checked = vis;
-          if (it.layerDiv) it.layerDiv.classList.toggle('hidden', !vis);
-        }});
-      }}
-      if (theme.extent) {{
-        try {{ map.fitBounds(theme.extent, {{padding: [20, 20]}}); }} catch(e) {{}}
-      }}
+  // ── Map Views ────────────────────────────────────────────────────────────────
+  function applyTheme(idx) {{
+    var theme = THEMES[idx];
+    if (!theme) return;
+    if (theme.layerIds) {{
+      legendItems.forEach(function(it) {{
+        var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
+        setLayerVisible(it, vis);
+      }});
     }}
+    if (theme.extent) {{
+      try {{ map.fitBounds(theme.extent, {{padding: [20, 20]}}); }} catch(e) {{}}
+    }}
+    if (typeof window._setChipViewActive === 'function') window._setChipViewActive(idx);
+  }}
 
+  if (THEMES.length > 0) {{
     var mvSection = document.getElementById('map-views-section');
     if (mvSection) {{
       THEMES.forEach(function(th, i) {{
-        var item = document.createElement('div');
-        item.className = 'mv-item';
-        item.innerHTML = '<div class="mv-item-name">' + escHtml(th.name || 'Map View ' + (i + 1)) + '</div>'
-                       + (th.notes ? '<div class="mv-item-notes">' + escHtml(th.notes) + '</div>' : '');
-        item.addEventListener('click', function() {{
+        var mvItem = document.createElement('div');
+        mvItem.className = 'mv-item';
+        mvItem.dataset.mvIdx = i;
+        mvItem.innerHTML = '<div class="mv-item-name">' + escHtml(th.name || 'Map View ' + (i + 1)) + '</div>'
+                         + (th.notes ? '<div class="mv-item-notes">' + escHtml(th.notes) + '</div>' : '');
+        mvItem.addEventListener('click', function() {{
           mvSection.querySelectorAll('.mv-item').forEach(function(el) {{ el.classList.remove('active'); }});
-          item.classList.add('active');
+          mvItem.classList.add('active');
           applyTheme(i);
         }});
-        mvSection.appendChild(item);
+        mvSection.appendChild(mvItem);
       }});
       // Auto-select the first map view on load
-      var firstItem = mvSection.querySelector('.mv-item');
-      if (firstItem) setTimeout(function() {{ firstItem.click(); }}, 100);
+      var firstMvItem = mvSection.querySelector('.mv-item');
+      if (firstMvItem) setTimeout(function() {{ firstMvItem.click(); }}, 150);
     }}
   }}
 
@@ -4687,8 +4739,6 @@ class WebMapExporter:
     {{ sel: '.legend-cog-btn',                    name: 'Layer Settings',    text: 'Open layer settings: adjust opacity, symbol colours, and attribute filters for this layer.', side:'right' }},
     {{ sel: '#legend-tools-btn',                  name: 'Legend Options',    text: 'Toggle the label column and other legend display options.', side:'right' }},
     // ── Map controls
-    {{ sel: '.leaflet-control-zoom-in',           name: 'Zoom In',           text: 'Zoom in on the map. You can also scroll the mouse wheel or press the + key.' }},
-    {{ sel: '.leaflet-control-zoom-out',          name: 'Zoom Out',          text: 'Zoom out on the map. You can also scroll the mouse wheel or press the − key.' }},
     {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Activate identify mode, then click a feature or drag a box to view attributes. Also queries WMS layers via GetFeatureInfo. Close the panel using the × button or click this button again.' }},
     {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and CSV export.' }},
     {{ sel: '[title="Drag to select features"]',  name: 'Select &amp; Highlight', text: 'Click and drag a rectangle to select features. Selected rows are highlighted in the attribute table.' }},
