@@ -2753,6 +2753,17 @@ class WebMapExporter:
       }};
     }}
     var geoLayer = L.geoJSON(ld.geojson, opts);
+    if (item.clusterEnabled && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
+      item.spreadMarkers = []; // clustering manages its own positioning; disable spread
+      var cg = L.markerClusterGroup({{
+        chunkedLoading: true,
+        maxClusterRadius: 80,
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true
+      }});
+      cg.addLayer(geoLayer);
+      return cg;
+    }}
     return geoLayer;
   }}
 
@@ -2832,7 +2843,7 @@ class WebMapExporter:
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
       visible: true, labelsVisible: false, filterFn: null, layerFilterFn: null,
-      lfl: null, index: i, hiddenClasses: [], spreadMarkers: []
+      lfl: null, index: i, clusterEnabled: false, hiddenClasses: [], spreadMarkers: []
     }};
     try {{
       item.lfl = buildLayer(item);
@@ -3416,6 +3427,24 @@ class WebMapExporter:
         acts.appendChild(mSel);
       }}
 
+      // Cluster toggle (point layers only)
+      if (item.ld.geomType === 'point') {{
+        var cBtn = mkBtn('Toggle clustering',
+          '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">'
+          + '<circle cx="5" cy="5" r="2.4"/><circle cx="11.5" cy="6.5" r="1.8"/><circle cx="7" cy="11.5" r="1.8"/></svg>');
+        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
+        if (!clusterAvail) {{ cBtn.disabled = true; cBtn.title = 'Marker cluster plugin not loaded'; }}
+        item._actClBtn = cBtn;
+        cBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          item.clusterEnabled = !item.clusterEnabled;
+          cBtn.classList.toggle('active', item.clusterEnabled);
+          if (item._cogClCb) item._cogClCb.checked = item.clusterEnabled;
+          rebuildLayer(item);
+        }});
+        acts.appendChild(cBtn);
+      }}
+
       return acts;
     }}
 
@@ -3582,6 +3611,30 @@ class WebMapExporter:
         modeRow.appendChild(modeLbl);
         modeRow.appendChild(modeSel);
         settingsDiv.appendChild(modeRow);
+      }}
+
+      // Cluster row (point vector layers only)
+      if (ld.kind === 'vector' && ld.geomType === 'point') {{
+        var clRow = document.createElement('div');
+        clRow.className = 'layer-settings-row';
+        var clLbl = document.createElement('span');
+        clLbl.className = 'layer-settings-label';
+        clLbl.textContent = 'Cluster';
+        var clCb = document.createElement('input');
+        clCb.type = 'checkbox';
+        clCb.checked = false;
+        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
+        clCb.title = clusterAvail ? 'Toggle marker clustering (disables spread)' : 'Marker cluster plugin not loaded';
+        clCb.disabled = !clusterAvail;
+        item._cogClCb = clCb;
+        clCb.addEventListener('change', function() {{
+          item.clusterEnabled = clCb.checked;
+          if (item._actClBtn) item._actClBtn.classList.toggle('active', clCb.checked);
+          rebuildLayer(item);
+        }});
+        clRow.appendChild(clLbl);
+        clRow.appendChild(clCb);
+        settingsDiv.appendChild(clRow);
       }}
 
       row.appendChild(makeCogBtn(settingsDiv));
