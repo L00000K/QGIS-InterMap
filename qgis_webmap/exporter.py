@@ -1437,7 +1437,7 @@ class WebMapExporter:
     align-items: center;
     gap: 2px;
     flex-shrink: 0;
-    margin-right: 2px;
+    margin-left: 4px;
   }}
   #legend.tools-mode .layer-actions {{ display: inline-flex; }}
   .layer-act-btn {{
@@ -2753,8 +2753,8 @@ class WebMapExporter:
       }};
     }}
     var geoLayer = L.geoJSON(ld.geojson, opts);
-    if (item.clusterEnabled && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
-      item.spreadMarkers = []; // clustering manages its own positioning; disable spread
+    if (item.groupEnabled && item.groupMode === 'cluster' && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
+      item.spreadMarkers = [];
       var cg = L.markerClusterGroup({{
         chunkedLoading: true,
         maxClusterRadius: 80,
@@ -2843,7 +2843,7 @@ class WebMapExporter:
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
       visible: true, labelsVisible: false, filterFn: null, layerFilterFn: null,
-      lfl: null, index: i, clusterEnabled: false, hiddenClasses: [], spreadMarkers: []
+      lfl: null, index: i, groupEnabled: false, groupMode: 'spread', hiddenClasses: [], spreadMarkers: []
     }};
     try {{
       item.lfl = buildLayer(item);
@@ -3349,6 +3349,7 @@ class WebMapExporter:
       var acts = document.createElement('span');
       acts.className = 'layer-actions';
       var cfg = item.ld.labelConfig || null;
+      var ld = item.ld;
       var layerFilterDiv = null;
 
       function mkBtn(title, svg) {{
@@ -3393,7 +3394,7 @@ class WebMapExporter:
       }});
       acts.appendChild(fBtn);
 
-      // Labels on/off + placement method pulldown
+      // Labels on/off
       if (cfg) {{
         var lBtn = mkBtn('Toggle labels',
           '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
@@ -3408,41 +3409,75 @@ class WebMapExporter:
           if (item._cogLblCb) item._cogLblCb.checked = on;
         }});
         acts.appendChild(lBtn);
-
-        var mSel = document.createElement('select');
-        mSel.className = 'label-mode-sel layer-act-sel';
-        mSel.title = 'Label placement method';
-        [['candidate', 'Cand.'], ['force', 'Force']].forEach(function(opt) {{
-          var o = document.createElement('option');
-          o.value = opt[0]; o.textContent = opt[1];
-          if (opt[0] === _labelPlacementMode) o.selected = true;
-          mSel.appendChild(o);
-        }});
-        mSel.addEventListener('click', function(e) {{ e.stopPropagation(); }});
-        mSel.addEventListener('change', function() {{
-          _labelPlacementMode = mSel.value;
-          document.querySelectorAll('.label-mode-sel').forEach(function(s) {{ s.value = _labelPlacementMode; }});
-          layoutAllLabels();
-        }});
-        acts.appendChild(mSel);
       }}
 
-      // Cluster toggle (point layers only)
-      if (item.ld.geomType === 'point') {{
-        var cBtn = mkBtn('Toggle clustering',
-          '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">'
-          + '<circle cx="5" cy="5" r="2.4"/><circle cx="11.5" cy="6.5" r="1.8"/><circle cx="7" cy="11.5" r="1.8"/></svg>');
-        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
-        if (!clusterAvail) {{ cBtn.disabled = true; cBtn.title = 'Marker cluster plugin not loaded'; }}
-        item._actClBtn = cBtn;
-        cBtn.addEventListener('click', function(e) {{
+      // Group / cluster toggle (point layers only)
+      if (ld.kind === 'vector' && ld.geomType === 'point') {{
+        var gBtn = mkBtn('', '');
+        function _refreshGBtn() {{
+          if (!item.groupEnabled) {{
+            gBtn.title = 'Group: Off — click to enable spread';
+            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+              + '<circle cx="6" cy="7.5" r="2.5" fill="currentColor" opacity="0.45"/>'
+              + '<circle cx="10" cy="7.5" r="2.5" fill="currentColor" opacity="0.45"/>'
+              + '<circle cx="8" cy="4" r="2.5" fill="currentColor" opacity="0.45"/></svg>';
+            gBtn.classList.remove('active');
+          }} else if (item.groupMode === 'spread') {{
+            gBtn.title = 'Group: Spread — click to enable cluster';
+            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+              + '<circle cx="8" cy="8" r="1.5" fill="currentColor"/>'
+              + '<line x1="8" y1="8" x2="3" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<line x1="8" y1="8" x2="13" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<line x1="8" y1="8" x2="3" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<line x1="8" y1="8" x2="13" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<circle cx="3" cy="3.5" r="2" fill="currentColor"/>'
+              + '<circle cx="13" cy="3.5" r="2" fill="currentColor"/>'
+              + '<circle cx="3" cy="12.5" r="2" fill="currentColor"/>'
+              + '<circle cx="13" cy="12.5" r="2" fill="currentColor"/></svg>';
+            gBtn.classList.add('active');
+          }} else {{
+            gBtn.title = 'Group: Cluster — click to turn off';
+            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+              + '<circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>'
+              + '<circle cx="5.5" cy="9" r="1.5" fill="currentColor"/>'
+              + '<circle cx="10.5" cy="9" r="1.5" fill="currentColor"/>'
+              + '<circle cx="8" cy="5.5" r="1.5" fill="currentColor"/></svg>';
+            gBtn.classList.add('active');
+          }}
+        }}
+        _refreshGBtn();
+        item._actGrpBtn = gBtn;
+        item._refreshActGrpBtn = _refreshGBtn;
+
+        gBtn.addEventListener('click', function(e) {{
           e.stopPropagation();
-          item.clusterEnabled = !item.clusterEnabled;
-          cBtn.classList.toggle('active', item.clusterEnabled);
-          if (item._cogClCb) item._cogClCb.checked = item.clusterEnabled;
-          rebuildLayer(item);
+          if (!item.groupEnabled) {{
+            item.groupEnabled = true;
+            item.groupMode = 'spread';
+            if (item._cogGrpCb) {{ item._cogGrpCb.checked = true; }}
+            if (item._cogGrpModeRow) item._cogGrpModeRow.style.display = '';
+            if (item._cogGrpModeSel) item._cogGrpModeSel.value = 'spread';
+            rebuildLayer(item);
+            spreadMarkers();
+          }} else if (item.groupMode === 'spread') {{
+            item.groupMode = 'cluster';
+            if (item._cogGrpModeSel) item._cogGrpModeSel.value = 'cluster';
+            item.spreadMarkers.forEach(function(mkr) {{ if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng); }});
+            if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
+            layoutAllLabels();
+            rebuildLayer(item);
+          }} else {{
+            item.groupEnabled = false;
+            item.spreadMarkers.forEach(function(mkr) {{ if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng); }});
+            if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
+            layoutAllLabels();
+            if (item._cogGrpCb) item._cogGrpCb.checked = false;
+            if (item._cogGrpModeRow) item._cogGrpModeRow.style.display = 'none';
+            rebuildLayer(item);
+          }}
+          _refreshGBtn();
         }});
-        acts.appendChild(cBtn);
+        acts.appendChild(gBtn);
       }}
 
       return acts;
@@ -3484,7 +3519,6 @@ class WebMapExporter:
       nameEl.title = ld.name;
       nameEl.textContent = ld.name;
 
-      if (ld.kind === 'vector') row.appendChild(buildLayerActions(item, layerDiv));
       row.appendChild(cb);
       row.appendChild(swatch);
       row.appendChild(nameEl);
@@ -3613,30 +3647,65 @@ class WebMapExporter:
         settingsDiv.appendChild(modeRow);
       }}
 
-      // Cluster row (point vector layers only)
+      // Group / spread / cluster (point vector layers only)
       if (ld.kind === 'vector' && ld.geomType === 'point') {{
-        var clRow = document.createElement('div');
-        clRow.className = 'layer-settings-row';
-        var clLbl = document.createElement('span');
-        clLbl.className = 'layer-settings-label';
-        clLbl.textContent = 'Cluster';
-        var clCb = document.createElement('input');
-        clCb.type = 'checkbox';
-        clCb.checked = false;
+        // ── Group on/off checkbox ──────────────────────────────
+        var grpRow = document.createElement('div');
+        grpRow.className = 'layer-settings-row';
+        var grpLbl = document.createElement('span');
+        grpLbl.className = 'layer-settings-label';
+        grpLbl.textContent = 'Group';
+        var grpCb = document.createElement('input');
+        grpCb.type = 'checkbox';
+        grpCb.checked = false;
+        grpCb.title = 'Enable icon grouping for overlapping markers';
+        grpRow.appendChild(grpLbl);
+        grpRow.appendChild(grpCb);
+        settingsDiv.appendChild(grpRow);
+        item._cogGrpCb = grpCb;
+
+        // ── Mode dropdown (visible only when Group is on) ──────
+        var grpModeRow = document.createElement('div');
+        grpModeRow.className = 'layer-settings-row';
+        grpModeRow.style.display = 'none';
+        var grpModeLbl = document.createElement('span');
+        grpModeLbl.className = 'layer-settings-label';
+        grpModeLbl.textContent = 'Mode';
+        var grpModeSel = document.createElement('select');
+        grpModeSel.className = 'layer-settings-sel';
         var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
-        clCb.title = clusterAvail ? 'Toggle marker clustering (disables spread)' : 'Marker cluster plugin not loaded';
-        clCb.disabled = !clusterAvail;
-        item._cogClCb = clCb;
-        clCb.addEventListener('change', function() {{
-          item.clusterEnabled = clCb.checked;
-          if (item._actClBtn) item._actClBtn.classList.toggle('active', clCb.checked);
+        grpModeSel.innerHTML = '<option value="spread">Spread</option>'
+          + '<option value="cluster" ' + (clusterAvail ? '' : 'disabled') + '>Cluster</option>';
+        grpModeRow.appendChild(grpModeLbl);
+        grpModeRow.appendChild(grpModeSel);
+        settingsDiv.appendChild(grpModeRow);
+        item._cogGrpModeRow = grpModeRow;
+        item._cogGrpModeSel = grpModeSel;
+
+        grpCb.addEventListener('change', function() {{
+          item.groupEnabled = grpCb.checked;
+          grpModeRow.style.display = grpCb.checked ? '' : 'none';
+          if (!grpCb.checked) {{
+            // restore markers to true positions immediately
+            item.spreadMarkers.forEach(function(mkr) {{
+              if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng);
+            }});
+            if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
+            layoutAllLabels();
+          }}
           rebuildLayer(item);
+          if (item.groupEnabled) spreadMarkers();
+          if (item._refreshActGrpBtn) item._refreshActGrpBtn();
         }});
-        clRow.appendChild(clLbl);
-        clRow.appendChild(clCb);
-        settingsDiv.appendChild(clRow);
+        grpModeSel.addEventListener('change', function() {{
+          item.groupMode = grpModeSel.value;
+          rebuildLayer(item);
+          if (item.groupEnabled) spreadMarkers();
+          if (item._refreshActGrpBtn) item._refreshActGrpBtn();
+        }});
       }}
 
+      if (ld.kind === 'vector') row.appendChild(buildLayerActions(item, layerDiv));
       row.appendChild(makeCogBtn(settingsDiv));
 
       layerDiv.appendChild(row);
@@ -4010,12 +4079,11 @@ class WebMapExporter:
   }}
 
   function _candidatePlacement(labels) {{
-    var DIRS = [
-      [0,-1],[0.71,-0.71],[1,0],[0.71,0.71],
-      [0,1],[-0.71,0.71],[-1,0],[-0.71,-0.71]
-    ];
+    var DIRS_ALL   = [[0,-1],[0.71,-0.71],[1,0],[0.71,0.71],[0,1],[-0.71,0.71],[-1,0],[-0.71,-0.71]];
+    var DIRS_RIGHT = [[1,0],[0.71,-0.71],[0.71,0.71]]; // strictly right-side candidates
     var placed = [];
     labels.forEach(function(lbl) {{
+      var DIRS = lbl.rightForced ? DIRS_RIGHT : DIRS_ALL;
       var baseR = lbl.h * 0.55 + 6;
       var best = null, bestScore = Infinity;
       [1.0, 1.7, 2.6].forEach(function(rm) {{
@@ -4100,10 +4168,11 @@ class WebMapExporter:
     if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
     if (zoom < SPREAD_MIN_ZOOM) {{ setTimeout(layoutAllLabels, 0); return; }}
 
-    // 2. Collect all visible point markers with screen positions
+    // 2. Collect visible point markers from spread-enabled layers
     var all = [];
     legendItems.forEach(function(item) {{
-      if (!item.visible || !item.spreadMarkers || !item.spreadMarkers.length) return;
+      if (!item.visible || !item.groupEnabled || item.groupMode !== 'spread') return;
+      if (!item.spreadMarkers || !item.spreadMarkers.length) return;
       item.spreadMarkers.forEach(function(mkr) {{
         if (!mkr._origLatLng) return;
         var pt = map.latLngToContainerPoint(mkr._origLatLng);
@@ -4180,20 +4249,21 @@ class WebMapExporter:
       if (!item.visible || !item.labelsVisible || !item.labelData) return;
       var cfg = item.labelCfg;
       var fsz = cfg.fontSize || 11;
-      var spreadOn = map.getZoom() >= SPREAD_MIN_ZOOM;
+      var rightForced = item.groupEnabled && item.groupMode === 'spread';
       item.labelData.forEach(function(ld) {{
         // Use current lyr position (follows spread) for points; static center for polygons
         var curLatLng = (ld.lyr && ld.lyr.getLatLng) ? ld.lyr.getLatLng() : ld.latlng;
         var pt = map.latLngToContainerPoint(curLatLng);
         var dims = _lblDims(ld.text, fsz);
-        // When spread active, seed label to the right of the icon
-        var initX = spreadOn ? pt.x + dims.w * 0.5 + 6 : pt.x;
+        // When spread mode: seed label strictly to the right of the icon
+        var initX = rightForced ? pt.x + dims.w * 0.5 + 8 : pt.x;
         all.push({{
           text: ld.text, cfg: cfg,
           ax: pt.x, ay: pt.y,
           x: initX, y: pt.y,
           w: dims.w, h: dims.h,
           vx: 0, vy: 0,
+          rightForced: rightForced,
           group: item.labelGroup
         }});
       }});
