@@ -1987,6 +1987,7 @@ class WebMapExporter:
     font-size: 12px; font-weight: 600; color: {_th_acc}; line-height: 1.3;
   }}
   .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid {_th_acc_md}; }}
+  .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid #d5cffc; }}
   .mv-item.active .mv-item-notes {{ display: block; }}
   /* ── Help overlay ───────────────────────────────────────────────── */
   #help-overlay {{
