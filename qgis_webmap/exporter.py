@@ -1437,7 +1437,7 @@ class WebMapExporter:
     align-items: center;
     gap: 2px;
     flex-shrink: 0;
-    margin-right: 2px;
+    margin-left: 4px;
   }}
   #legend.tools-mode .layer-actions {{ display: inline-flex; }}
   .layer-act-btn {{
@@ -3349,6 +3349,7 @@ class WebMapExporter:
       var acts = document.createElement('span');
       acts.className = 'layer-actions';
       var cfg = item.ld.labelConfig || null;
+      var ld = item.ld;
       var layerFilterDiv = null;
 
       function mkBtn(title, svg) {{
@@ -3393,7 +3394,7 @@ class WebMapExporter:
       }});
       acts.appendChild(fBtn);
 
-      // Labels on/off + placement method pulldown
+      // Labels on/off
       if (cfg) {{
         var lBtn = mkBtn('Toggle labels',
           '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
@@ -3408,23 +3409,75 @@ class WebMapExporter:
           if (item._cogLblCb) item._cogLblCb.checked = on;
         }});
         acts.appendChild(lBtn);
+      }}
 
-        var mSel = document.createElement('select');
-        mSel.className = 'label-mode-sel layer-act-sel';
-        mSel.title = 'Label placement method';
-        [['candidate', 'Cand.'], ['force', 'Force']].forEach(function(opt) {{
-          var o = document.createElement('option');
-          o.value = opt[0]; o.textContent = opt[1];
-          if (opt[0] === _labelPlacementMode) o.selected = true;
-          mSel.appendChild(o);
+      // Group / cluster toggle (point layers only)
+      if (ld.kind === 'vector' && ld.geomType === 'point') {{
+        var gBtn = mkBtn('', '');
+        function _refreshGBtn() {{
+          if (!item.groupEnabled) {{
+            gBtn.title = 'Group: Off — click to enable spread';
+            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+              + '<circle cx="6" cy="7.5" r="2.5" fill="currentColor" opacity="0.45"/>'
+              + '<circle cx="10" cy="7.5" r="2.5" fill="currentColor" opacity="0.45"/>'
+              + '<circle cx="8" cy="4" r="2.5" fill="currentColor" opacity="0.45"/></svg>';
+            gBtn.classList.remove('active');
+          }} else if (item.groupMode === 'spread') {{
+            gBtn.title = 'Group: Spread — click to enable cluster';
+            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+              + '<circle cx="8" cy="8" r="1.5" fill="currentColor"/>'
+              + '<line x1="8" y1="8" x2="3" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<line x1="8" y1="8" x2="13" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<line x1="8" y1="8" x2="3" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<line x1="8" y1="8" x2="13" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
+              + '<circle cx="3" cy="3.5" r="2" fill="currentColor"/>'
+              + '<circle cx="13" cy="3.5" r="2" fill="currentColor"/>'
+              + '<circle cx="3" cy="12.5" r="2" fill="currentColor"/>'
+              + '<circle cx="13" cy="12.5" r="2" fill="currentColor"/></svg>';
+            gBtn.classList.add('active');
+          }} else {{
+            gBtn.title = 'Group: Cluster — click to turn off';
+            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+              + '<circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>'
+              + '<circle cx="5.5" cy="9" r="1.5" fill="currentColor"/>'
+              + '<circle cx="10.5" cy="9" r="1.5" fill="currentColor"/>'
+              + '<circle cx="8" cy="5.5" r="1.5" fill="currentColor"/></svg>';
+            gBtn.classList.add('active');
+          }}
+        }}
+        _refreshGBtn();
+        item._actGrpBtn = gBtn;
+        item._refreshActGrpBtn = _refreshGBtn;
+
+        gBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          if (!item.groupEnabled) {{
+            item.groupEnabled = true;
+            item.groupMode = 'spread';
+            if (item._cogGrpCb) {{ item._cogGrpCb.checked = true; }}
+            if (item._cogGrpModeRow) item._cogGrpModeRow.style.display = '';
+            if (item._cogGrpModeSel) item._cogGrpModeSel.value = 'spread';
+            rebuildLayer(item);
+            spreadMarkers();
+          }} else if (item.groupMode === 'spread') {{
+            item.groupMode = 'cluster';
+            if (item._cogGrpModeSel) item._cogGrpModeSel.value = 'cluster';
+            item.spreadMarkers.forEach(function(mkr) {{ if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng); }});
+            if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
+            layoutAllLabels();
+            rebuildLayer(item);
+          }} else {{
+            item.groupEnabled = false;
+            item.spreadMarkers.forEach(function(mkr) {{ if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng); }});
+            if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
+            layoutAllLabels();
+            if (item._cogGrpCb) item._cogGrpCb.checked = false;
+            if (item._cogGrpModeRow) item._cogGrpModeRow.style.display = 'none';
+            rebuildLayer(item);
+          }}
+          _refreshGBtn();
         }});
-        mSel.addEventListener('click', function(e) {{ e.stopPropagation(); }});
-        mSel.addEventListener('change', function() {{
-          _labelPlacementMode = mSel.value;
-          document.querySelectorAll('.label-mode-sel').forEach(function(s) {{ s.value = _labelPlacementMode; }});
-          layoutAllLabels();
-        }});
-        acts.appendChild(mSel);
+        acts.appendChild(gBtn);
       }}
 
       return acts;
@@ -3466,7 +3519,6 @@ class WebMapExporter:
       nameEl.title = ld.name;
       nameEl.textContent = ld.name;
 
-      if (ld.kind === 'vector') row.appendChild(buildLayerActions(item, layerDiv));
       row.appendChild(cb);
       row.appendChild(swatch);
       row.appendChild(nameEl);
@@ -3610,6 +3662,7 @@ class WebMapExporter:
         grpRow.appendChild(grpLbl);
         grpRow.appendChild(grpCb);
         settingsDiv.appendChild(grpRow);
+        item._cogGrpCb = grpCb;
 
         // ── Mode dropdown (visible only when Group is on) ──────
         var grpModeRow = document.createElement('div');
@@ -3626,6 +3679,8 @@ class WebMapExporter:
         grpModeRow.appendChild(grpModeLbl);
         grpModeRow.appendChild(grpModeSel);
         settingsDiv.appendChild(grpModeRow);
+        item._cogGrpModeRow = grpModeRow;
+        item._cogGrpModeSel = grpModeSel;
 
         grpCb.addEventListener('change', function() {{
           item.groupEnabled = grpCb.checked;
@@ -3640,14 +3695,17 @@ class WebMapExporter:
           }}
           rebuildLayer(item);
           if (item.groupEnabled) spreadMarkers();
+          if (item._refreshActGrpBtn) item._refreshActGrpBtn();
         }});
         grpModeSel.addEventListener('change', function() {{
           item.groupMode = grpModeSel.value;
           rebuildLayer(item);
           if (item.groupEnabled) spreadMarkers();
+          if (item._refreshActGrpBtn) item._refreshActGrpBtn();
         }});
       }}
 
+      if (ld.kind === 'vector') row.appendChild(buildLayerActions(item, layerDiv));
       row.appendChild(makeCogBtn(settingsDiv));
 
       layerDiv.appendChild(row);
