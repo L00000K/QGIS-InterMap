@@ -218,88 +218,86 @@ class WebMapExportDialog(QDockWidget):
 
         # ── Tab 2: Map Views ─────────────────────────────────────────────────
         map_views_tab = QWidget()
-        map_views_layout = QHBoxLayout(map_views_tab)
+        mv_tab_layout = QVBoxLayout(map_views_tab)
 
-        # Left: list + management buttons
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        # ── Top section: list + sidebar buttons ──────────────────────────────
+        top_row = QHBoxLayout()
 
         self.map_views_list_widget = QListWidget()
-        self.map_views_list_widget.setMinimumWidth(160)
+        self.map_views_list_widget.setMinimumHeight(120)
+        self.map_views_list_widget.setMaximumHeight(160)
         self.map_views_list_widget.currentRowChanged.connect(self._on_map_view_selected)
-        left_layout.addWidget(self.map_views_list_widget)
+        top_row.addWidget(self.map_views_list_widget, 1)
 
-        mv_btn_row = QHBoxLayout()
+        btn_col = QVBoxLayout()
+        btn_col.setSpacing(2)
         add_mv_btn = QPushButton("＋ Add")
         add_mv_btn.clicked.connect(self._map_view_add)
-        edit_mv_btn = QPushButton("✎ Edit")
-        edit_mv_btn.clicked.connect(self._map_view_edit)
         del_mv_btn = QPushButton("✕ Delete")
         del_mv_btn.clicked.connect(self._map_view_delete)
-        mv_btn_row.addWidget(add_mv_btn)
-        mv_btn_row.addWidget(edit_mv_btn)
-        mv_btn_row.addWidget(del_mv_btn)
-        left_layout.addLayout(mv_btn_row)
-
-        move_btn_row = QHBoxLayout()
         up_btn = QPushButton("↑ Up")
         up_btn.clicked.connect(self._map_view_move_up)
         down_btn = QPushButton("↓ Down")
         down_btn.clicked.connect(self._map_view_move_down)
-        move_btn_row.addWidget(up_btn)
-        move_btn_row.addWidget(down_btn)
-        left_layout.addLayout(move_btn_row)
+        btn_col.addWidget(add_mv_btn)
+        btn_col.addWidget(del_mv_btn)
+        btn_col.addWidget(up_btn)
+        btn_col.addWidget(down_btn)
+        btn_col.addStretch()
+        top_row.addLayout(btn_col)
+        mv_tab_layout.addLayout(top_row)
 
-        # Import from QGIS theme section
-        import_group = QGroupBox("Import from QGIS theme")
-        import_layout = QHBoxLayout(import_group)
-        self.import_theme_combo = QComboBox()
-        self.import_theme_combo.setToolTip("Select a QGIS map theme to import as a map view")
-        import_btn = QPushButton("Import as Map View")
-        import_btn.clicked.connect(self._import_qgis_theme_as_map_view)
-        import_layout.addWidget(self.import_theme_combo, 1)
-        import_layout.addWidget(import_btn)
-        left_layout.addWidget(import_group)
+        # ── Bottom section: detail form (auto-save) ──────────────────────────
+        detail_group = QGroupBox("Map view details")
+        detail_layout = QVBoxLayout(detail_group)
 
-        map_views_layout.addWidget(left_widget)
-
-        # Right: map view editor form
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-
-        form = QFormLayout()
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("Name:"))
         self.map_view_name_edit = QLineEdit()
-        self.map_view_name_edit.setPlaceholderText("Map view name (required)")
-        form.addRow("Name:", self.map_view_name_edit)
+        self.map_view_name_edit.setPlaceholderText("Map view name")
+        self.map_view_name_edit.textChanged.connect(self._mv_autosave)
+        name_row.addWidget(self.map_view_name_edit, 1)
+        detail_layout.addLayout(name_row)
 
+        notes_row = QHBoxLayout()
+        notes_row.addWidget(QLabel("Notes:"))
         self.map_view_notes_edit = QTextEdit()
         self.map_view_notes_edit.setPlaceholderText("Notes shown below map view name")
-        self.map_view_notes_edit.setMaximumHeight(80)
-        form.addRow("Notes:", self.map_view_notes_edit)
+        self.map_view_notes_edit.setMaximumHeight(60)
+        self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
+        notes_row.addWidget(self.map_view_notes_edit, 1)
+        detail_layout.addLayout(notes_row)
 
-        right_layout.addLayout(form)
-
-        capture_btn = QPushButton("📷 Capture current QGIS view")
-        capture_btn.clicked.connect(self._map_view_capture_extent)
-        right_layout.addWidget(capture_btn)
-
-        self.map_view_extent_label = QLabel("Extent: (not captured)")
+        # Extent
+        extent_row = QHBoxLayout()
+        capture_ext_btn = QPushButton("📷 Capture extent from QGIS")
+        capture_ext_btn.clicked.connect(self._map_view_capture_extent)
+        self.map_view_extent_label = QLabel("(not captured)")
         self.map_view_extent_label.setWordWrap(True)
-        right_layout.addWidget(self.map_view_extent_label)
+        extent_row.addWidget(capture_ext_btn)
+        extent_row.addWidget(self.map_view_extent_label, 1)
+        detail_layout.addLayout(extent_row)
 
-        mv_form_btns = QHBoxLayout()
-        save_mv_btn = QPushButton("Save map view")
-        save_mv_btn.clicked.connect(self._map_view_save)
-        clear_form_btn = QPushButton("Clear form")
-        clear_form_btn.clicked.connect(self._map_view_clear_form)
-        mv_form_btns.addWidget(save_mv_btn)
-        mv_form_btns.addWidget(clear_form_btn)
-        right_layout.addLayout(mv_form_btns)
-        right_layout.addStretch()
+        # Layers source
+        layers_row = QHBoxLayout()
+        layers_row.addWidget(QLabel("Layers:"))
+        self.import_theme_combo = QComboBox()
+        self.import_theme_combo.setToolTip("Select a QGIS theme to use for this map view's layer visibility")
+        use_theme_btn = QPushButton("Use QGIS theme")
+        use_theme_btn.clicked.connect(self._map_view_use_theme)
+        capture_layers_btn = QPushButton("📷 Capture visible")
+        capture_layers_btn.setToolTip("Capture currently visible layers in QGIS as this map view's layer set")
+        capture_layers_btn.clicked.connect(self._map_view_capture_layers)
+        layers_row.addWidget(self.import_theme_combo, 1)
+        layers_row.addWidget(use_theme_btn)
+        layers_row.addWidget(capture_layers_btn)
+        detail_layout.addLayout(layers_row)
 
-        map_views_layout.addWidget(right_widget, stretch=1)
+        self.map_view_layers_label = QLabel("Layers: (not set)")
+        detail_layout.addWidget(self.map_view_layers_label)
+
+        mv_tab_layout.addWidget(detail_group)
+        mv_tab_layout.addStretch()
         tabs.addTab(map_views_tab, "Map Views")
 
         # ── Tab 3: Map Info ──────────────────────────────────────────────────
@@ -865,80 +863,138 @@ class WebMapExportDialog(QDockWidget):
 
     def _on_map_view_selected(self, row):
         if row < 0 or row >= len(self._map_views):
+            self._map_view_clear_form()
             return
         mv = self._map_views[row]
         self._editing_map_view_idx = row
         self._editing_map_view_extent = mv.get("extent")
+        # Block signals so we don't trigger _mv_autosave while loading
+        self.map_view_name_edit.blockSignals(True)
+        self.map_view_notes_edit.blockSignals(True)
         self.map_view_name_edit.setText(mv.get("name", ""))
         self.map_view_notes_edit.setPlainText(mv.get("notes", ""))
-        ext = mv.get("extent")
+        self.map_view_name_edit.blockSignals(False)
+        self.map_view_notes_edit.blockSignals(False)
+        self._update_mv_extent_label(mv.get("extent"))
+        self._update_mv_layers_label(mv.get("layerIds"))
+
+    def _update_mv_extent_label(self, ext):
         if ext:
             self.map_view_extent_label.setText(
-                f"Extent: S={ext[0][0]:.4f} W={ext[0][1]:.4f} "
+                f"S={ext[0][0]:.4f} W={ext[0][1]:.4f} "
                 f"N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
             )
         else:
-            self.map_view_extent_label.setText("Extent: (not captured)")
+            self.map_view_extent_label.setText("(not captured)")
+
+    def _update_mv_layers_label(self, layer_ids):
+        if layer_ids:
+            n = len(layer_ids)
+            preview = ", ".join(layer_ids[:3])
+            suffix = f", +{n-3} more" if n > 3 else ""
+            self.map_view_layers_label.setText(f"{n} layer(s): {preview}{suffix}")
+        else:
+            self.map_view_layers_label.setText("Layers: (not set)")
 
     def _map_view_clear_form(self):
         self._editing_map_view_idx = None
         self._editing_map_view_extent = None
+        self.map_view_name_edit.blockSignals(True)
+        self.map_view_notes_edit.blockSignals(True)
         self.map_view_name_edit.clear()
         self.map_view_notes_edit.clear()
-        self.map_view_extent_label.setText("Extent: (not captured)")
-        self.map_views_list_widget.clearSelection()
+        self.map_view_name_edit.blockSignals(False)
+        self.map_view_notes_edit.blockSignals(False)
+        self.map_view_extent_label.setText("(not captured)")
+        self.map_view_layers_label.setText("Layers: (not set)")
+
+    def _mv_autosave(self):
+        """Auto-save the currently selected map view when any field changes."""
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            return
+        mv = self._map_views[idx]
+        name = self.map_view_name_edit.text().strip()
+        mv["name"] = name or mv.get("name", "(unnamed)")
+        mv["notes"] = self.map_view_notes_edit.toPlainText().strip()
+        # Refresh list display to show updated name
+        self.map_views_list_widget.blockSignals(True)
+        item = self.map_views_list_widget.item(idx)
+        if item:
+            item.setText(mv["name"])
+        self.map_views_list_widget.blockSignals(False)
 
     def _map_view_capture_extent(self):
         ext = self._capture_canvas_extent()
         self._editing_map_view_extent = ext
-        if ext:
-            self.map_view_extent_label.setText(
-                f"Extent: S={ext[0][0]:.4f} W={ext[0][1]:.4f} "
-                f"N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
-            )
-        else:
-            self.map_view_extent_label.setText("Extent: (could not capture)")
-
-    def _map_view_checked_layer_names(self):
-        """Return names of currently checked layers in the Layers tab."""
-        return self._checked_layer_names()
-
-    def _map_view_save(self):
-        name = self.map_view_name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Map view name required", "Please enter a name for the map view.")
+        self._update_mv_extent_label(ext)
+        if ext is None:
             return
-        mv = {
-            "name": name,
-            "notes": self.map_view_notes_edit.toPlainText().strip(),
-            "extent": self._editing_map_view_extent,
-            "layerIds": self._map_view_checked_layer_names(),
-        }
-        if self._editing_map_view_idx is not None and 0 <= self._editing_map_view_idx < len(self._map_views):
-            self._map_views[self._editing_map_view_idx] = mv
-        else:
-            self._map_views.append(mv)
-            self._editing_map_view_idx = len(self._map_views) - 1
-        self._map_views_list_refresh()
-        self.map_views_list_widget.setCurrentRow(self._editing_map_view_idx)
+        idx = self._editing_map_view_idx
+        if idx is not None and 0 <= idx < len(self._map_views):
+            self._map_views[idx]["extent"] = ext
+
+    def _map_view_capture_layers(self):
+        """Capture currently visible QGIS layers as this map view's layer set."""
+        try:
+            root = QgsProject.instance().layerTreeRoot()
+            layer_names = [
+                child.layer().name()
+                for child in root.findLayers()
+                if child.isVisible() and child.layer()
+            ]
+        except Exception as e:
+            QMessageBox.warning(self, "Capture error", str(e))
+            return
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select or add a map view first.")
+            return
+        self._map_views[idx]["layerIds"] = layer_names
+        self._update_mv_layers_label(layer_names)
+
+    def _map_view_use_theme(self):
+        """Populate layerIds from the selected QGIS theme."""
+        theme_name = self.import_theme_combo.currentData()
+        if not theme_name:
+            QMessageBox.information(self, "No theme selected", "Select a QGIS theme first.")
+            return
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select or add a map view first.")
+            return
+        try:
+            theme_collection = QgsProject.instance().mapThemeCollection()
+            visible_layers = theme_collection.mapThemeVisibleLayers(theme_name)
+            layer_names = [la.name() for la in visible_layers]
+        except Exception as e:
+            QMessageBox.warning(self, "Theme error", str(e))
+            return
+        self._map_views[idx]["layerIds"] = layer_names
+        self._update_mv_layers_label(layer_names)
 
     def _map_view_add(self):
-        self._map_view_clear_form()
-
-    def _map_view_edit(self):
-        row = self.map_views_list_widget.currentRow()
-        if row < 0:
-            QMessageBox.information(self, "No map view selected", "Please select a map view to edit.")
-            return
-        self._on_map_view_selected(row)
+        mv = {"name": "New map view", "notes": "", "extent": None, "layerIds": []}
+        self._map_views.append(mv)
+        self._map_views_list_refresh()
+        new_row = len(self._map_views) - 1
+        self.map_views_list_widget.setCurrentRow(new_row)
+        # Select name text for immediate renaming
+        self.map_view_name_edit.selectAll()
+        self.map_view_name_edit.setFocus()
 
     def _map_view_delete(self):
         row = self.map_views_list_widget.currentRow()
         if row < 0:
             return
         del self._map_views[row]
-        self._map_view_clear_form()
         self._map_views_list_refresh()
+        # Select previous item or clear form
+        new_row = min(row, len(self._map_views) - 1)
+        if new_row >= 0:
+            self.map_views_list_widget.setCurrentRow(new_row)
+        else:
+            self._map_view_clear_form()
 
     def _map_view_move_up(self):
         row = self.map_views_list_widget.currentRow()
@@ -957,34 +1013,8 @@ class WebMapExportDialog(QDockWidget):
         self.map_views_list_widget.setCurrentRow(row + 1)
 
     def _import_qgis_theme_as_map_view(self):
-        theme_name = self.import_theme_combo.currentData()
-        if not theme_name:
-            QMessageBox.information(
-                self, "No theme selected", "Please select a QGIS theme to import."
-            )
-            return
-        try:
-            theme_collection = QgsProject.instance().mapThemeCollection()
-            visible_layers = theme_collection.mapThemeVisibleLayers(theme_name)
-            layer_names = [la.name() for la in visible_layers]
-        except Exception as e:
-            QMessageBox.warning(self, "Import error", str(e))
-            return
-        mv = {
-            "name": theme_name,
-            "notes": "",
-            "extent": None,
-            "layerIds": layer_names,
-        }
-        self._map_views.append(mv)
-        self._map_views_list_refresh()
-        idx = len(self._map_views) - 1
-        self.map_views_list_widget.setCurrentRow(idx)
-        self._editing_map_view_idx = idx
-        self._editing_map_view_extent = None
-        self.map_view_name_edit.setText(theme_name)
-        self.map_view_notes_edit.clear()
-        self.map_view_extent_label.setText("Extent: (not captured)")
+        """Legacy method — kept for compatibility; use _map_view_use_theme instead."""
+        self._map_view_use_theme()
 
     # ── Browse / Export ───────────────────────────────────────────────────────
 

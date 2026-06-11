@@ -3235,6 +3235,10 @@ class WebMapExporter:
         var p = feats[i].properties || {{}};
         for (var k in p) {{ if (!(k in seen)) {{ seen[k] = 1; keys.push(k); }} }}
       }}
+      // First option: "Any field" — full-text search across all attributes
+      var anyOpt = document.createElement('option');
+      anyOpt.value = ''; anyOpt.textContent = '— Any field —';
+      attrSel.appendChild(anyOpt);
       keys.forEach(function(k) {{
         var o = document.createElement('option');
         o.value = k; o.textContent = k;
@@ -3249,6 +3253,7 @@ class WebMapExporter:
 
       var list = document.createElement('div');
       list.className = 'lf-values';
+      list.style.display = 'none';   // hidden in "any field" mode by default
 
       var foot = document.createElement('div');
       foot.className = 'lf-foot';
@@ -3272,15 +3277,32 @@ class WebMapExporter:
         var attr = attrSel.value;
         var q = search.value.trim().toLowerCase();
         var sel = checkedVals();
-        if (!attr || (sel.length === 0 && !q)) {{
-          item.layerFilterFn = null;
+        if (attr === '') {{
+          // Any-field text search
+          if (!q) {{
+            item.layerFilterFn = null;
+          }} else {{
+            item.layerFilterFn = function(feature) {{
+              var props = feature.properties || {{}};
+              for (var fk in props) {{
+                var sv = String(props[fk] == null ? '' : props[fk]).toLowerCase();
+                if (sv.indexOf(q) !== -1) return true;
+              }}
+              return false;
+            }};
+          }}
         }} else {{
-          item.layerFilterFn = function(feature) {{
-            var v = (feature.properties || {{}})[attr];
-            var sv = (v == null ? '' : String(v));
-            if (sel.length) return sel.indexOf(sv) !== -1;
-            return sv.toLowerCase().indexOf(q) !== -1;
-          }};
+          // Field-specific filter
+          if (sel.length === 0 && !q) {{
+            item.layerFilterFn = null;
+          }} else {{
+            item.layerFilterFn = function(feature) {{
+              var v = (feature.properties || {{}})[attr];
+              var sv = (v == null ? '' : String(v));
+              if (sel.length) return sel.indexOf(sv) !== -1;
+              return sv.toLowerCase().indexOf(q) !== -1;
+            }};
+          }}
         }}
         rebuildLayer(item);
         var total = feats.length;
@@ -3292,7 +3314,8 @@ class WebMapExporter:
       function populateVals() {{
         list.innerHTML = '';
         var attr = attrSel.value;
-        if (!attr) return;
+        if (!attr) {{ list.style.display = 'none'; return; }}
+        list.style.display = '';
         var vseen = {{}}, vals = [];
         for (var i = 0; i < feats.length; i++) {{
           var v = (feats[i].properties || {{}})[attr];
@@ -3321,10 +3344,14 @@ class WebMapExporter:
 
       attrSel.addEventListener('change', function() {{ search.value = ''; populateVals(); apply(); }});
       search.addEventListener('input', function() {{
-        var q = search.value.trim().toLowerCase();
-        Array.prototype.forEach.call(list.children, function(el) {{
-          el.style.display = el.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
-        }});
+        var attr = attrSel.value;
+        if (attr) {{
+          // When on a specific field, filter the visible value list
+          var q = search.value.trim().toLowerCase();
+          Array.prototype.forEach.call(list.children, function(el) {{
+            el.style.display = el.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+          }});
+        }}
         apply();
       }});
       clearB.addEventListener('click', function() {{
@@ -3338,7 +3365,6 @@ class WebMapExporter:
       div.appendChild(search);
       div.appendChild(list);
       div.appendChild(foot);
-      populateVals();
       var total0 = feats.length;
       countS.textContent = total0 + ' / ' + total0;
       return div;
@@ -3411,39 +3437,24 @@ class WebMapExporter:
         acts.appendChild(lBtn);
       }}
 
-      // Group / cluster toggle (point layers only)
+      // Explode / group toggle (point layers only) — on/off only
       if (ld.kind === 'vector' && ld.geomType === 'point') {{
-        var gBtn = mkBtn('', '');
+        var _spreadSvg = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+          + '<circle cx="8" cy="8" r="1.5" fill="currentColor"/>'
+          + '<line x1="8" y1="8" x2="3" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
+          + '<line x1="8" y1="8" x2="13" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
+          + '<line x1="8" y1="8" x2="3" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
+          + '<line x1="8" y1="8" x2="13" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
+          + '<circle cx="3" cy="3.5" r="2" fill="currentColor"/>'
+          + '<circle cx="13" cy="3.5" r="2" fill="currentColor"/>'
+          + '<circle cx="3" cy="12.5" r="2" fill="currentColor"/>'
+          + '<circle cx="13" cy="12.5" r="2" fill="currentColor"/></svg>';
+        var gBtn = mkBtn('Explode / group points: Off — click to enable', _spreadSvg);
         function _refreshGBtn() {{
-          if (!item.groupEnabled) {{
-            gBtn.title = 'Group: Off — click to enable spread';
-            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
-              + '<circle cx="6" cy="7.5" r="2.5" fill="currentColor" opacity="0.45"/>'
-              + '<circle cx="10" cy="7.5" r="2.5" fill="currentColor" opacity="0.45"/>'
-              + '<circle cx="8" cy="4" r="2.5" fill="currentColor" opacity="0.45"/></svg>';
-            gBtn.classList.remove('active');
-          }} else if (item.groupMode === 'spread') {{
-            gBtn.title = 'Group: Spread — click to enable cluster';
-            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
-              + '<circle cx="8" cy="8" r="1.5" fill="currentColor"/>'
-              + '<line x1="8" y1="8" x2="3" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
-              + '<line x1="8" y1="8" x2="13" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
-              + '<line x1="8" y1="8" x2="3" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
-              + '<line x1="8" y1="8" x2="13" y2="12.5" stroke="currentColor" stroke-width="0.8"/>'
-              + '<circle cx="3" cy="3.5" r="2" fill="currentColor"/>'
-              + '<circle cx="13" cy="3.5" r="2" fill="currentColor"/>'
-              + '<circle cx="3" cy="12.5" r="2" fill="currentColor"/>'
-              + '<circle cx="13" cy="12.5" r="2" fill="currentColor"/></svg>';
-            gBtn.classList.add('active');
-          }} else {{
-            gBtn.title = 'Group: Cluster — click to turn off';
-            gBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
-              + '<circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>'
-              + '<circle cx="5.5" cy="9" r="1.5" fill="currentColor"/>'
-              + '<circle cx="10.5" cy="9" r="1.5" fill="currentColor"/>'
-              + '<circle cx="8" cy="5.5" r="1.5" fill="currentColor"/></svg>';
-            gBtn.classList.add('active');
-          }}
+          gBtn.classList.toggle('active', !!item.groupEnabled);
+          gBtn.title = item.groupEnabled
+            ? 'Explode / group points: On — click to turn off'
+            : 'Explode / group points: Off — click to enable';
         }}
         _refreshGBtn();
         item._actGrpBtn = gBtn;
@@ -3453,26 +3464,18 @@ class WebMapExporter:
           e.stopPropagation();
           if (!item.groupEnabled) {{
             item.groupEnabled = true;
-            item.groupMode = 'spread';
-            if (item._cogGrpCb) {{ item._cogGrpCb.checked = true; }}
-            if (item._cogGrpModeRow) item._cogGrpModeRow.style.display = '';
-            if (item._cogGrpModeSel) item._cogGrpModeSel.value = 'spread';
+            item.groupMode = item._cogGrpModeSel ? item._cogGrpModeSel.value : 'spread';
+            if (item._cogGrpCb) item._cogGrpCb.checked = true;
+            if (item._cogGrpModeSel) item._cogGrpModeSel.disabled = false;
             rebuildLayer(item);
             spreadMarkers();
-          }} else if (item.groupMode === 'spread') {{
-            item.groupMode = 'cluster';
-            if (item._cogGrpModeSel) item._cogGrpModeSel.value = 'cluster';
-            item.spreadMarkers.forEach(function(mkr) {{ if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng); }});
-            if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
-            layoutAllLabels();
-            rebuildLayer(item);
           }} else {{
             item.groupEnabled = false;
             item.spreadMarkers.forEach(function(mkr) {{ if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng); }});
             if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
             layoutAllLabels();
             if (item._cogGrpCb) item._cogGrpCb.checked = false;
-            if (item._cogGrpModeRow) item._cogGrpModeRow.style.display = 'none';
+            if (item._cogGrpModeSel) item._cogGrpModeSel.disabled = true;
             rebuildLayer(item);
           }}
           _refreshGBtn();
@@ -3601,7 +3604,7 @@ class WebMapExporter:
       opRow.appendChild(slider);
       settingsDiv.appendChild(opRow);
 
-      // Labels row (only for vector layers that have a label field)
+      // Labels row — checkbox + inline placement mode dropdown
       if (cfg && ld.kind === 'vector') {{
         var lblRow = document.createElement('div');
         lblRow.className = 'layer-settings-row';
@@ -3617,21 +3620,10 @@ class WebMapExporter:
           setLayerLabels(item, lblCb.checked);
           if (item._actLblBtn) item._actLblBtn.classList.toggle('active', lblCb.checked);
         }});
-        lblRow.appendChild(lblLbl);
-        lblRow.appendChild(lblCb);
-        settingsDiv.appendChild(lblRow);
-
-        // Label placement mode selector (global — applies to all label layers)
-        var modeRow = document.createElement('div');
-        modeRow.className = 'layer-settings-row';
-        var modeLbl = document.createElement('span');
-        modeLbl.className = 'layer-settings-label';
-        modeLbl.textContent = 'Placement';
         var modeSel = document.createElement('select');
-        modeSel.className = 'label-mode-sel';
-        modeSel.style.cssText = 'font-size:11px;flex:1;border:1px solid #ccc;border-radius:2px;padding:1px 3px;';
-        modeSel.title = 'Label placement algorithm — applies to all label layers';
-        [['candidate','Candidate (fast)'],['force','Force (smooth)']].forEach(function(opt) {{
+        modeSel.className = 'label-mode-sel layer-settings-sel';
+        modeSel.title = 'Label placement — applies to all label layers';
+        [['candidate','Candidate'],['force','Force'],['static','Static']].forEach(function(opt) {{
           var o = document.createElement('option');
           o.value = opt[0]; o.textContent = opt[1];
           if (opt[0] === _labelPlacementMode) o.selected = true;
@@ -3642,51 +3634,40 @@ class WebMapExporter:
           document.querySelectorAll('.label-mode-sel').forEach(function(s) {{ s.value = _labelPlacementMode; }});
           layoutAllLabels();
         }});
-        modeRow.appendChild(modeLbl);
-        modeRow.appendChild(modeSel);
-        settingsDiv.appendChild(modeRow);
+        lblRow.appendChild(lblLbl);
+        lblRow.appendChild(lblCb);
+        lblRow.appendChild(modeSel);
+        settingsDiv.appendChild(lblRow);
       }}
 
-      // Group / spread / cluster (point vector layers only)
+      // Explode / group points — checkbox + inline mode dropdown (point layers only)
       if (ld.kind === 'vector' && ld.geomType === 'point') {{
-        // ── Group on/off checkbox ──────────────────────────────
         var grpRow = document.createElement('div');
         grpRow.className = 'layer-settings-row';
         var grpLbl = document.createElement('span');
         grpLbl.className = 'layer-settings-label';
-        grpLbl.textContent = 'Group';
+        grpLbl.textContent = 'Explode / group';
         var grpCb = document.createElement('input');
         grpCb.type = 'checkbox';
         grpCb.checked = false;
-        grpCb.title = 'Enable icon grouping for overlapping markers';
-        grpRow.appendChild(grpLbl);
-        grpRow.appendChild(grpCb);
-        settingsDiv.appendChild(grpRow);
-        item._cogGrpCb = grpCb;
-
-        // ── Mode dropdown (visible only when Group is on) ──────
-        var grpModeRow = document.createElement('div');
-        grpModeRow.className = 'layer-settings-row';
-        grpModeRow.style.display = 'none';
-        var grpModeLbl = document.createElement('span');
-        grpModeLbl.className = 'layer-settings-label';
-        grpModeLbl.textContent = 'Mode';
+        grpCb.title = 'Explode / group overlapping point markers';
         var grpModeSel = document.createElement('select');
         grpModeSel.className = 'layer-settings-sel';
+        grpModeSel.disabled = true;
         var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
         grpModeSel.innerHTML = '<option value="spread">Spread</option>'
           + '<option value="cluster" ' + (clusterAvail ? '' : 'disabled') + '>Cluster</option>';
-        grpModeRow.appendChild(grpModeLbl);
-        grpModeRow.appendChild(grpModeSel);
-        settingsDiv.appendChild(grpModeRow);
-        item._cogGrpModeRow = grpModeRow;
+        grpRow.appendChild(grpLbl);
+        grpRow.appendChild(grpCb);
+        grpRow.appendChild(grpModeSel);
+        settingsDiv.appendChild(grpRow);
+        item._cogGrpCb = grpCb;
         item._cogGrpModeSel = grpModeSel;
 
         grpCb.addEventListener('change', function() {{
           item.groupEnabled = grpCb.checked;
-          grpModeRow.style.display = grpCb.checked ? '' : 'none';
+          grpModeSel.disabled = !grpCb.checked;
           if (!grpCb.checked) {{
-            // restore markers to true positions immediately
             item.spreadMarkers.forEach(function(mkr) {{
               if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng);
             }});
@@ -4224,9 +4205,8 @@ class WebMapExporter:
           line.setAttribute('x2', newPx.toFixed(1));
           line.setAttribute('y2', newPy.toFixed(1));
           line.setAttribute('stroke', '#555');
-          line.setAttribute('stroke-width', '0.9');
-          line.setAttribute('stroke-opacity', '0.45');
-          line.setAttribute('stroke-dasharray', '3,2');
+          line.setAttribute('stroke-width', '1');
+          line.setAttribute('stroke-opacity', '0.4');
           leaderFrag.appendChild(line);
         }}
       }});
@@ -4244,28 +4224,37 @@ class WebMapExporter:
   // ── SVG label render pass ─────────────────────────────────────────────────
   function layoutAllLabels() {{
     if (!_labelSvg) return;
-    var all = [];
+    var staticLabels = [];   // rendered directly at seeded position — no solver
+    var solverLabels = [];   // run through candidate/force solver
+
     _allLabelItems.forEach(function(item) {{
       if (!item.visible || !item.labelsVisible || !item.labelData) return;
       var cfg = item.labelCfg;
       var fsz = cfg.fontSize || 11;
+      // Spread mode forces labels to the right and uses static placement
       var rightForced = item.groupEnabled && item.groupMode === 'spread';
+      var useStatic = rightForced || _labelPlacementMode === 'static';
+
       item.labelData.forEach(function(ld) {{
-        // Use current lyr position (follows spread) for points; static center for polygons
         var curLatLng = (ld.lyr && ld.lyr.getLatLng) ? ld.lyr.getLatLng() : ld.latlng;
         var pt = map.latLngToContainerPoint(curLatLng);
         var dims = _lblDims(ld.text, fsz);
-        // When spread mode: seed label strictly to the right of the icon
-        var initX = rightForced ? pt.x + dims.w * 0.5 + 8 : pt.x;
-        all.push({{
+        var initX = useStatic ? pt.x + dims.w * 0.5 + 8 : pt.x;
+        var lblObj = {{
           text: ld.text, cfg: cfg,
           ax: pt.x, ay: pt.y,
           x: initX, y: pt.y,
           w: dims.w, h: dims.h,
           vx: 0, vy: 0,
           rightForced: rightForced,
+          suppressCallout: useStatic && !rightForced,
           group: item.labelGroup
-        }});
+        }};
+        if (useStatic) {{
+          staticLabels.push(lblObj);
+        }} else {{
+          solverLabels.push(lblObj);
+        }}
       }});
     }});
 
@@ -4273,34 +4262,35 @@ class WebMapExporter:
     _allLabelItems.forEach(function(item) {{
       if (item.labelGroup) item.labelGroup.innerHTML = '';
     }});
-    if (!all.length) return;
+    if (!staticLabels.length && !solverLabels.length) return;
 
-    if (_labelPlacementMode === 'force') {{
-      _forcePlacement(all);
-    }} else {{
-      _candidatePlacement(all);
+    if (solverLabels.length) {{
+      if (_labelPlacementMode === 'force') {{
+        _forcePlacement(solverLabels);
+      }} else {{
+        _candidatePlacement(solverLabels);
+      }}
     }}
 
     // Render labels and callouts
     var NS = 'http://www.w3.org/2000/svg';
-    all.forEach(function(lbl) {{
+    staticLabels.concat(solverLabels).forEach(function(lbl) {{
       if (!lbl.group) return;
       var cfg = lbl.cfg;
       var fsz = cfg.fontSize || 11;
       var g = document.createElementNS(NS, 'g');
 
-      // Dashed callout line when displaced > 8 px
+      // Solid callout line when displaced > 8 px (suppressed for pure static labels)
       var dx = lbl.x - lbl.ax, dy = lbl.y - lbl.ay;
-      if (Math.sqrt(dx*dx + dy*dy) > 8) {{
+      if (!lbl.suppressCallout && Math.sqrt(dx*dx + dy*dy) > 8) {{
         var line = document.createElementNS(NS, 'line');
         line.setAttribute('x1', lbl.ax.toFixed(1));
         line.setAttribute('y1', lbl.ay.toFixed(1));
         line.setAttribute('x2', lbl.x.toFixed(1));
         line.setAttribute('y2', lbl.y.toFixed(1));
         line.setAttribute('stroke', cfg.fontColor || '#333');
-        line.setAttribute('stroke-width', '0.9');
-        line.setAttribute('stroke-opacity', '0.45');
-        line.setAttribute('stroke-dasharray', '2,2');
+        line.setAttribute('stroke-width', '1');
+        line.setAttribute('stroke-opacity', '0.4');
         g.appendChild(line);
       }}
 
