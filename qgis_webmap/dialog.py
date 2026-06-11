@@ -107,6 +107,10 @@ class WebMapExportDialog(QDockWidget):
                 val = s.value(f"{_SETTINGS_KEY}/info_{role}_{part}", "")
                 if val:
                     getattr(self, f"info_{role}_{part}_edit").setText(val)
+        theme_val = s.value(f"{_SETTINGS_KEY}/export_theme", "corporate")
+        idx = self.export_theme_combo.findData(theme_val)
+        if idx >= 0:
+            self.export_theme_combo.setCurrentIndex(idx)
 
     def _save_settings(self):
         s = QSettings()
@@ -123,6 +127,7 @@ class WebMapExportDialog(QDockWidget):
             for part in ("name", "date"):
                 s.setValue(f"{_SETTINGS_KEY}/info_{role}_{part}",
                            getattr(self, f"info_{role}_{part}_edit").text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/export_theme", self.export_theme_combo.currentData())
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -401,6 +406,25 @@ class WebMapExportDialog(QDockWidget):
 
         tabs.addTab(info_tab, "Map Info")
 
+        # ── Tab 4: Style ─────────────────────────────────────────────────────
+        style_tab = QWidget()
+        style_layout = QVBoxLayout(style_tab)
+
+        theme_group = QGroupBox("Map theme")
+        theme_form = QFormLayout(theme_group)
+        self.export_theme_combo = QComboBox()
+        self.export_theme_combo.addItem("Modern Corporate", "corporate")
+        self.export_theme_combo.addItem("AtkinsRéalis Purple", "purple")
+        self.export_theme_combo.addItem("Dark", "dark")
+        self.export_theme_combo.setToolTip(
+            "Choose the colour theme applied to the exported web map"
+        )
+        theme_form.addRow("Theme:", self.export_theme_combo)
+        style_layout.addWidget(theme_group)
+        style_layout.addStretch()
+
+        tabs.addTab(style_tab, "Style")
+
         # ── Progress + bottom buttons ────────────────────────────────────────
         self.progress = QProgressBar()
         self.progress.setVisible(False)
@@ -508,6 +532,7 @@ class WebMapExportDialog(QDockWidget):
             "map_views": self._map_views,
             "output_path": self.path_edit.text().strip(),
             "info": info,
+            "theme": self.export_theme_combo.currentData(),
         }
 
     def _apply_state(self, state):
@@ -545,6 +570,10 @@ class WebMapExportDialog(QDockWidget):
                 getattr(self, f"info_{role}_{part}_edit").setText(info.get(f"{role}_{part}", ""))
 
         self._set_checked_layers_by_name(state.get("layer_names", []))
+        theme_val = state.get("theme", "corporate")
+        idx = self.export_theme_combo.findData(theme_val)
+        if idx >= 0:
+            self.export_theme_combo.setCurrentIndex(idx)
 
     def _instance_load(self):
         name = self.instance_combo.currentData()
@@ -1062,6 +1091,7 @@ class WebMapExportDialog(QDockWidget):
                 initial_extent=self._initial_extent,
                 map_views=self._map_views,
                 info_panel=info_panel,
+                theme=self.export_theme_combo.currentData(),
             )
             exporter.export()
             self._save_settings()

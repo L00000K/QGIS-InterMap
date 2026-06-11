@@ -163,6 +163,51 @@ def _load_plugin_assets() -> dict:
     return result
 
 
+# ── Export themes ─────────────────────────────────────────────────────────────
+# Each theme supplies CSS colour tokens that are injected as Python f-string
+# variables into the HTML template. Keys:
+#   hdr/hdr_bdr  panel header background / border
+#   acc/acc_dk   primary accent / dark shade
+#   acc_lt/md/ft light / mid / faint accent tints
+#   pnl/pnl_a    panel background / alternate (slightly darker)
+#   pnl_r        panel background as rgba(…) for semi-transparent panels
+#   txt/txt2/txt3 primary / secondary / muted text
+#   bdr/bdr2     border / light divider
+#   map          map container background (visible while tiles load)
+_THEMES = {
+    "corporate": dict(
+        hdr="#1e293b",       hdr_bdr="#0f172a",
+        acc="#2563eb",       acc_dk="#1d4ed8",
+        acc_lt="#dbeafe",    acc_md="#93c5fd",    acc_ft="#eff6ff",
+        pnl="#ffffff",       pnl_a="#f8fafc",
+        pnl_r="rgba(255,255,255,0.97)",
+        txt="#1e293b",       txt2="#475569",       txt3="#94a3b8",
+        bdr="#e2e8f0",       bdr2="#f1f5f9",
+        map="#e8ecf0",
+    ),
+    "purple": dict(
+        hdr="#3f32f1",       hdr_bdr="#2b22c0",
+        acc="#3f32f1",       acc_dk="#2b22c0",
+        acc_lt="#ede9fe",    acc_md="#d5cffc",    acc_ft="#f4f3fe",
+        pnl="#ffffff",       pnl_a="#f8f7ff",
+        pnl_r="rgba(255,255,255,0.97)",
+        txt="#1a1a2e",       txt2="#555",          txt3="#888",
+        bdr="#e2e0f0",       bdr2="#f0eff9",
+        map="#eceaf8",
+    ),
+    "dark": dict(
+        hdr="#0f172a",       hdr_bdr="#020617",
+        acc="#60a5fa",       acc_dk="#93c5fd",
+        acc_lt="#1e3a5f",    acc_md="#1e3a5f",    acc_ft="#0f2540",
+        pnl="#1e293b",       pnl_a="#0f172a",
+        pnl_r="rgba(30,41,59,0.97)",
+        txt="#f1f5f9",       txt2="#cbd5e1",       txt3="#94a3b8",
+        bdr="#334155",       bdr2="#1e293b",
+        map="#0f172a",
+    ),
+}
+
+
 def _parse_wms_source(layer) -> dict | None:
     """
     If layer is a WMS/WMTS raster layer, return a dict describing how to
@@ -946,7 +991,7 @@ class WebMapExporter:
                  include_layer_control=True, include_basemap=True,
                  progress_callback=None,
                  layer_tree=None, initial_extent=None, map_views=None,
-                 info_panel=None):
+                 info_panel=None, theme=None):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
@@ -956,6 +1001,7 @@ class WebMapExporter:
         self.initial_extent = initial_extent
         self.map_views = map_views or []
         self.info_panel = info_panel or {}
+        self.theme = theme or "corporate"
 
     def export(self):
         layer_defs = []
@@ -1078,6 +1124,28 @@ class WebMapExporter:
         _project_img_path = str(_info.get("project_img", "") or "")
         _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
 
+        # ── Theme colours ────────────────────────────────────────────────────
+        _t = _THEMES.get(self.theme or "corporate", _THEMES["corporate"])
+        _th_hdr     = _t["hdr"]
+        _th_hdr_bdr = _t["hdr_bdr"]
+        _th_acc     = _t["acc"]
+        _th_acc_dk  = _t["acc_dk"]
+        _th_acc_lt  = _t["acc_lt"]
+        _th_acc_md  = _t["acc_md"]
+        _th_acc_ft  = _t["acc_ft"]
+        _th_pnl     = _t["pnl"]
+        _th_pnl_a   = _t["pnl_a"]
+        _th_pnl_r   = _t["pnl_r"]
+        _th_txt     = _t["txt"]
+        _th_txt2    = _t["txt2"]
+        _th_txt3    = _t["txt3"]
+        _th_bdr     = _t["bdr"]
+        _th_bdr2    = _t["bdr2"]
+        _th_map     = _t["map"]
+        # 15%-opacity accent for resize handle hovers
+        _hex = _th_acc.lstrip("#")
+        _th_acc_a15 = f"rgba({int(_hex[0:2],16)},{int(_hex[2:4],16)},{int(_hex[4:6],16)},0.15)"
+
         leaflet_css, leaflet_js = _get_leaflet_assets()
         if leaflet_css and leaflet_js:
             leaflet_head = (
@@ -1150,7 +1218,7 @@ class WebMapExporter:
                 '</svg>'
                 '<span>AtkinsRéalis</span>'
             )
-            _cad_logo_html = '<div class="cad-logo"><span style="font-weight:700;color:#3f32f1;">AtkinsR&#233;alis</span></div>'
+            _cad_logo_html = f'<div class="cad-logo"><span style="font-weight:700;color:{_th_acc};">AtkinsR&#233;alis</span></div>'
         brand_content_json = json.dumps(brand_content).replace("</", "<\\/")
 
         # Pre-build left panel HTML (map info + optional map views section)
@@ -1334,8 +1402,8 @@ class WebMapExporter:
     align-items: center;
     justify-content: space-between;
     padding: 7px 10px 6px;
-    background: #3f32f1;
-    border-bottom: 1px solid #2b22c0;
+    background: {_th_hdr};
+    border-bottom: 1px solid {_th_hdr_bdr};
     cursor: default;
     user-select: none;
     border-radius: 6px 6px 0 0;
@@ -1364,7 +1432,7 @@ class WebMapExporter:
     align-items: center;
   }}
   #legend-tools-btn:hover {{ background: rgba(255,255,255,0.25); }}
-  #legend-tools-btn.active {{ background: #fff; color: #3f32f1; }}
+  #legend-tools-btn.active {{ background: #fff; color: {_th_acc}; }}
   /* ── Per-layer tool buttons (revealed by the header tools toggle) ── */
   .layer-actions {{
     display: none;
@@ -1386,9 +1454,9 @@ class WebMapExporter:
     color: #555;
     cursor: pointer;
   }}
-  .layer-act-btn:hover {{ background: #ede9fe; color: #3f32f1; }}
-  .layer-act-btn.active {{ background: #3f32f1; border-color: #2b22c0; color: #fff; }}
-  .layer-act-btn.filtered {{ box-shadow: 0 0 0 2px #c9c3f9; }}
+  .layer-act-btn:hover {{ background: {_th_acc_lt}; color: {_th_acc}; }}
+  .layer-act-btn.active {{ background: {_th_acc}; border-color: {_th_acc_dk}; color: #fff; }}
+  .layer-act-btn.filtered {{ box-shadow: 0 0 0 2px {_th_acc_md}; }}
   .layer-act-btn:disabled {{ opacity: 0.4; cursor: default; }}
   .layer-act-sel {{
     font-size: 9px;
@@ -1448,7 +1516,7 @@ class WebMapExporter:
     background: #fff;
     cursor: pointer;
   }}
-  .layer-filter .lf-foot button:hover {{ background: #ede9fe; }}
+  .layer-filter .lf-foot button:hover {{ background: {_th_acc_lt}; }}
   #legend-body {{
     overflow-y: auto;
     padding: 4px 0;
@@ -1465,7 +1533,7 @@ class WebMapExporter:
     user-select: none;
     transition: background 0.1s;
   }}
-  .legend-layer-row:hover {{ background: #ede9fe; }}
+  .legend-layer-row:hover {{ background: {_th_acc_lt}; }}
   .legend-layer-row input[type=checkbox] {{
     margin: 0;
     cursor: pointer;
@@ -1524,8 +1592,8 @@ class WebMapExporter:
     border-top: 1px solid #eee;
   }}
   .legend-group-hdr input[type=checkbox] {{ margin: 0; cursor: pointer; flex-shrink: 0; }}
-  .legend-group-hdr:hover {{ background: #ede9fe; }}
-  .legend-group-name {{ font-size: 12px; font-weight: 600; color: #3f32f1; }}
+  .legend-group-hdr:hover {{ background: {_th_acc_lt}; }}
+  .legend-group-name {{ font-size: 12px; font-weight: 600; color: {_th_acc}; }}
   .legend-group-body {{ padding-left: 8px; }}
   .legend-group-body:not(.open) {{ display: none; }}
 
@@ -1543,7 +1611,7 @@ class WebMapExporter:
     align-items: center;
   }}
   .legend-cog-btn:hover {{ color: #444; background: #e8e8e8; }}
-  .legend-cog-btn.active {{ color: #3f32f1; background: #d5cffc; }}
+  .legend-cog-btn.active {{ color: {_th_acc}; background: {_th_acc_md}; }}
 
   /* ── Per-layer settings panel ─────────────────────────────────── */
   .layer-settings {{
@@ -1608,7 +1676,7 @@ class WebMapExporter:
     background: #fff;
     cursor: pointer;
   }}
-  #filterbar button:hover {{ background: #ede9fe; }}
+  #filterbar button:hover {{ background: {_th_acc_lt}; }}
   #filter-values-wrap {{ position: relative; }}
   #filter-values-btn {{
     min-width: 140px;
@@ -1686,7 +1754,7 @@ class WebMapExporter:
     width: 240px;
     outline: none;
   }}
-  #searchbar input:focus {{ border-color: #3f32f1; }}
+  #searchbar input:focus {{ border-color: {_th_acc}; }}
   #searchbar button {{
     font-size: 12px;
     padding: 3px 8px;
@@ -1695,7 +1763,7 @@ class WebMapExporter:
     background: #fff;
     cursor: pointer;
   }}
-  #searchbar button:hover {{ background: #ede9fe; }}
+  #searchbar button:hover {{ background: {_th_acc_lt}; }}
 
   /* ── Filter toggle button (Leaflet control) ───────────────────── */
   .leaflet-control-filter {{
@@ -1731,13 +1799,13 @@ class WebMapExporter:
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
-    color: #3f32f1;
+    color: {_th_acc};
     line-height: 1;
   }}
 
   /* ── Left info / scenes panel ─────────────────────────────────── */
   #left-panel-hdr {{
-    background: #3f32f1;
+    background: {_th_hdr};
     padding: 12px 14px 10px;
     display: flex;
     align-items: flex-start;
@@ -1820,7 +1888,7 @@ class WebMapExporter:
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: #3f32f1;
+    color: {_th_acc};
     line-height: 1.2;
     pointer-events: none;
   }}
@@ -1913,12 +1981,12 @@ class WebMapExporter:
     transition: background 0.12s;
   }}
   .mv-item:last-child {{ border-bottom: none; }}
-  .mv-item:hover {{ background: #f4f3fe; border-left-color: #c9c3f9; }}
-  .mv-item.active {{ background: #ede9fe; border-left-color: #3f32f1; }}
+  .mv-item:hover {{ background: {_th_acc_ft}; border-left-color: {_th_acc_md}; }}
+  .mv-item.active {{ background: {_th_acc_lt}; border-left-color: {_th_acc}; }}
   .mv-item-name {{
-    font-size: 12px; font-weight: 600; color: #3f32f1; line-height: 1.3;
+    font-size: 12px; font-weight: 600; color: {_th_acc}; line-height: 1.3;
   }}
-  .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid #d5cffc; }}
+  .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid {_th_acc_md}; }}
   .mv-item.active .mv-item-notes {{ display: block; }}
   /* ── Help overlay ───────────────────────────────────────────────── */
   #help-overlay {{
@@ -1939,9 +2007,9 @@ class WebMapExporter:
     border: 6px solid transparent;
     border-right-color: #fff; border-left-width: 0;
   }}
-  .help-tip-name {{ font-size: 12px; font-weight: 700; color: #3f32f1; margin-bottom: 3px; }}
+  .help-tip-name {{ font-size: 12px; font-weight: 700; color: {_th_acc}; margin-bottom: 3px; }}
   .help-tip-text {{ font-size: 11px; color: #444; line-height: 1.45; }}
-  .help-btn-active {{ background: #3f32f1 !important; color: #fff !important; }}
+  .help-btn-active {{ background: {_th_acc} !important; color: #fff !important; }}
 
   /* ── Persistent map title chip (shown when left panel is closed) ──── */
   #map-title-chip {{
@@ -1949,7 +2017,7 @@ class WebMapExporter:
     position: absolute;
     top: 0; left: 0;
     z-index: 1001;
-    background: #3f32f1;
+    background: {_th_acc};
     color: #fff;
     padding: 7px 10px 7px 14px;
     flex-direction: row;
@@ -1962,7 +2030,7 @@ class WebMapExporter:
     cursor: pointer;
   }}
   #map-title-chip.visible {{ display: flex; }}
-  #map-title-chip:hover {{ background: #2b22c0; }}
+  #map-title-chip:hover {{ background: {_th_acc_dk}; }}
   #map-title-chip-inner {{ flex: 1; min-width: 0; }}
   #map-title-chip-text {{
     font-size: 13px; font-weight: 700; line-height: 1.2;
@@ -1983,18 +2051,18 @@ class WebMapExporter:
   .identify-mode .leaflet-container {{ cursor: crosshair !important; }}
   .identify-mode .leaflet-interactive {{ cursor: crosshair !important; }}
   #identify-btn {{ background: white; }}
-  #identify-btn.ident-active {{ background: #3f32f1 !important; color: #fff !important; }}
+  #identify-btn.ident-active {{ background: {_th_acc} !important; color: #fff !important; }}
   /* ── Panel resize handles ─────────────────────────────────────────── */
   #left-panel-resize-h {{
     position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
     cursor: ew-resize; z-index: 10; background: transparent; border-radius: 0 3px 3px 0;
   }}
-  #left-panel-resize-h:hover, #left-panel-resize-h.dragging {{ background: rgba(63,50,241,0.15); }}
+  #left-panel-resize-h:hover, #left-panel-resize-h.dragging {{ background: {_th_acc_a15}; }}
   #info-panel-resize-h {{
     position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
     cursor: ew-resize; z-index: 10; background: transparent;
   }}
-  #info-panel-resize-h:hover, #info-panel-resize-h.dragging {{ background: rgba(63,50,241,0.15); }}
+  #info-panel-resize-h:hover, #info-panel-resize-h.dragging {{ background: {_th_acc_a15}; }}
 
   /* ── Feature info panel */
   #info-panel {{
@@ -2002,7 +2070,7 @@ class WebMapExporter:
     position: absolute;
     left: 10px; bottom: 60px;
     z-index: 1001;
-    background: rgba(255,255,255,0.97);
+    background: {_th_pnl_r};
     border: 1px solid #bbb;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.18);
@@ -2026,8 +2094,8 @@ class WebMapExporter:
   }}
   .info-list-pane .mf-item .mf-swatch {{ flex-shrink: 0; line-height: 0; }}
   .info-list-pane .mf-item .mf-text {{ flex: 1; min-width: 0; }}
-  .info-list-pane .mf-item:hover {{ background: #ede9fe; }}
-  .info-list-pane .mf-item.active {{ background: #3f32f1; }}
+  .info-list-pane .mf-item:hover {{ background: {_th_acc_lt}; }}
+  .info-list-pane .mf-item.active {{ background: {_th_acc}; }}
   .info-list-pane .mf-item.active .mf-feature-name {{ color: #fff; }}
   .info-list-pane .mf-item.active .mf-layer-name {{ color: rgba(255,255,255,0.65); }}
   .info-list-pane .mf-item.active .mf-swatch svg {{ opacity: 0.85; }}
@@ -2044,8 +2112,8 @@ class WebMapExporter:
   .info-detail-pane td {{ padding: 2px 0; word-break: break-word; color: #222; }}
   #info-panel-hdr {{
     display: flex; align-items: center; justify-content: space-between;
-    padding: 7px 10px 6px; background: #3f32f1;
-    border-bottom: 1px solid #2b22c0; border-radius: 6px 6px 0 0;
+    padding: 7px 10px 6px; background: {_th_acc};
+    border-bottom: 1px solid {_th_acc_dk}; border-radius: 6px 6px 0 0;
     user-select: none;
   }}
   #info-panel-hdr span {{ font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -0.01em; }}
@@ -2070,7 +2138,7 @@ class WebMapExporter:
     display: flex; align-items: center; justify-content: space-between;
     padding: 6px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
   }}
-  .mf-item:hover {{ background: #ede9fe; }}
+  .mf-item:hover {{ background: {_th_acc_lt}; }}
   .mf-feature-name {{ font-size: 11px; color: #222; font-weight: 600; }}
   .mf-layer-name {{ font-size: 9px; color: #888; margin-top: 1px; }}
   .mf-layer {{ font-size: 11px; color: #333; }}
@@ -2081,11 +2149,11 @@ class WebMapExporter:
     border: 2px dashed #3388ff; background: rgba(51,136,255,0.08); z-index: 999;
   }}
   /* ── Drag-select toolbar button active state */
-  .select-btn-active {{ background: #3f32f1 !important; color: #fff !important; }}
+  .select-btn-active {{ background: {_th_acc} !important; color: #fff !important; }}
   /* ── Attr table selection badge */
   #attr-select-badge {{
     display: none; font-size: 11px; padding: 2px 7px;
-    background: #3f32f1; color: #fff; border-radius: 10px; white-space: nowrap;
+    background: {_th_acc}; color: #fff; border-radius: 10px; white-space: nowrap;
   }}
   #attr-select-clear {{
     display: none; font-size: 11px; padding: 2px 7px; cursor: pointer;
@@ -2093,11 +2161,11 @@ class WebMapExporter:
   }}
   #attr-select-clear:hover {{ background: #eee; }}
   .mf-back {{
-    display: block; width: 100%; background: #ede9fe; border: none;
+    display: block; width: 100%; background: {_th_acc_lt}; border: none;
     border-bottom: 1px solid #d0dde8; padding: 5px 12px; text-align: left;
-    cursor: pointer; font-size: 11px; color: #3f32f1; margin-bottom: 4px;
+    cursor: pointer; font-size: 11px; color: {_th_acc}; margin-bottom: 4px;
   }}
-  .mf-back:hover {{ background: #d5cffc; }}
+  .mf-back:hover {{ background: {_th_acc_md}; }}
 
   /* ── Attribute table panel */
   #attr-table-panel {{
@@ -2107,7 +2175,7 @@ class WebMapExporter:
     height: 240px;
     z-index: 1002;
     background: #fff;
-    border-top: 2px solid #3f32f1;
+    border-top: 2px solid {_th_acc};
     flex-direction: column;
     overflow: hidden;
   }}
@@ -2115,7 +2183,7 @@ class WebMapExporter:
   #attr-table-hdr {{
     display: flex; align-items: center; gap: 8px;
     padding: 5px 10px;
-    background: #3f32f1; border-bottom: 1px solid #2b22c0;
+    background: {_th_acc}; border-bottom: 1px solid {_th_acc_dk};
     flex-shrink: 0;
   }}
   #attr-table-hdr span {{ font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -0.01em; }}
@@ -2133,11 +2201,11 @@ class WebMapExporter:
   }}
   #attr-table-body th {{
     position: sticky; top: 0;
-    background: #ede9fe; border-bottom: 2px solid #3f32f1;
+    background: {_th_acc_lt}; border-bottom: 2px solid {_th_acc};
     padding: 4px 8px; text-align: left;
-    cursor: pointer; user-select: none; white-space: nowrap; color: #3f32f1;
+    cursor: pointer; user-select: none; white-space: nowrap; color: {_th_acc};
   }}
-  #attr-table-body th:hover {{ background: #d5cffc; }}
+  #attr-table-body th:hover {{ background: {_th_acc_md}; }}
   #attr-table-body th.sort-asc::after  {{ content: ' ▲'; font-size: 9px; }}
   #attr-table-body th.sort-desc::after {{ content: ' ▼'; font-size: 9px; }}
   #attr-table-body td {{
@@ -2145,7 +2213,7 @@ class WebMapExporter:
     white-space: nowrap; max-width: 200px;
     overflow: hidden; text-overflow: ellipsis;
   }}
-  #attr-table-body tr:hover td {{ background: #ede9fe; cursor: pointer; }}
+  #attr-table-body tr:hover td {{ background: {_th_acc_lt}; cursor: pointer; }}
   #attr-table-body tr.selected td {{ background: #c0d9ec; }}
 
   /* ── Attribute table search & export ─────────────────────────── */
@@ -3842,7 +3910,7 @@ class WebMapExporter:
               wmsFound.forEach(function(w) {{
                 var wrapper = {{
                   layerName: w.layerName,
-                  html: '<div style="font-size:11px;color:#3f32f1;font-weight:600;margin-bottom:4px">'
+                  html: '<div style="font-size:11px;color:{_th_acc};font-weight:600;margin-bottom:4px">'
                       + escHtml(w.layerName) + ' <em style="color:#999;font-weight:400">(WMS)</em></div>'
                       + '<iframe sandbox="allow-same-origin" srcdoc="'
                       + w.text.replace(/"/g, '&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
