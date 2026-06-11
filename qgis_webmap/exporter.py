@@ -2280,6 +2280,9 @@ class WebMapExporter:
   <span id="search-count" class="filter-count"></span>
 </div>
 <div id="legend" style="display:none"></div>
+<div id="spread-leader-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:450;overflow:hidden;">
+  <svg id="spread-leader-svg" style="width:100%;height:100%;overflow:visible;"></svg>
+</div>
 <div id="info-panel">
   <div id="info-panel-hdr">
     <span>Feature Info</span>
@@ -2740,7 +2743,9 @@ class WebMapExporter:
     }};
     if (ld.geomType === 'point') {{
       opts.pointToLayer = function(feature, latlng) {{
-        return makeMarker(latlng, resolveStyle(ld.styleMap, feature.properties || {{}}), item.paneName);
+        var mkr = makeMarker(latlng, resolveStyle(ld.styleMap, feature.properties || {{}}), item.paneName);
+        mkr._origLatLng = latlng;
+        return mkr;
       }};
     }} else {{
       opts.style = function(feature) {{
@@ -2748,16 +2753,6 @@ class WebMapExporter:
       }};
     }}
     var geoLayer = L.geoJSON(ld.geojson, opts);
-    if (item.clusterEnabled && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
-      var cg = L.markerClusterGroup({{
-        chunkedLoading: true,
-        maxClusterRadius: 80,
-        showCoverageOnHover: false,
-        spiderfyOnMaxZoom: true
-      }});
-      cg.addLayer(geoLayer);
-      return cg;
-    }}
     return geoLayer;
   }}
 
@@ -2837,11 +2832,15 @@ class WebMapExporter:
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
       visible: true, labelsVisible: false, filterFn: null, layerFilterFn: null,
-      lfl: null, index: i, clusterEnabled: false, hiddenClasses: []
+      lfl: null, index: i, hiddenClasses: [], spreadMarkers: []
     }};
     try {{
       item.lfl = buildLayer(item);
       item.lfl.addTo(map);
+      // collect point markers for de-overlap spread
+      if (item.ld.geomType === 'point' && item.ld.kind === 'vector') {{
+        item.lfl.eachLayer(function(lyr) {{ if (lyr._origLatLng) item.spreadMarkers.push(lyr); }});
+      }}
       if (item.ld.labelConfig) {{
         buildLabels(item);
         if (item.ld.labelConfig.enabled) setLayerLabels(item, true);
@@ -3417,24 +3416,6 @@ class WebMapExporter:
         acts.appendChild(mSel);
       }}
 
-      // Cluster (point layers)
-      if (item.ld.geomType === 'point') {{
-        var cBtn = mkBtn('Toggle clustering',
-          '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">'
-          + '<circle cx="5" cy="5" r="2.4"/><circle cx="11.5" cy="6.5" r="1.8"/><circle cx="7" cy="11.5" r="1.8"/></svg>');
-        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
-        if (!clusterAvail) {{ cBtn.disabled = true; cBtn.title = 'Marker cluster plugin not loaded'; }}
-        item._actClBtn = cBtn;
-        cBtn.addEventListener('click', function(e) {{
-          e.stopPropagation();
-          item.clusterEnabled = !item.clusterEnabled;
-          cBtn.classList.toggle('active', item.clusterEnabled);
-          if (item._cogClCb) item._cogClCb.checked = item.clusterEnabled;
-          rebuildLayer(item);
-        }});
-        acts.appendChild(cBtn);
-      }}
-
       return acts;
     }}
 
@@ -3601,30 +3582,6 @@ class WebMapExporter:
         modeRow.appendChild(modeLbl);
         modeRow.appendChild(modeSel);
         settingsDiv.appendChild(modeRow);
-      }}
-
-      // Cluster row (point vector layers only)
-      if (ld.kind === 'vector' && ld.geomType === 'point') {{
-        var clRow = document.createElement('div');
-        clRow.className = 'layer-settings-row';
-        var clLbl = document.createElement('span');
-        clLbl.className = 'layer-settings-label';
-        clLbl.textContent = 'Cluster';
-        var clCb = document.createElement('input');
-        clCb.type = 'checkbox';
-        clCb.checked = false;
-        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
-        clCb.title = clusterAvail ? 'Toggle marker clustering' : 'Marker cluster plugin not loaded';
-        clCb.disabled = !clusterAvail;
-        item._cogClCb = clCb;
-        clCb.addEventListener('change', function() {{
-          item.clusterEnabled = clCb.checked;
-          if (item._actClBtn) item._actClBtn.classList.toggle('active', clCb.checked);
-          rebuildLayer(item);
-        }});
-        clRow.appendChild(clLbl);
-        clRow.appendChild(clCb);
-        settingsDiv.appendChild(clRow);
       }}
 
       row.appendChild(makeCogBtn(settingsDiv));
@@ -4048,6 +4005,120 @@ class WebMapExporter:
     }}
   }}
 
+  // ── Icon de-overlap / spread system ──────────────────────────────────────
+  // Replaces marker clustering: overlapping point icons are stacked to the
+  // right of their geographic centroid with thin leader lines back to their
+  // true positions. Only activates at zoom >= SPREAD_MIN_ZOOM.
+  var SPREAD_MIN_ZOOM   = 14;   // below this zoom, icons stay at true positions
+  var SPREAD_THRESHOLD  = 38;   // px — icons closer than this get spread
+  var SPREAD_MAX_GROUP  = 12;   // skip groups larger than this (too many to spread)
+  var SPREAD_OFFSET_X   = 62;   // px right of group centroid for stack anchor
+  var SPREAD_ICON_GAP   = 30;   // px vertical spacing between stacked icons
+
+  var _spreadLeaderSvg = document.getElementById('spread-leader-svg');
+
+  function _spreadGroupByProximity(pts, threshold) {{
+    var groups = [], assigned = {{}};
+    for (var i = 0; i < pts.length; i++) {{
+      if (assigned[i]) continue;
+      var g = [i]; assigned[i] = true;
+      for (var j = i + 1; j < pts.length; j++) {{
+        if (assigned[j]) continue;
+        var dx = pts[i].px - pts[j].px, dy = pts[i].py - pts[j].py;
+        if (Math.sqrt(dx*dx + dy*dy) < threshold) {{ g.push(j); assigned[j] = true; }}
+      }}
+      groups.push(g);
+    }}
+    return groups;
+  }}
+
+  function spreadMarkers() {{
+    var zoom = map.getZoom();
+
+    // 1. Restore all markers to original positions
+    legendItems.forEach(function(item) {{
+      if (!item.spreadMarkers || !item.spreadMarkers.length) return;
+      item.spreadMarkers.forEach(function(mkr) {{
+        if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng);
+      }});
+    }});
+
+    // Clear leader lines
+    if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
+    if (zoom < SPREAD_MIN_ZOOM) {{ setTimeout(layoutAllLabels, 0); return; }}
+
+    // 2. Collect all visible point markers with screen positions
+    var all = [];
+    legendItems.forEach(function(item) {{
+      if (!item.visible || !item.spreadMarkers || !item.spreadMarkers.length) return;
+      item.spreadMarkers.forEach(function(mkr) {{
+        if (!mkr._origLatLng) return;
+        var pt = map.latLngToContainerPoint(mkr._origLatLng);
+        all.push({{ mkr: mkr, px: pt.x, py: pt.y, origLatLng: mkr._origLatLng }});
+      }});
+    }});
+    if (!all.length) {{ setTimeout(layoutAllLabels, 0); return; }}
+
+    // 3. Group overlapping markers
+    var groups = _spreadGroupByProximity(all, SPREAD_THRESHOLD);
+
+    // 4. Spread groups of 2+
+    var NS = 'http://www.w3.org/2000/svg';
+    var leaderFrag = _spreadLeaderSvg ? document.createDocumentFragment() : null;
+
+    groups.forEach(function(g) {{
+      if (g.length < 2 || g.length > SPREAD_MAX_GROUP) return;
+
+      // Centroid of original positions
+      var cx = 0, cy = 0;
+      g.forEach(function(i) {{ cx += all[i].px; cy += all[i].py; }});
+      cx /= g.length; cy /= g.length;
+
+      var anchorX = cx + SPREAD_OFFSET_X;
+      var totalH  = g.length * SPREAD_ICON_GAP;
+      var startY  = cy - totalH / 2 + SPREAD_ICON_GAP / 2;
+
+      g.forEach(function(i, idx) {{
+        var m = all[i];
+        var newPx = anchorX;
+        var newPy = startY + idx * SPREAD_ICON_GAP;
+        var newLatLng = map.containerPointToLatLng([newPx, newPy]);
+        m.mkr.setLatLng(newLatLng);
+
+        // Draw leader line: original → spread position
+        if (leaderFrag) {{
+          // Dot at true location
+          var dot = document.createElementNS(NS, 'circle');
+          dot.setAttribute('cx', m.px.toFixed(1));
+          dot.setAttribute('cy', m.py.toFixed(1));
+          dot.setAttribute('r', '2.5');
+          dot.setAttribute('fill', '#666');
+          dot.setAttribute('fill-opacity', '0.55');
+          leaderFrag.appendChild(dot);
+          // Leader line
+          var line = document.createElementNS(NS, 'line');
+          line.setAttribute('x1', m.px.toFixed(1));
+          line.setAttribute('y1', m.py.toFixed(1));
+          line.setAttribute('x2', newPx.toFixed(1));
+          line.setAttribute('y2', newPy.toFixed(1));
+          line.setAttribute('stroke', '#555');
+          line.setAttribute('stroke-width', '0.9');
+          line.setAttribute('stroke-opacity', '0.45');
+          line.setAttribute('stroke-dasharray', '3,2');
+          leaderFrag.appendChild(line);
+        }}
+      }});
+    }});
+
+    if (_spreadLeaderSvg && leaderFrag) _spreadLeaderSvg.appendChild(leaderFrag);
+
+    // 5. Re-run label layout so labels follow the new marker positions
+    setTimeout(layoutAllLabels, 0);
+  }}
+
+  map.on('moveend zoomend viewreset', spreadMarkers);
+  setTimeout(spreadMarkers, 250);
+
   // ── SVG label render pass ─────────────────────────────────────────────────
   function layoutAllLabels() {{
     if (!_labelSvg) return;
@@ -4056,13 +4127,18 @@ class WebMapExporter:
       if (!item.visible || !item.labelsVisible || !item.labelData) return;
       var cfg = item.labelCfg;
       var fsz = cfg.fontSize || 11;
+      var spreadOn = map.getZoom() >= SPREAD_MIN_ZOOM;
       item.labelData.forEach(function(ld) {{
-        var pt = map.latLngToContainerPoint(ld.latlng);
+        // Use current lyr position (follows spread) for points; static center for polygons
+        var curLatLng = (ld.lyr && ld.lyr.getLatLng) ? ld.lyr.getLatLng() : ld.latlng;
+        var pt = map.latLngToContainerPoint(curLatLng);
         var dims = _lblDims(ld.text, fsz);
+        // When spread active, seed label to the right of the icon
+        var initX = spreadOn ? pt.x + dims.w * 0.5 + 6 : pt.x;
         all.push({{
           text: ld.text, cfg: cfg,
           ax: pt.x, ay: pt.y,
-          x: pt.x, y: pt.y - dims.h * 0.6,
+          x: initX, y: pt.y,
           w: dims.w, h: dims.h,
           vx: 0, vy: 0,
           group: item.labelGroup
@@ -4133,16 +4209,16 @@ class WebMapExporter:
     if (!ld.labelConfig || ld.kind !== 'vector') return;
     var cfg = ld.labelConfig;
 
-    // Collect label anchor points from rendered features
+    // Collect label anchor points — store lyr reference so labels follow spread markers
     var labelData = [];
     item.lfl.eachLayer(function(fl) {{
       var props = fl.feature && fl.feature.properties;
       if (!props) return;
       var val = props[cfg.field];
       if (val == null || val === '') return;
-      var latlng = fl.getLatLng ? fl.getLatLng()
-                 : (fl.getBounds ? fl.getBounds().getCenter() : null);
-      if (latlng) labelData.push({{ text: String(val), latlng: latlng }});
+      var initLatLng = fl.getLatLng ? fl.getLatLng()
+                     : (fl.getBounds ? fl.getBounds().getCenter() : null);
+      if (initLatLng) labelData.push({{ text: String(val), lyr: fl.getLatLng ? fl : null, latlng: initLatLng }});
     }});
     item.labelData = labelData;
     item.labelCfg = cfg;
