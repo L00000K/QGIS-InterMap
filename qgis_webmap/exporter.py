@@ -1270,6 +1270,7 @@ class WebMapExporter:
                 f'<button id="left-panel-close" title="Close">&#10005;</button>'
                 f'</div>'
                 f'{_body_html}'
+                f'<div id="left-panel-resize-h"></div>'
                 f'</div>'
             )
         else:
@@ -1297,6 +1298,7 @@ class WebMapExporter:
     box-shadow: 2px 0 6px rgba(0,0,0,0.1);
     z-index: 400;
     overflow: hidden;
+    position: relative;
   }}
   #map-wrap {{
     flex: 1;
@@ -1887,7 +1889,8 @@ class WebMapExporter:
   .mv-item-name {{
     font-size: 12px; font-weight: 600; color: #3f32f1; line-height: 1.3;
   }}
-  .mv-item-notes {{ font-size: 11px; color: #666; margin-top: 2px; line-height: 1.35; }}
+  .mv-item-notes {{ display: none; font-size: 11px; color: #666; margin-top: 4px; line-height: 1.35; padding-top: 4px; border-top: 1px solid #d5cffc; }}
+  .mv-item.active .mv-item-notes {{ display: block; }}
   /* ── Help overlay ───────────────────────────────────────────────── */
   #help-overlay {{
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -1911,16 +1914,50 @@ class WebMapExporter:
   .help-tip-text {{ font-size: 11px; color: #444; line-height: 1.45; }}
   .help-btn-active {{ background: #3f32f1 !important; color: #fff !important; }}
 
-  .map-info-toggle {{
-    width: 30px; height: 30px;
-    background: white;
-    border: none;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; font-weight: bold; color: #444;
-    padding: 0;
+  /* ── Persistent map title chip (shown when left panel is closed) ──── */
+  #map-title-chip {{
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 1001;
+    background: #3f32f1;
+    color: #fff;
+    padding: 0 8px 0 14px;
+    height: 40px;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    max-width: 300px;
+    border-radius: 0 0 10px 0;
+    user-select: none;
+    box-shadow: 2px 2px 8px rgba(0,0,0,0.22);
   }}
-  .map-info-toggle:hover {{ background: #ede9fe; color: #3f32f1; }}
+  #map-title-chip.visible {{ display: flex; }}
+  #map-title-chip-text {{
+    font-size: 13px; font-weight: 700;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }}
+  #map-title-chip-btn {{
+    background: none; border: none; color: rgba(255,255,255,0.75);
+    font-size: 15px; cursor: pointer; padding: 0 3px; line-height: 1; flex-shrink: 0;
+  }}
+  #map-title-chip-btn:hover {{ color: #fff; }}
+  /* ── Identify mode cursor ──────────────────────────────────────────── */
+  .identify-mode .leaflet-container {{ cursor: crosshair !important; }}
+  .identify-mode .leaflet-interactive {{ cursor: crosshair !important; }}
+  #identify-btn {{ background: white; }}
+  #identify-btn.ident-active {{ background: #3f32f1 !important; color: #fff !important; }}
+  /* ── Panel resize handles ─────────────────────────────────────────── */
+  #left-panel-resize-h {{
+    position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
+    cursor: ew-resize; z-index: 10; background: transparent; border-radius: 0 3px 3px 0;
+  }}
+  #left-panel-resize-h:hover, #left-panel-resize-h.dragging {{ background: rgba(63,50,241,0.15); }}
+  #info-panel-resize-h {{
+    position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
+    cursor: ew-resize; z-index: 10; background: transparent;
+  }}
+  #info-panel-resize-h:hover, #info-panel-resize-h.dragging {{ background: rgba(63,50,241,0.15); }}
 
   /* ── Feature info panel */
   #info-panel {{
@@ -1932,13 +1969,14 @@ class WebMapExporter:
     border: 1px solid #bbb;
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    min-width: 200px; max-width: 320px;
+    min-width: 220px; max-width: 600px; width: 300px;
     max-height: calc(100vh - 180px);
     flex-direction: column;
     overflow: hidden;
+    position: relative;
   }}
   #info-panel.open {{ display: flex; }}
-  #info-panel.split {{ min-width: 380px; max-width: 520px; }}
+  #info-panel.split {{ width: 420px; }}
   #info-panel.split #info-panel-body {{ padding: 0; overflow: hidden; display: flex; flex: 1; min-height: 0; }}
   .info-split {{ display: flex; flex: 1; overflow: hidden; min-height: 0; }}
   .info-list-pane {{
@@ -1963,7 +2001,8 @@ class WebMapExporter:
   .info-detail-pane table {{ border-collapse: collapse; width: 100%; }}
   .info-detail-pane th {{
     text-align: left; padding: 2px 8px 2px 0;
-    color: #555; font-weight: 600; white-space: nowrap; vertical-align: top;
+    color: #555; font-weight: 600; word-break: break-word; vertical-align: top;
+    max-width: 130px;
   }}
   .info-detail-pane td {{ padding: 2px 0; word-break: break-word; color: #222; }}
   #info-panel-hdr {{
@@ -1985,7 +2024,8 @@ class WebMapExporter:
   #info-panel-body table {{ border-collapse: collapse; width: 100%; }}
   #info-panel-body th {{
     text-align: left; padding: 2px 8px 2px 0;
-    color: #555; font-weight: 600; white-space: nowrap; vertical-align: top;
+    color: #555; font-weight: 600; word-break: break-word; vertical-align: top;
+    max-width: 130px;
   }}
   #info-panel-body td {{ padding: 2px 0; word-break: break-word; color: #222; }}
   .mf-list {{ padding: 4px 0; }}
@@ -2100,6 +2140,10 @@ class WebMapExporter:
 <div id="help-overlay"></div>
 {left_panel_html}
 <div id="map-wrap">
+<div id="map-title-chip">
+  <span id="map-title-chip-text"></span>
+  <button id="map-title-chip-btn" title="Expand info panel">&#9654;</button>
+</div>
 <div id="map"></div>
 <div id="select-rect"></div>
 <div id="label-overlay"><svg id="label-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;"></svg></div>
@@ -2129,7 +2173,8 @@ class WebMapExporter:
     <span>Feature Info</span>
     <button id="info-panel-close" title="Close">&#10005;</button>
   </div>
-  <div id="info-panel-body">Click a map feature to see its attributes.</div>
+  <div id="info-panel-body">Activate the identify tool, then click a map feature to see its attributes.</div>
+  <div id="info-panel-resize-h"></div>
 </div>
 <div id="attr-table-panel">
   <div id="attr-table-hdr">
@@ -2177,30 +2222,61 @@ class WebMapExporter:
   // Registered immediately after map init so it works even if later sections fail.
   (function() {{
     var panel = document.getElementById('left-panel');
-    if (!panel) return;
+    var chip  = document.getElementById('map-title-chip');
+    var chipText = document.getElementById('map-title-chip-text');
+    var chipBtn  = document.getElementById('map-title-chip-btn');
+
+    // Populate chip text from the panel title
+    if (chip && chipText) {{
+      var titleEl = document.getElementById('left-panel-title');
+      chipText.textContent = titleEl ? (titleEl.textContent || titleEl.innerText || '') : '';
+    }}
+
+    function showPanel() {{
+      if (!panel) return;
+      panel.style.display = 'flex';
+      if (chip) chip.classList.remove('visible');
+      map.invalidateSize();
+    }}
+    function hidePanel() {{
+      if (!panel) return;
+      panel.style.display = 'none';
+      if (chip) chip.classList.add('visible');
+      map.invalidateSize();
+    }}
+
+    if (!panel) {{
+      // No info panel - still show chip if there's a title
+      return;
+    }}
+
     var closeBtn = document.getElementById('left-panel-close');
-    if (closeBtn) {{
-      closeBtn.addEventListener('click', function() {{
-        panel.style.display = 'none';
+    if (closeBtn) closeBtn.addEventListener('click', hidePanel);
+    if (chipBtn) chipBtn.addEventListener('click', showPanel);
+    if (chip) chip.addEventListener('click', showPanel);
+
+    // Left-panel resize handle
+    var rh = document.getElementById('left-panel-resize-h');
+    if (rh) {{
+      var _lpResizeStart = null;
+      rh.addEventListener('mousedown', function(e) {{
+        if (e.button !== 0) return;
+        _lpResizeStart = {{ x: e.clientX, w: panel.offsetWidth }};
+        rh.classList.add('dragging');
+        e.preventDefault();
+      }});
+      document.addEventListener('mousemove', function(e) {{
+        if (!_lpResizeStart) return;
+        var nw = Math.max(200, Math.min(600, _lpResizeStart.w + e.clientX - _lpResizeStart.x));
+        panel.style.width = nw + 'px';
         map.invalidateSize();
       }});
+      document.addEventListener('mouseup', function() {{
+        if (!_lpResizeStart) return;
+        _lpResizeStart = null;
+        rh.classList.remove('dragging');
+      }});
     }}
-    var InfoToggle = L.Control.extend({{
-      onAdd: function() {{
-        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control map-info-toggle');
-        btn.type = 'button';
-        btn.title = 'About this map';
-        btn.innerHTML = 'ⓘ';
-        L.DomEvent.on(btn, 'click', function(e) {{
-          L.DomEvent.stopPropagation(e);
-          var hidden = panel.style.display === 'none';
-          panel.style.display = hidden ? 'flex' : 'none';
-          map.invalidateSize();
-        }});
-        return btn;
-      }}
-    }});
-    new InfoToggle({{position: 'topleft'}}).addTo(map);
   }})();
 
   var LAYERS = {layers_json};
@@ -2668,18 +2744,89 @@ class WebMapExporter:
     infoPanel.classList.remove('open');
     infoPanel.classList.remove('split');
   }});
-  var InfoBtn = L.Control.extend({{
+
+  // Info panel resize handle
+  (function() {{
+    var rh = document.getElementById('info-panel-resize-h');
+    if (!rh) return;
+    var _ipResizeStart = null;
+    rh.addEventListener('mousedown', function(e) {{
+      if (e.button !== 0) return;
+      _ipResizeStart = {{ x: e.clientX, w: infoPanel.offsetWidth }};
+      rh.classList.add('dragging');
+      e.preventDefault();
+    }});
+    document.addEventListener('mousemove', function(e) {{
+      if (!_ipResizeStart) return;
+      var nw = Math.max(220, Math.min(600, _ipResizeStart.w + e.clientX - _ipResizeStart.x));
+      infoPanel.style.width = nw + 'px';
+    }});
+    document.addEventListener('mouseup', function() {{
+      if (!_ipResizeStart) return;
+      _ipResizeStart = null;
+      rh.classList.remove('dragging');
+    }});
+  }})();
+
+  // ── WMS GetFeatureInfo ────────────────────────────────────────────────────
+  function wmsIdentify(item, latlng, cb) {{
+    var ld = item.ld;
+    if (!ld.wmsUrl || !ld.wmsLayers || ld.tileType === 'xyz' || ld.tileType === 'wmts') {{
+      cb(null, null); return;
+    }}
+    var bounds = map.getBounds();
+    var size   = map.getSize();
+    var pt     = map.latLngToContainerPoint(latlng);
+    var ver    = ld.wmsVersion || '1.1.1';
+    var is13   = ver.indexOf('1.3') === 0;
+    var crs    = ld.wmsCrs || 'EPSG:4326';
+    var bbox   = is13 && (crs === 'EPSG:4326' || crs === 'CRS:84')
+      ? [bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast()].join(',')
+      : [bounds.getWest(),  bounds.getSouth(), bounds.getEast(),  bounds.getNorth()].join(',');
+    var base   = ld.wmsUrl;
+    var sep    = base.indexOf('?') !== -1 ? '&' : '?';
+    var url    = base + sep
+      + 'SERVICE=WMS&VERSION=' + encodeURIComponent(ver)
+      + '&REQUEST=GetFeatureInfo'
+      + '&LAYERS='        + encodeURIComponent(ld.wmsLayers)
+      + '&QUERY_LAYERS='  + encodeURIComponent(ld.wmsLayers)
+      + '&STYLES='        + encodeURIComponent(ld.wmsStyles || '')
+      + '&FORMAT='        + encodeURIComponent(ld.wmsFormat || 'image/png')
+      + '&INFO_FORMAT=text%2Fhtml'
+      + '&TRANSPARENT=true'
+      + '&BBOX='          + bbox
+      + '&WIDTH='         + size.x
+      + '&HEIGHT='        + size.y
+      + '&FEATURE_COUNT=10'
+      + (is13
+          ? ('&CRS=' + encodeURIComponent(crs) + '&I=' + Math.round(pt.x) + '&J=' + Math.round(pt.y))
+          : ('&SRS=' + encodeURIComponent(crs) + '&X=' + Math.round(pt.x) + '&Y=' + Math.round(pt.y)));
+    fetch(url).then(function(r) {{
+      if (!r.ok) {{ cb('HTTP ' + r.status, null); return; }}
+      r.text().then(function(t) {{ cb(null, t); }});
+    }}).catch(function() {{ cb('cors', null); }});
+  }}
+
+  // ── Identify mode button ─────────────────────────────────────────────────
+  var _identifyMode = false;
+  var IdentifyBtn = L.Control.extend({{
     onAdd: function() {{
       var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
-      btn.title = 'Feature info';
-      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;font-size:16px;cursor:pointer;background:white;border-radius:4px;';
-      btn.innerHTML = '&#9432;';
+      btn.id = 'identify-btn';
+      btn.title = 'Identify features';
+      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><path d="M3 1L3 15L6.5 11.5L9.5 17.5L11.5 16.5L8.5 10.5L13.5 10.5Z" fill="currentColor"/><text x="13.5" y="8" font-family="serif" font-weight="bold" font-size="8.5" fill="%233f32f1">i</text></svg>';
       L.DomEvent.disableClickPropagation(btn);
-      L.DomEvent.on(btn, 'click', function() {{ infoPanel.classList.toggle('open'); }});
+      L.DomEvent.on(btn, 'click', function() {{
+        _identifyMode = !_identifyMode;
+        btn.classList.toggle('ident-active', _identifyMode);
+        map.getContainer().classList.toggle('identify-mode', _identifyMode);
+        if (!_identifyMode) {{ selectRect.style.display = 'none'; }}
+      }});
       return btn;
     }}
   }});
-  new InfoBtn({{position: 'topleft'}}).addTo(map);
+  new IdentifyBtn({{position: 'topleft'}}).addTo(map);
 
   // ── Attribute table button ────────────────────────────────────────────────
   var AttrTableBtn = L.Control.extend({{
@@ -3474,12 +3621,12 @@ class WebMapExporter:
     }})();  // end basemap legend entry
   }} }} catch(legendErr) {{ console.error('Legend build failed:', legendErr); }}
 
-  // ── Map-level click + drag-select ────────────────────────────────────────
+  // ── Map-level click + drag (select or identify) ──────────────────────────
   var selectRect = document.getElementById('select-rect');
   var _dragStart = null, _dragRx, _dragRy, _dragRw, _dragRh;
 
   map.getContainer().addEventListener('mousedown', function(e) {{
-    if (!_selectMode || e.button !== 0) return;
+    if ((!_selectMode && !_identifyMode) || e.button !== 0) return;
     e.preventDefault();
     map.dragging.disable();
     var rc = map.getContainer().getBoundingClientRect();
@@ -3488,7 +3635,7 @@ class WebMapExporter:
   }});
 
   document.addEventListener('mousemove', function(e) {{
-    if (!_selectMode || !_dragStart) return;
+    if ((!_selectMode && !_identifyMode) || !_dragStart) return;
     var rc = map.getContainer().getBoundingClientRect();
     var cx = e.clientX - rc.left, cy = e.clientY - rc.top;
     _dragRx = Math.min(_dragStart.x, cx); _dragRy = Math.min(_dragStart.y, cy);
@@ -3498,50 +3645,120 @@ class WebMapExporter:
   }});
 
   document.addEventListener('mouseup', function(e) {{
-    if (!_selectMode || !_dragStart) return;
+    if ((!_selectMode && !_identifyMode) || !_dragStart) return;
     map.dragging.enable();
     selectRect.style.display = 'none';
+    var ds = _dragStart;
     _dragStart = null;
     if (!_dragRw || _dragRw < 5 || _dragRh < 5) return;
 
     var sw = map.containerPointToLatLng(L.point(_dragRx, _dragRy + _dragRh));
     var ne = map.containerPointToLatLng(L.point(_dragRx + _dragRw, _dragRy));
-    var bounds = L.latLngBounds(sw, ne);
+    var dragBounds = L.latLngBounds(sw, ne);
 
-    // Find the active layer (attr table selection or first visible vector)
-    var selIdx = parseInt(attrTableLayer.value, 10);
-    var targetItem = null;
-    legendItems.forEach(function(it) {{ if (it.index === selIdx && it.ld.kind === 'vector') targetItem = it; }});
-    if (!targetItem) legendItems.forEach(function(it) {{ if (!targetItem && it.ld.kind === 'vector' && it.visible) targetItem = it; }});
-    if (!targetItem) return;
-
-    var selSet = [];
-    targetItem.ld.geojson.features.forEach(function(feat, fi) {{
-      if (!feat.geometry) return;
-      var coords = feat.geometry.type === 'Point' ? [feat.geometry.coordinates]
-                 : feat.geometry.type === 'MultiPoint' ? feat.geometry.coordinates : null;
-      if (coords) {{
-        for (var ci = 0; ci < coords.length; ci++) {{
-          if (bounds.contains(L.latLng(coords[ci][1], coords[ci][0]))) {{ selSet.push(fi); return; }}
-        }}
-      }} else {{
-        try {{
-          var center = L.geoJSON(feat).getBounds().getCenter();
-          if (bounds.contains(center)) selSet.push(fi);
-        }} catch(ex) {{}}
+    if (_identifyMode) {{
+      // Identify drag: collect features across all visible vector layers
+      var dragFound = [];
+      legendItems.forEach(function(it) {{
+        if (!it.visible || it.ld.kind !== 'vector') return;
+        it.lfl.eachLayer(function(fl) {{
+          if (!fl._infoHtml) return;
+          var ll = fl.getLatLng ? fl.getLatLng()
+                 : (fl.getBounds ? fl.getBounds().getCenter() : null);
+          if (ll && dragBounds.contains(ll)) {{
+            dragFound.push({{layerName: it.ld.name, html: fl._infoHtml, lfl: fl, legendItem: it}});
+          }}
+        }});
+      }});
+      if (dragFound.length) {{
+        showIdentifyResults(dragFound);
+        infoPanel.classList.add('open');
       }}
-    }});
+    }} else {{
+      // Select drag: filter attribute table to one layer
+      var selIdx = parseInt(attrTableLayer.value, 10);
+      var targetItem = null;
+      legendItems.forEach(function(it) {{ if (it.index === selIdx && it.ld.kind === 'vector') targetItem = it; }});
+      if (!targetItem) legendItems.forEach(function(it) {{ if (!targetItem && it.ld.kind === 'vector' && it.visible) targetItem = it; }});
+      if (!targetItem) return;
 
-    if (!selSet.length) return;
-    attrTableLayer.value = targetItem.index;
-    _attrSelectSet = selSet;
-    populateAttrTable();
-    attrTablePanel.classList.add('open');
+      var selSet = [];
+      targetItem.ld.geojson.features.forEach(function(feat, fi) {{
+        if (!feat.geometry) return;
+        var coords = feat.geometry.type === 'Point' ? [feat.geometry.coordinates]
+                   : feat.geometry.type === 'MultiPoint' ? feat.geometry.coordinates : null;
+        if (coords) {{
+          for (var ci = 0; ci < coords.length; ci++) {{
+            if (dragBounds.contains(L.latLng(coords[ci][1], coords[ci][0]))) {{ selSet.push(fi); return; }}
+          }}
+        }} else {{
+          try {{
+            var center = L.geoJSON(feat).getBounds().getCenter();
+            if (dragBounds.contains(center)) selSet.push(fi);
+          }} catch(ex) {{}}
+        }}
+      }});
+      if (!selSet.length) return;
+      attrTableLayer.value = targetItem.index;
+      _attrSelectSet = selSet;
+      populateAttrTable();
+      attrTablePanel.classList.add('open');
+    }}
   }});
+
+  // ── Shared identify helpers ───────────────────────────────────────────────
+  function getDisplayName(f) {{
+    var props = f.lfl._feature && f.lfl._feature.properties || {{}};
+    var vals = Object.values(props).filter(function(v) {{ return v != null && v !== ''; }});
+    return vals.length ? String(vals[0]) : '(feature)';
+  }}
+
+  function showIdentifySingle(f) {{
+    infoPanel.classList.remove('split');
+    infoPanelBody.innerHTML = f.html;
+    highlightFeatureOnMap(f.lfl._feature);
+  }}
+
+  function showIdentifySplit(found) {{
+    infoPanel.classList.add('split');
+    infoPanelBody.innerHTML = '';
+    var splitDiv = document.createElement('div');
+    splitDiv.className = 'info-split';
+    var listPane = document.createElement('div');
+    listPane.className = 'info-list-pane';
+    var detailPane = document.createElement('div');
+    detailPane.className = 'info-detail-pane';
+    found.forEach(function(f) {{
+      var item = document.createElement('div');
+      item.className = 'mf-item';
+      var fStyle = resolveStyle(f.legendItem.ld.styleMap, f.lfl._feature && f.lfl._feature.properties || {{}});
+      var fSwatch = swatchSvg(f.legendItem.ld.geomType, fStyle);
+      item.innerHTML = '<span class="mf-swatch">'+fSwatch+'</span>'
+                     + '<span class="mf-text">'
+                     + '<div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
+                     + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div>'
+                     + '</span>';
+      item.addEventListener('click', function() {{
+        listPane.querySelectorAll('.mf-item').forEach(function(el) {{ el.classList.remove('active'); }});
+        item.classList.add('active');
+        detailPane.innerHTML = f.html;
+        highlightFeatureOnMap(f.lfl._feature);
+      }});
+      listPane.appendChild(item);
+    }});
+    splitDiv.appendChild(listPane);
+    splitDiv.appendChild(detailPane);
+    infoPanelBody.appendChild(splitDiv);
+    listPane.querySelector('.mf-item').click();
+  }}
+
+  function showIdentifyResults(found) {{
+    if (found.length === 1) showIdentifySingle(found[0]); else showIdentifySplit(found);
+  }}
 
   // ── Click identify ────────────────────────────────────────────────────────
   map.on('click', function(e) {{
-    if (_selectMode) return;
+    if (_selectMode || !_identifyMode) return;
     var clickPt = map.latLngToContainerPoint(e.latlng);
     var found = [];
     legendItems.forEach(function(it) {{
@@ -3556,59 +3773,59 @@ class WebMapExporter:
         if (d <= 10) found.push({{layerName: it.ld.name, html: fl._infoHtml, lfl: fl, legendItem: it}});
       }});
     }});
-    if (!found.length) return;
 
-    function getDisplayName(f) {{
-      var props = f.lfl._feature && f.lfl._feature.properties || {{}};
-      var vals = Object.values(props).filter(function(v) {{ return v != null && v !== ''; }});
-      return vals.length ? String(vals[0]) : '(feature)';
-    }}
-
-    function showSingle(f) {{
-      infoPanel.classList.remove('split');
-      infoPanelBody.innerHTML = f.html;
-      highlightFeatureOnMap(f.lfl._feature);
-    }}
-
-    function showSplit() {{
-      infoPanel.classList.add('split');
-      infoPanelBody.innerHTML = '';
-
-      var splitDiv = document.createElement('div');
-      splitDiv.className = 'info-split';
-
-      var listPane = document.createElement('div');
-      listPane.className = 'info-list-pane';
-
-      var detailPane = document.createElement('div');
-      detailPane.className = 'info-detail-pane';
-
-      found.forEach(function(f) {{
-        var item = document.createElement('div');
-        item.className = 'mf-item';
-        var fStyle = resolveStyle(f.legendItem.ld.styleMap, f.lfl._feature && f.lfl._feature.properties || {{}});
-        var fSwatch = swatchSvg(f.legendItem.ld.geomType, fStyle);
-        item.innerHTML = '<span class="mf-swatch">'+fSwatch+'</span>'
-                       + '<span class="mf-text">'
-                       + '<div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
-                       + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div>'
-                       + '</span>';
-        item.addEventListener('click', function() {{
-          listPane.querySelectorAll('.mf-item').forEach(function(el) {{ el.classList.remove('active'); }});
-          item.classList.add('active');
-          detailPane.innerHTML = f.html;
-          highlightFeatureOnMap(f.lfl._feature);
+    // Also query visible WMS layers via GetFeatureInfo
+    var wmsItems = legendItems.filter(function(it) {{
+      return it.visible && it.ld.kind === 'wms' && it.ld.wmsUrl
+          && it.ld.tileType !== 'xyz' && it.ld.tileType !== 'wmts';
+    }});
+    if (wmsItems.length > 0) {{
+      var pending = wmsItems.length;
+      var wmsFound = [];
+      wmsItems.forEach(function(it) {{
+        wmsIdentify(it, e.latlng, function(err, text) {{
+          pending--;
+          if (!err && text) {{
+            var t = text.trim();
+            // Ignore empty/no-feature WMS responses
+            if (t && t !== '' && !/no\s*feature/i.test(t) && !/<body>\s*<\/body>/i.test(t)
+                && !/<body>\s*no features/i.test(t)) {{
+              wmsFound.push({{layerName: it.ld.name, text: t, legendItem: it}});
+            }}
+          }}
+          if (pending === 0 && (found.length || wmsFound.length)) {{
+            if (wmsFound.length) {{
+              wmsFound.forEach(function(w) {{
+                var wrapper = {{
+                  layerName: w.layerName,
+                  html: '<div style="font-size:11px;color:#3f32f1;font-weight:600;margin-bottom:4px">'
+                      + escHtml(w.layerName) + ' <em style="color:#999;font-weight:400">(WMS)</em></div>'
+                      + '<iframe sandbox="allow-same-origin" srcdoc="'
+                      + w.text.replace(/"/g, '&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                      + '" style="width:100%;min-height:80px;border:none;resize:vertical"></iframe>',
+                  lfl: {{_feature: null}},
+                  legendItem: w.legendItem
+                }};
+                found.push(wrapper);
+              }});
+            }}
+            showIdentifyResults(found);
+            infoPanel.classList.add('open');
+          }} else if (pending === 0 && !found.length && !wmsFound.length) {{
+            // nothing found
+          }}
         }});
-        listPane.appendChild(item);
       }});
-
-      splitDiv.appendChild(listPane);
-      splitDiv.appendChild(detailPane);
-      infoPanelBody.appendChild(splitDiv);
-      listPane.querySelector('.mf-item').click();
+      // Show vector-only results immediately if any, WMS will add when ready
+      if (found.length) {{
+        showIdentifyResults(found);
+        infoPanel.classList.add('open');
+      }}
+      return;
     }}
 
-    if (found.length === 1) showSingle(found[0]); else showSplit();
+    if (!found.length) return;
+    showIdentifyResults(found);
     infoPanel.classList.add('open');
   }});
 
@@ -4146,8 +4363,7 @@ class WebMapExporter:
   var _helpTools = [
     {{ sel: '.leaflet-control-zoom-in',           name: 'Zoom In',           text: 'Zoom in on the map. You can also scroll the mouse wheel or press the + key.' }},
     {{ sel: '.leaflet-control-zoom-out',          name: 'Zoom Out',          text: 'Zoom out on the map. You can also scroll the mouse wheel or press the − key.' }},
-    {{ sel: '[title="About this map"]',           name: 'Map Information',   text: 'Open the information panel showing the project title, description and document metadata.' }},
-    {{ sel: '[title="Feature info"]',             name: 'Identify Features', text: 'Click a feature on the map to view its attributes. When features overlap, a list appears on the left — click each to inspect.' }},
+    {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Activate identify mode, then click a feature or drag a box to view attribute data. Also queries WMS layers via GetFeatureInfo. Resize the panel by dragging its right edge.' }},
     {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and row selection.' }},
     {{ sel: '[title="Drag to select features"]',  name: 'Select Features',   text: 'Click and drag a rectangle on the map to select features. Selected rows are highlighted in the attribute table.' }},
     {{ sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' }},
