@@ -2753,8 +2753,8 @@ class WebMapExporter:
       }};
     }}
     var geoLayer = L.geoJSON(ld.geojson, opts);
-    if (item.clusterEnabled && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
-      item.spreadMarkers = []; // clustering manages its own positioning; disable spread
+    if (item.groupEnabled && item.groupMode === 'cluster' && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
+      item.spreadMarkers = [];
       var cg = L.markerClusterGroup({{
         chunkedLoading: true,
         maxClusterRadius: 80,
@@ -2843,7 +2843,7 @@ class WebMapExporter:
     var item = {{
       ld: LAYERS[i], paneName: paneName, labelPaneName: labelPaneName,
       visible: true, labelsVisible: false, filterFn: null, layerFilterFn: null,
-      lfl: null, index: i, clusterEnabled: false, hiddenClasses: [], spreadMarkers: []
+      lfl: null, index: i, groupEnabled: false, groupMode: 'spread', hiddenClasses: [], spreadMarkers: []
     }};
     try {{
       item.lfl = buildLayer(item);
@@ -3427,24 +3427,6 @@ class WebMapExporter:
         acts.appendChild(mSel);
       }}
 
-      // Cluster toggle (point layers only)
-      if (item.ld.geomType === 'point') {{
-        var cBtn = mkBtn('Toggle clustering',
-          '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">'
-          + '<circle cx="5" cy="5" r="2.4"/><circle cx="11.5" cy="6.5" r="1.8"/><circle cx="7" cy="11.5" r="1.8"/></svg>');
-        var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
-        if (!clusterAvail) {{ cBtn.disabled = true; cBtn.title = 'Marker cluster plugin not loaded'; }}
-        item._actClBtn = cBtn;
-        cBtn.addEventListener('click', function(e) {{
-          e.stopPropagation();
-          item.clusterEnabled = !item.clusterEnabled;
-          cBtn.classList.toggle('active', item.clusterEnabled);
-          if (item._cogClCb) item._cogClCb.checked = item.clusterEnabled;
-          rebuildLayer(item);
-        }});
-        acts.appendChild(cBtn);
-      }}
-
       return acts;
     }}
 
@@ -3613,28 +3595,57 @@ class WebMapExporter:
         settingsDiv.appendChild(modeRow);
       }}
 
-      // Cluster row (point vector layers only)
+      // Group / spread / cluster (point vector layers only)
       if (ld.kind === 'vector' && ld.geomType === 'point') {{
-        var clRow = document.createElement('div');
-        clRow.className = 'layer-settings-row';
-        var clLbl = document.createElement('span');
-        clLbl.className = 'layer-settings-label';
-        clLbl.textContent = 'Cluster';
-        var clCb = document.createElement('input');
-        clCb.type = 'checkbox';
-        clCb.checked = false;
+        // ── Group on/off checkbox ──────────────────────────────
+        var grpRow = document.createElement('div');
+        grpRow.className = 'layer-settings-row';
+        var grpLbl = document.createElement('span');
+        grpLbl.className = 'layer-settings-label';
+        grpLbl.textContent = 'Group';
+        var grpCb = document.createElement('input');
+        grpCb.type = 'checkbox';
+        grpCb.checked = false;
+        grpCb.title = 'Enable icon grouping for overlapping markers';
+        grpRow.appendChild(grpLbl);
+        grpRow.appendChild(grpCb);
+        settingsDiv.appendChild(grpRow);
+
+        // ── Mode dropdown (visible only when Group is on) ──────
+        var grpModeRow = document.createElement('div');
+        grpModeRow.className = 'layer-settings-row';
+        grpModeRow.style.display = 'none';
+        var grpModeLbl = document.createElement('span');
+        grpModeLbl.className = 'layer-settings-label';
+        grpModeLbl.textContent = 'Mode';
+        var grpModeSel = document.createElement('select');
+        grpModeSel.className = 'layer-settings-sel';
         var clusterAvail = typeof L.markerClusterGroup !== 'undefined';
-        clCb.title = clusterAvail ? 'Toggle marker clustering (disables spread)' : 'Marker cluster plugin not loaded';
-        clCb.disabled = !clusterAvail;
-        item._cogClCb = clCb;
-        clCb.addEventListener('change', function() {{
-          item.clusterEnabled = clCb.checked;
-          if (item._actClBtn) item._actClBtn.classList.toggle('active', clCb.checked);
+        grpModeSel.innerHTML = '<option value="spread">Spread</option>'
+          + '<option value="cluster" ' + (clusterAvail ? '' : 'disabled') + '>Cluster</option>';
+        grpModeRow.appendChild(grpModeLbl);
+        grpModeRow.appendChild(grpModeSel);
+        settingsDiv.appendChild(grpModeRow);
+
+        grpCb.addEventListener('change', function() {{
+          item.groupEnabled = grpCb.checked;
+          grpModeRow.style.display = grpCb.checked ? '' : 'none';
+          if (!grpCb.checked) {{
+            // restore markers to true positions immediately
+            item.spreadMarkers.forEach(function(mkr) {{
+              if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng);
+            }});
+            if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
+            layoutAllLabels();
+          }}
           rebuildLayer(item);
+          if (item.groupEnabled) spreadMarkers();
         }});
-        clRow.appendChild(clLbl);
-        clRow.appendChild(clCb);
-        settingsDiv.appendChild(clRow);
+        grpModeSel.addEventListener('change', function() {{
+          item.groupMode = grpModeSel.value;
+          rebuildLayer(item);
+          if (item.groupEnabled) spreadMarkers();
+        }});
       }}
 
       row.appendChild(makeCogBtn(settingsDiv));
@@ -4010,12 +4021,11 @@ class WebMapExporter:
   }}
 
   function _candidatePlacement(labels) {{
-    var DIRS = [
-      [0,-1],[0.71,-0.71],[1,0],[0.71,0.71],
-      [0,1],[-0.71,0.71],[-1,0],[-0.71,-0.71]
-    ];
+    var DIRS_ALL   = [[0,-1],[0.71,-0.71],[1,0],[0.71,0.71],[0,1],[-0.71,0.71],[-1,0],[-0.71,-0.71]];
+    var DIRS_RIGHT = [[1,0],[0.71,-0.71],[0.71,0.71]]; // strictly right-side candidates
     var placed = [];
     labels.forEach(function(lbl) {{
+      var DIRS = lbl.rightForced ? DIRS_RIGHT : DIRS_ALL;
       var baseR = lbl.h * 0.55 + 6;
       var best = null, bestScore = Infinity;
       [1.0, 1.7, 2.6].forEach(function(rm) {{
@@ -4100,10 +4110,11 @@ class WebMapExporter:
     if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
     if (zoom < SPREAD_MIN_ZOOM) {{ setTimeout(layoutAllLabels, 0); return; }}
 
-    // 2. Collect all visible point markers with screen positions
+    // 2. Collect visible point markers from spread-enabled layers
     var all = [];
     legendItems.forEach(function(item) {{
-      if (!item.visible || !item.spreadMarkers || !item.spreadMarkers.length) return;
+      if (!item.visible || !item.groupEnabled || item.groupMode !== 'spread') return;
+      if (!item.spreadMarkers || !item.spreadMarkers.length) return;
       item.spreadMarkers.forEach(function(mkr) {{
         if (!mkr._origLatLng) return;
         var pt = map.latLngToContainerPoint(mkr._origLatLng);
@@ -4180,20 +4191,21 @@ class WebMapExporter:
       if (!item.visible || !item.labelsVisible || !item.labelData) return;
       var cfg = item.labelCfg;
       var fsz = cfg.fontSize || 11;
-      var spreadOn = map.getZoom() >= SPREAD_MIN_ZOOM;
+      var rightForced = item.groupEnabled && item.groupMode === 'spread';
       item.labelData.forEach(function(ld) {{
         // Use current lyr position (follows spread) for points; static center for polygons
         var curLatLng = (ld.lyr && ld.lyr.getLatLng) ? ld.lyr.getLatLng() : ld.latlng;
         var pt = map.latLngToContainerPoint(curLatLng);
         var dims = _lblDims(ld.text, fsz);
-        // When spread active, seed label to the right of the icon
-        var initX = spreadOn ? pt.x + dims.w * 0.5 + 6 : pt.x;
+        // When spread mode: seed label strictly to the right of the icon
+        var initX = rightForced ? pt.x + dims.w * 0.5 + 8 : pt.x;
         all.push({{
           text: ld.text, cfg: cfg,
           ax: pt.x, ay: pt.y,
           x: initX, y: pt.y,
           w: dims.w, h: dims.h,
           vx: 0, vy: 0,
+          rightForced: rightForced,
           group: item.labelGroup
         }});
       }});
