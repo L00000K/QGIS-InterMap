@@ -680,7 +680,7 @@ class WebMapExportDialog(QDockWidget):
         layers_vl = QVBoxLayout(layers_group)
         layers_vl.setSpacing(4)
 
-        copy_layers_btn = QPushButton("📷  Copy current layer visibility")
+        copy_layers_btn = QPushButton("📷  Set to map canvas layers")
         copy_layers_btn.setToolTip("Snapshot which layers are currently visible in QGIS")
         copy_layers_btn.clicked.connect(self._map_view_capture_layers)
         layers_vl.addWidget(copy_layers_btn)
