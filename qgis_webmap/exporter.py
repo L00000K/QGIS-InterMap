@@ -947,6 +947,7 @@ def _layer_to_geojson(layer) -> dict:
     )
 
     features = []
+    _SIMPLIFY_TOL = 0.000008  # ~0.9m at equator; removes redundant vertices on lines/polygons
     for feat in layer.getFeatures(QgsFeatureRequest()):
         geom = feat.geometry()
         if geom is None or geom.isEmpty():
@@ -955,6 +956,12 @@ def _layer_to_geojson(layer) -> dict:
             continue
 
         geom.transform(transform)
+        # Simplify line/polygon geometries to reduce export size
+        gtype = QgsWkbTypes.geometryType(geom.wkbType())
+        if gtype in (QgsWkbTypes.LineGeometry, QgsWkbTypes.PolygonGeometry):
+            s = geom.simplify(_SIMPLIFY_TOL)
+            if s and not s.isEmpty():
+                geom = s
         geom_json = json.loads(geom.asJson())
 
         props = {}
@@ -2868,6 +2875,7 @@ class WebMapExporter:
       opts.style = function(feature) {{
         return polygonPathStyle(resolveStyle(ld.styleMap, feature.properties || {{}}));
       }};
+      opts.renderer = L.canvas({{ pane: item.paneName }});
     }}
     var geoLayer = L.geoJSON(ld.geojson, opts);
     if (item.groupEnabled && item.groupMode === 'cluster' && ld.geomType === 'point' && typeof L.markerClusterGroup !== 'undefined') {{
@@ -4313,6 +4321,8 @@ class WebMapExporter:
       }});
     }});
     if (!all.length) {{ setTimeout(layoutAllLabels, 0); return; }}
+    // O(n²) proximity check — skip if too many markers to avoid UI freeze
+    if (all.length > 400) {{ setTimeout(layoutAllLabels, 0); return; }}
 
     // 3. Group overlapping markers
     var groups = _spreadGroupByProximity(all, SPREAD_THRESHOLD);
@@ -4373,11 +4383,20 @@ class WebMapExporter:
   map.on('moveend zoomend viewreset', spreadMarkers);
   setTimeout(spreadMarkers, 250);
 
+  // ── Label pan/zoom hide ────────────────────────────────────────────────────
+  // Hide labels while the map is moving; they are recalculated on moveend so
+  // the brief disappearance is less jarring than labels drifting behind the map.
+  map.on('movestart zoomstart', function() {{
+    if (_labelSvg) _labelSvg.style.opacity = '0';
+  }});
+
   // ── SVG label render pass ─────────────────────────────────────────────────
   function layoutAllLabels() {{
     if (!_labelSvg) return;
+    _labelSvg.style.opacity = '1';  // restore after pan/zoom
     var staticLabels = [];   // rendered directly at seeded position — no solver
     var solverLabels = [];   // run through candidate/force solver
+    var _vpBounds = map.getBounds().pad(0.15); // viewport + 15% margin for culling
 
     _allLabelItems.forEach(function(item) {{
       if (!item.visible || !item.labelsVisible || !item.labelData) return;
@@ -4409,6 +4428,7 @@ class WebMapExporter:
 
       item.labelData.forEach(function(ld) {{
         var curLatLng = (ld.lyr && ld.lyr.getLatLng) ? ld.lyr.getLatLng() : ld.latlng;
+        if (!_vpBounds.contains(curLatLng)) return; // skip labels outside current viewport
         var pt = map.latLngToContainerPoint(curLatLng);
         var dims = _lblDims(ld.text, fsz);
         var initX = (useStatic && !isLine) ? pt.x + dims.w * 0.5 + 8 : pt.x;

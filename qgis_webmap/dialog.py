@@ -2439,6 +2439,23 @@ class WebMapExportDialog(QDockWidget):
         walk(QgsProject.instance().layerTreeRoot(), tree_nodes)
         layers = list(reversed(panel_layers))
 
+        # Warn if any vector layer has very many features
+        heavy = [
+            f"  {lr.name()}  ({lr.featureCount():,} features)"
+            for lr in layers
+            if hasattr(lr, "featureCount") and lr.featureCount() > 50_000
+        ]
+        if heavy:
+            msg = (
+                "The following layers have a large number of features and may result "
+                "in a slow or unresponsive webmap:\n\n"
+                + "\n".join(heavy)
+                + "\n\nConsider filtering or simplifying before export.\n\nContinue anyway?"
+            )
+            if QMessageBox.question(self, "Performance warning", msg,
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+
         self.export_btn.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, len(layers) + 1)
