@@ -3,21 +3,44 @@ import json
 import datetime
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QFileDialog, QLineEdit,
+    QListWidget, QFileDialog, QLineEdit,
     QMessageBox, QProgressBar, QCheckBox, QGroupBox,
     QTabWidget, QTextEdit, QFormLayout, QWidget,
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
+    QScrollArea, QMenu, QGridLayout,
 )
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings
-from qgis.PyQt.QtGui import QDesktopServices, QPixmap, QFont
+from qgis.PyQt.QtGui import QDesktopServices, QPixmap
 from qgis.core import QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer
 
 _SETTINGS_KEY = "QgsWebMapExporter"
-_INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"  # legacy global key (kept for migration)
+_INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"
+
+_PURPOSE_OPTIONS = [
+    "",
+    "P1 – Preliminary",
+    "P2 – Work in progress",
+    "S1 – Suitable for coordination",
+    "S2 – Suitable for information",
+    "S3 – Suitable for review and comment",
+    "S4 – Suitable for construction",
+    "S5 – As built / record",
+    "AFC – Approved for construction",
+    "AFI – Approved for information",
+    "IFA – Issued for approval",
+    "IFC – Issued for construction",
+    "IFI – Issued for information",
+    "IFR – Issued for review",
+    "IFT – Issued for tender",
+]
+
+_AR_PURPLE       = "#5C2D91"
+_AR_PURPLE_DARK  = "#3D1A6B"
+_AR_PURPLE_LIGHT = "#9B59C4"
 
 
 class WebMapExportDialog(QDockWidget):
-    """Dockable Web Map export panel with a saved-instance manager."""
+    """Dockable InterCarta export panel."""
 
     def __init__(self, iface, parent=None):
         super().__init__("InterCarta", parent or iface.mainWindow())
@@ -28,6 +51,7 @@ class WebMapExportDialog(QDockWidget):
         self._map_views = []
         self._editing_map_view_idx = None
         self._editing_map_view_extent = None
+        self._loaded_instance_name = None
         self._build_ui()
         self._update_initial_extent_label()
         self.path_edit.setText(self._default_output_path())
@@ -48,7 +72,6 @@ class WebMapExportDialog(QDockWidget):
     # ── Canvas / path helpers ─────────────────────────────────────────────────
 
     def _capture_canvas_extent(self):
-        """Return the current QGIS map canvas extent as [[s,w],[n,e]] in WGS-84."""
         try:
             from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem
             canvas = self.iface.mapCanvas()
@@ -72,41 +95,47 @@ class WebMapExportDialog(QDockWidget):
         ).strip() or "webmap"
         return os.path.join(downloads, f"{ts} - {safe_name}.html")
 
-    # ── Settings (last-used state) ──────────────────────────────────────────────
+    # ── Settings ──────────────────────────────────────────────────────────────
 
     def _load_settings(self):
         s = QSettings()
-        if s.contains(f"{_SETTINGS_KEY}/include_layer_control"):
-            self.layer_control_cb.setChecked(
-                s.value(f"{_SETTINGS_KEY}/include_layer_control", True, type=bool)
-            )
-        if s.contains(f"{_SETTINGS_KEY}/include_basemap"):
-            self.basemap_cb.setChecked(
-                s.value(f"{_SETTINGS_KEY}/include_basemap", False, type=bool)
-            )
-        if s.contains(f"{_SETTINGS_KEY}/include_info"):
-            self.include_info_cb.setChecked(
-                s.value(f"{_SETTINGS_KEY}/include_info", True, type=bool)
-            )
-        title = s.value(f"{_SETTINGS_KEY}/info_title", "")
-        if title:
-            self.info_title_edit.setText(title)
-        text = s.value(f"{_SETTINGS_KEY}/info_text", "")
-        if text:
-            self.info_text_edit.setPlainText(text)
-        date_val = s.value(f"{_SETTINGS_KEY}/info_date", "")
-        if date_val:
-            self.info_date_edit.setText(date_val)
-        for fld in ("info_client", "info_client_img", "info_project", "info_project_img",
-                    "info_doc_number", "info_revision", "info_purpose"):
+        for flag, attr in (
+            ("include_layer_control", "layer_control_cb"),
+            ("include_basemap",       "basemap_cb"),
+            ("include_info",          "include_info_cb"),
+            ("include_project_info",  "include_project_info_cb"),
+            ("include_doc_metadata",  "include_doc_metadata_cb"),
+            ("include_doc_control",   "include_doc_control_cb"),
+        ):
+            key = f"{_SETTINGS_KEY}/{flag}"
+            if s.contains(key):
+                getattr(self, attr).setChecked(s.value(key, True, type=bool))
+
+        for fld in ("info_title", "info_client", "info_client_img",
+                    "info_project_number", "info_project", "info_project_img",
+                    "info_doc_number", "info_revision", "info_created_by_name"):
             val = s.value(f"{_SETTINGS_KEY}/{fld}", "")
             if val:
                 getattr(self, f"{fld}_edit").setText(val)
+
+        text = s.value(f"{_SETTINGS_KEY}/info_text", "")
+        if text:
+            self.info_text_edit.setPlainText(text)
+
+        purpose_val = s.value(f"{_SETTINGS_KEY}/info_purpose", "")
+        if purpose_val:
+            idx = self.info_purpose_combo.findText(purpose_val)
+            if idx >= 0:
+                self.info_purpose_combo.setCurrentIndex(idx)
+            else:
+                self.info_purpose_combo.setEditText(purpose_val)
+
         for role in ("originated", "checked", "reviewed", "approved"):
             for part in ("name", "date"):
                 val = s.value(f"{_SETTINGS_KEY}/info_{role}_{part}", "")
                 if val:
                     getattr(self, f"info_{role}_{part}_edit").setText(val)
+
         theme_val = s.value(f"{_SETTINGS_KEY}/export_theme", "corporate")
         idx = self.export_theme_combo.findData(theme_val)
         if idx >= 0:
@@ -115,14 +144,18 @@ class WebMapExportDialog(QDockWidget):
     def _save_settings(self):
         s = QSettings()
         s.setValue(f"{_SETTINGS_KEY}/include_layer_control", self.layer_control_cb.isChecked())
-        s.setValue(f"{_SETTINGS_KEY}/include_basemap", self.basemap_cb.isChecked())
-        s.setValue(f"{_SETTINGS_KEY}/include_info", self.include_info_cb.isChecked())
-        s.setValue(f"{_SETTINGS_KEY}/info_title", self.info_title_edit.text().strip())
-        s.setValue(f"{_SETTINGS_KEY}/info_text", self.info_text_edit.toPlainText().strip())
-        s.setValue(f"{_SETTINGS_KEY}/info_date", self.info_date_edit.text().strip())
-        for fld in ("info_client", "info_client_img", "info_project", "info_project_img",
-                    "info_doc_number", "info_revision", "info_purpose"):
+        s.setValue(f"{_SETTINGS_KEY}/include_basemap",       self.basemap_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/include_info",          self.include_info_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/include_project_info",  self.include_project_info_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/include_doc_metadata",  self.include_doc_metadata_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/include_doc_control",   self.include_doc_control_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/info_title",            self.info_title_edit.text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/info_text",             self.info_text_edit.toPlainText().strip())
+        for fld in ("info_client", "info_client_img",
+                    "info_project_number", "info_project", "info_project_img",
+                    "info_doc_number", "info_revision", "info_created_by_name"):
             s.setValue(f"{_SETTINGS_KEY}/{fld}", getattr(self, f"{fld}_edit").text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/info_purpose", self.info_purpose_combo.currentText().strip())
         for role in ("originated", "checked", "reviewed", "approved"):
             for part in ("name", "date"):
                 s.setValue(f"{_SETTINGS_KEY}/info_{role}_{part}",
@@ -134,26 +167,39 @@ class WebMapExportDialog(QDockWidget):
     def _build_header(self):
         header = QWidget()
         header.setObjectName("icHeader")
-        header.setFixedHeight(42)
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(10, 0, 10, 0)
-        hl.setSpacing(8)
+        outer = QVBoxLayout(header)
+        outer.setContentsMargins(10, 8, 10, 8)
+        outer.setSpacing(3)
 
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if os.path.exists(icon_path):
             icon_lbl = QLabel()
-            pm = QPixmap(icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pm = QPixmap(icon_path).scaled(22, 22, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_lbl.setPixmap(pm)
-            hl.addWidget(icon_lbl)
-
+            top_row.addWidget(icon_lbl)
         name_lbl = QLabel("InterCarta")
         name_lbl.setObjectName("icName")
-        hl.addWidget(name_lbl)
+        top_row.addWidget(name_lbl)
+        top_row.addStretch()
+        outer.addLayout(top_row)
 
-        sub_lbl = QLabel("Interactive Map Package")
-        sub_lbl.setObjectName("icSub")
-        hl.addWidget(sub_lbl)
-        hl.addStretch()
+        desc1 = QLabel(
+            "Plugin to generate interactive map packages in a standalone shareable HTML file."
+        )
+        desc1.setObjectName("icDesc1")
+        desc1.setWordWrap(True)
+        outer.addWidget(desc1)
+
+        desc2 = QLabel(
+            "This plugin is in open beta — for feature requests, bugs or further info "
+            "reach out to Luke.Johnstone@Atkinsrealis.com"
+        )
+        desc2.setObjectName("icDesc2")
+        desc2.setWordWrap(True)
+        outer.addWidget(desc2)
+
         return header
 
     def _build_ui(self):
@@ -162,155 +208,310 @@ class WebMapExportDialog(QDockWidget):
         layout.setContentsMargins(0, 0, 0, 8)
         layout.setSpacing(0)
 
-        container.setStyleSheet("""
-            QWidget#icHeader {
-                background: #1E293B;
-                border-bottom: 3px solid #2563EB;
-            }
-            QLabel#icName {
+        container.setStyleSheet(f"""
+            QWidget#icHeader {{
+                background: {_AR_PURPLE};
+                border-bottom: 3px solid {_AR_PURPLE_DARK};
+            }}
+            QLabel#icName {{
                 color: #FFFFFF;
                 font-size: 14px;
                 font-weight: 700;
-            }
-            QLabel#icSub {
-                color: rgba(255,255,255,0.48);
+            }}
+            QLabel#icDesc1 {{
+                color: rgba(255,255,255,0.80);
                 font-size: 10px;
-            }
-            QTabWidget::pane {
-                border-top: 2px solid #2563EB;
-            }
-            QTabBar::tab {
+            }}
+            QLabel#icDesc2 {{
+                color: #FFB3B3;
+                font-size: 10px;
+            }}
+            QTabWidget::pane {{
+                border-top: 2px solid {_AR_PURPLE};
+            }}
+            QTabBar::tab {{
                 padding: 5px 11px;
                 border-bottom: 2px solid transparent;
-            }
-            QTabBar::tab:selected {
-                border-bottom: 2px solid #2563EB;
-                color: #2563EB;
+            }}
+            QTabBar::tab:selected {{
+                border-bottom: 2px solid {_AR_PURPLE};
+                color: {_AR_PURPLE};
                 font-weight: 600;
-            }
-            QTabBar::tab:hover:!selected {
-                border-bottom: 2px solid #93C5FD;
-            }
-            QGroupBox {
+            }}
+            QTabBar::tab:hover:!selected {{
+                border-bottom: 2px solid {_AR_PURPLE_LIGHT};
+            }}
+            QGroupBox {{
                 border: 1px solid #E2E8F0;
                 border-radius: 5px;
                 margin-top: 10px;
                 padding-top: 4px;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 8px;
-                color: #1D4ED8;
+                color: {_AR_PURPLE};
                 font-weight: 600;
-            }
-            QPushButton#exportBtn {
-                background: #2563EB;
+            }}
+            QGroupBox#greyBox {{
+                background: #F8F9FB;
+                border: 1px solid #D1D5DB;
+            }}
+            QPushButton#exportBtn {{
+                background: {_AR_PURPLE};
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 5px 22px;
                 font-weight: 600;
                 min-height: 26px;
-            }
-            QPushButton#exportBtn:hover  { background: #1D4ED8; }
-            QPushButton#exportBtn:pressed { background: #1E40AF; }
+            }}
+            QPushButton#exportBtn:hover   {{ background: {_AR_PURPLE_DARK}; }}
+            QPushButton#exportBtn:pressed {{ background: {_AR_PURPLE_DARK}; }}
         """)
 
-        # ── Header banner ─────────────────────────────────────────────────────
         layout.addWidget(self._build_header())
 
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(8, 6, 8, 0)
-
-        # ── Instance manager bar ──────────────────────────────────────────────
-        inner_layout.addWidget(self._build_instance_bar())
+        inner_layout.setSpacing(4)
 
         tabs = QTabWidget()
         inner_layout.addWidget(tabs)
 
-        # ── Tab 1: Layers ────────────────────────────────────────────────────
-        layers_tab = QWidget()
-        layers_layout = QVBoxLayout(layers_tab)
+        tabs.addTab(self._build_map_info_tab(),   "Map Info")
+        tabs.addTab(self._build_map_views_tab(),  "Map Views")
+        tabs.addTab(self._build_layers_tab(),     "Layers")
+        tabs.addTab(self._build_export_tab(),     "Export")
 
-        # QGIS theme quick-apply
-        theme_row = QHBoxLayout()
-        theme_label = QLabel("Apply QGIS theme:")
-        self.qgis_theme_combo = QComboBox()
-        self.qgis_theme_combo.setToolTip(
-            "Select a QGIS map theme to apply its layer visibility to the export list"
-        )
-        self.qgis_theme_combo.currentIndexChanged.connect(self._on_qgis_theme_combo_changed)
-        theme_row.addWidget(theme_label)
-        theme_row.addWidget(self.qgis_theme_combo, 1)
-        layers_layout.addLayout(theme_row)
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        inner_layout.addWidget(self.progress)
 
-        # Layer tree
-        layer_group = QGroupBox("Layers to export")
-        layer_layout = QVBoxLayout(layer_group)
+        bottom = QHBoxLayout()
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setObjectName("exportBtn")
+        self.export_btn.setDefault(True)
+        self.export_btn.clicked.connect(self._export)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self._on_close_clicked)
+        bottom.addStretch()
+        bottom.addWidget(self.export_btn)
+        bottom.addWidget(close_btn)
+        inner_layout.addLayout(bottom)
 
-        btn_row = QHBoxLayout()
-        select_all_btn = QPushButton("Select All")
-        select_all_btn.clicked.connect(self._select_all)
-        deselect_btn = QPushButton("Deselect All")
-        deselect_btn.clicked.connect(self._deselect_all)
-        btn_row.addWidget(select_all_btn)
-        btn_row.addWidget(deselect_btn)
-        btn_row.addStretch()
-        layer_layout.addLayout(btn_row)
+        layout.addWidget(inner)
+        self.setWidget(container)
 
-        self.layer_tree_widget = QTreeWidget()
-        self.layer_tree_widget.setHeaderHidden(True)
-        self.layer_tree_widget.setMinimumHeight(200)
-        self.layer_tree_widget.itemChanged.connect(self._on_layer_item_changed)
-        layer_layout.addWidget(self.layer_tree_widget)
-        layers_layout.addWidget(layer_group)
+    # ── Map Info tab ──────────────────────────────────────────────────────────
 
-        # Options
-        options_group = QGroupBox("Options")
-        options_layout = QVBoxLayout(options_group)
-        self.layer_control_cb = QCheckBox("Include legend / layer control (toggles + transparency)")
-        self.layer_control_cb.setChecked(True)
-        options_layout.addWidget(self.layer_control_cb)
+    def _build_map_info_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
 
-        self.basemap_cb = QCheckBox("Include OpenStreetMap basemap")
-        self.basemap_cb.setChecked(False)
-        options_layout.addWidget(self.basemap_cb)
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(4, 4, 4, 8)
+        layout.setSpacing(6)
 
-        view_row = QHBoxLayout()
-        recapture_btn = QPushButton("📷 Re-capture initial view")
-        recapture_btn.setToolTip(
-            "Sets the map's opening extent to the current QGIS canvas view.\n"
-            "Default is the view at the time the panel was opened."
-        )
-        recapture_btn.clicked.connect(self._recapture_initial_extent)
-        view_row.addWidget(recapture_btn)
-        self.initial_extent_label = QLabel("View: (captured at open)")
-        self.initial_extent_label.setWordWrap(True)
-        view_row.addWidget(self.initial_extent_label, 1)
-        options_layout.addLayout(view_row)
-        layers_layout.addWidget(options_group)
+        # ── Saved map config ──────────────────────────────────────────────────
+        saved_group = QGroupBox("Saved map config")
+        saved_vl = QVBoxLayout(saved_group)
+        saved_vl.setSpacing(4)
 
-        # Output path
-        path_group = QGroupBox("Output file")
-        path_layout = QHBoxLayout(path_group)
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("Select output HTML file…")
-        browse_btn = QPushButton("Browse…")
-        browse_btn.clicked.connect(self._browse)
-        path_layout.addWidget(self.path_edit)
-        path_layout.addWidget(browse_btn)
-        layers_layout.addWidget(path_group)
+        self.loaded_instance_label = QLabel("No config loaded")
+        self.loaded_instance_label.setStyleSheet("color: #6B7280; font-style: italic; font-size: 10px;")
+        saved_vl.addWidget(self.loaded_instance_label)
 
-        tabs.addTab(layers_tab, "Layers")
+        combo_row = QHBoxLayout()
+        self.instance_combo = QComboBox()
+        self.instance_combo.setToolTip("Saved export configurations")
+        combo_row.addWidget(self.instance_combo, 1)
+        cog_btn = QPushButton("⚙")
+        cog_btn.setFixedWidth(30)
+        cog_btn.setToolTip("Load / Save / Save As / Delete")
+        cog_btn.clicked.connect(self._show_instance_menu)
+        combo_row.addWidget(cog_btn)
+        saved_vl.addLayout(combo_row)
+        layout.addWidget(saved_group)
 
-        # ── Tab 2: Map Views ─────────────────────────────────────────────────
-        map_views_tab = QWidget()
-        mv_tab_layout = QVBoxLayout(map_views_tab)
+        # ── Map info (grey box) ───────────────────────────────────────────────
+        self.include_info_cb = QCheckBox("Include ‘About this map’ info panel")
+        self.include_info_cb.setChecked(True)
+        layout.addWidget(self.include_info_cb)
 
-        # ── Top section: list + sidebar buttons ──────────────────────────────
+        info_group = QGroupBox("Map info")
+        info_group.setObjectName("greyBox")
+        info_form = QFormLayout(info_group)
+        info_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.info_title_edit = QLineEdit()
+        self.info_title_edit.setText(QgsProject.instance().baseName() or "")
+        self.info_title_edit.setPlaceholderText("Panel title…")
+        info_form.addRow("Title:", self.info_title_edit)
+        self.info_text_edit = QTextEdit()
+        self.info_text_edit.setPlaceholderText("Description / information text…")
+        self.info_text_edit.setMinimumHeight(80)
+        info_form.addRow("Description:", self.info_text_edit)
+        layout.addWidget(info_group)
+
+        # ── Document metadata (optional grey box) ────────────────────────────
+        self.include_doc_metadata_cb = QCheckBox("Include document metadata")
+        self.include_doc_metadata_cb.setChecked(True)
+        layout.addWidget(self.include_doc_metadata_cb)
+
+        self.doc_meta_widget = QGroupBox("Document metadata")
+        self.doc_meta_widget.setObjectName("greyBox")
+        dm_form = QFormLayout(self.doc_meta_widget)
+        dm_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.info_doc_number_edit = QLineEdit()
+        self.info_doc_number_edit.setPlaceholderText("Document number…")
+        dm_form.addRow("Doc number:", self.info_doc_number_edit)
+        self.info_revision_edit = QLineEdit()
+        self.info_revision_edit.setPlaceholderText("e.g. P1.02…")
+        dm_form.addRow("Revision:", self.info_revision_edit)
+        self.info_purpose_combo = QComboBox()
+        self.info_purpose_combo.setEditable(True)
+        for opt in _PURPOSE_OPTIONS:
+            self.info_purpose_combo.addItem(opt)
+        dm_form.addRow("Purpose of issue:", self.info_purpose_combo)
+        layout.addWidget(self.doc_meta_widget)
+        self.include_doc_metadata_cb.toggled.connect(self.doc_meta_widget.setVisible)
+
+        # ── Project information (optional grey box) ───────────────────────────
+        self.include_project_info_cb = QCheckBox("Include project information")
+        self.include_project_info_cb.setChecked(True)
+        layout.addWidget(self.include_project_info_cb)
+
+        self.proj_info_widget = QGroupBox("Project information")
+        self.proj_info_widget.setObjectName("greyBox")
+        proj_form = QFormLayout(self.proj_info_widget)
+        proj_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+
+        self.info_client_edit = QLineEdit()
+        self.info_client_edit.setPlaceholderText("Client name…")
+        proj_form.addRow("Client:", self.info_client_edit)
+
+        _cimg_w = QWidget()
+        _cimg_l = QHBoxLayout(_cimg_w)
+        _cimg_l.setContentsMargins(0, 0, 0, 0)
+        self.info_client_img_edit = QLineEdit()
+        self.info_client_img_edit.setPlaceholderText("Client image path (optional)…")
+        _cimg_btn = QPushButton("…")
+        _cimg_btn.setFixedWidth(32)
+        _cimg_btn.clicked.connect(lambda: self._browse_image(self.info_client_img_edit))
+        _cimg_l.addWidget(self.info_client_img_edit)
+        _cimg_l.addWidget(_cimg_btn)
+        proj_form.addRow("Client image:", _cimg_w)
+
+        self.info_project_number_edit = QLineEdit()
+        self.info_project_number_edit.setPlaceholderText("Project number…")
+        proj_form.addRow("Project number:", self.info_project_number_edit)
+
+        self.info_project_edit = QLineEdit()
+        self.info_project_edit.setPlaceholderText("Project name…")
+        proj_form.addRow("Project name:", self.info_project_edit)
+
+        _pimg_w = QWidget()
+        _pimg_l = QHBoxLayout(_pimg_w)
+        _pimg_l.setContentsMargins(0, 0, 0, 0)
+        self.info_project_img_edit = QLineEdit()
+        self.info_project_img_edit.setPlaceholderText("Project image path (optional)…")
+        _pimg_btn = QPushButton("…")
+        _pimg_btn.setFixedWidth(32)
+        _pimg_btn.clicked.connect(lambda: self._browse_image(self.info_project_img_edit))
+        _pimg_l.addWidget(self.info_project_img_edit)
+        _pimg_l.addWidget(_pimg_btn)
+        proj_form.addRow("Project image:", _pimg_w)
+
+        layout.addWidget(self.proj_info_widget)
+        self.include_project_info_cb.toggled.connect(self.proj_info_widget.setVisible)
+
+        # ── Document control (optional grey box) ─────────────────────────────
+        self.include_doc_control_cb = QCheckBox("Include document control")
+        self.include_doc_control_cb.setChecked(True)
+        layout.addWidget(self.include_doc_control_cb)
+
+        self.doc_control_widget = QGroupBox("Document control")
+        self.doc_control_widget.setObjectName("greyBox")
+        dc_vl = QVBoxLayout(self.doc_control_widget)
+
+        # Full grid shown when doc control is checked
+        self.dc_grid_widget = QWidget()
+        dc_grid = QGridLayout(self.dc_grid_widget)
+        dc_grid.setContentsMargins(0, 0, 0, 0)
+        dc_grid.addWidget(QLabel(""), 0, 0)
+        dc_grid.addWidget(QLabel("<b>Name</b>"), 0, 1)
+        dc_grid.addWidget(QLabel("<b>Date</b>"), 0, 2)
+        for row_i, (label_text, key) in enumerate(
+            [("Originated", "originated"), ("Checked", "checked"),
+             ("Reviewed", "reviewed"), ("Approved", "approved")], start=1
+        ):
+            dc_grid.addWidget(QLabel(label_text + ":"), row_i, 0)
+            name_edit = QLineEdit()
+            name_edit.setPlaceholderText("Name…")
+            date_edit = QLineEdit()
+            date_edit.setPlaceholderText("dd/mm/yyyy…")
+            setattr(self, f"info_{key}_name_edit", name_edit)
+            setattr(self, f"info_{key}_date_edit", date_edit)
+            dc_grid.addWidget(name_edit, row_i, 1)
+            dc_grid.addWidget(date_edit, row_i, 2)
+        dc_grid.setColumnStretch(1, 2)
+        dc_grid.setColumnStretch(2, 1)
+        dc_vl.addWidget(self.dc_grid_widget)
+
+        # "Created by" row shown when doc control is NOT checked
+        self.created_by_widget = QWidget()
+        cb_hl = QHBoxLayout(self.created_by_widget)
+        cb_hl.setContentsMargins(0, 0, 0, 0)
+        cb_hl.addWidget(QLabel("Created by:"))
+        self.info_created_by_name_edit = QLineEdit()
+        self.info_created_by_name_edit.setPlaceholderText("Your name…")
+        cb_hl.addWidget(self.info_created_by_name_edit, 1)
+        cb_hl.addWidget(QLabel("on"))
+        self._today_str = datetime.datetime.now().strftime("%d/%m/%Y")
+        cb_hl.addWidget(QLabel(self._today_str))
+        dc_vl.addWidget(self.created_by_widget)
+
+        layout.addWidget(self.doc_control_widget)
+        layout.addStretch()
+
+        self.include_doc_control_cb.toggled.connect(self._on_doc_control_toggled)
+        self._on_doc_control_toggled(True)
+
+        scroll.setWidget(widget)
+        return scroll
+
+    def _on_doc_control_toggled(self, checked):
+        self.dc_grid_widget.setVisible(checked)
+        self.created_by_widget.setVisible(not checked)
+
+    def _show_instance_menu(self):
+        menu = QMenu(self)
+        load_act    = menu.addAction("Load")
+        save_act    = menu.addAction("Save")
+        save_as_act = menu.addAction("Save As…")
+        menu.addSeparator()
+        del_act = menu.addAction("Delete")
+        btn = self.sender()
+        action = menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+        if action == load_act:
+            self._instance_load()
+        elif action == save_act:
+            self._instance_save()
+        elif action == save_as_act:
+            self._instance_save_as()
+        elif action == del_act:
+            self._instance_delete()
+
+    # ── Map Views tab ─────────────────────────────────────────────────────────
+
+    def _build_map_views_tab(self):
+        widget = QWidget()
+        mv_layout = QVBoxLayout(widget)
+
         top_row = QHBoxLayout()
-
         self.map_views_list_widget = QListWidget()
         self.map_views_list_widget.setMinimumHeight(120)
         self.map_views_list_widget.setMaximumHeight(160)
@@ -327,15 +528,12 @@ class WebMapExportDialog(QDockWidget):
         up_btn.clicked.connect(self._map_view_move_up)
         down_btn = QPushButton("↓ Down")
         down_btn.clicked.connect(self._map_view_move_down)
-        btn_col.addWidget(add_mv_btn)
-        btn_col.addWidget(del_mv_btn)
-        btn_col.addWidget(up_btn)
-        btn_col.addWidget(down_btn)
+        for b in (add_mv_btn, del_mv_btn, up_btn, down_btn):
+            btn_col.addWidget(b)
         btn_col.addStretch()
         top_row.addLayout(btn_col)
-        mv_tab_layout.addLayout(top_row)
+        mv_layout.addLayout(top_row)
 
-        # ── Bottom section: detail form (auto-save) ──────────────────────────
         detail_group = QGroupBox("Map view details")
         detail_layout = QVBoxLayout(detail_group)
 
@@ -356,9 +554,8 @@ class WebMapExportDialog(QDockWidget):
         notes_row.addWidget(self.map_view_notes_edit, 1)
         detail_layout.addLayout(notes_row)
 
-        # Extent
         extent_row = QHBoxLayout()
-        capture_ext_btn = QPushButton("📷 Capture extent from QGIS")
+        capture_ext_btn = QPushButton("\U0001f4f7 Capture extent from QGIS")
         capture_ext_btn.clicked.connect(self._map_view_capture_extent)
         self.map_view_extent_label = QLabel("(not captured)")
         self.map_view_extent_label.setWordWrap(True)
@@ -366,14 +563,13 @@ class WebMapExportDialog(QDockWidget):
         extent_row.addWidget(self.map_view_extent_label, 1)
         detail_layout.addLayout(extent_row)
 
-        # Layers source
         layers_row = QHBoxLayout()
         layers_row.addWidget(QLabel("Layers:"))
         self.import_theme_combo = QComboBox()
         self.import_theme_combo.setToolTip("Select a QGIS theme to use for this map view's layer visibility")
         use_theme_btn = QPushButton("Use QGIS theme")
         use_theme_btn.clicked.connect(self._map_view_use_theme)
-        capture_layers_btn = QPushButton("📷 Capture visible")
+        capture_layers_btn = QPushButton("\U0001f4f7 Capture visible")
         capture_layers_btn.setToolTip("Capture currently visible layers in QGIS as this map view's layer set")
         capture_layers_btn.clicked.connect(self._map_view_capture_layers)
         layers_row.addWidget(self.import_theme_combo, 1)
@@ -384,117 +580,53 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_layers_label = QLabel("Layers: (not set)")
         detail_layout.addWidget(self.map_view_layers_label)
 
-        mv_tab_layout.addWidget(detail_group)
-        mv_tab_layout.addStretch()
-        tabs.addTab(map_views_tab, "Map Views")
+        mv_layout.addWidget(detail_group)
+        mv_layout.addStretch()
+        return widget
 
-        # ── Tab 3: Map Info ──────────────────────────────────────────────────
-        info_tab = QWidget()
-        info_layout = QVBoxLayout(info_tab)
+    # ── Layers tab ────────────────────────────────────────────────────────────
 
-        self.include_info_cb = QCheckBox("Include 'About this Map' info panel")
-        self.include_info_cb.setChecked(True)
-        info_layout.addWidget(self.include_info_cb)
+    def _build_layers_tab(self):
+        widget = QWidget()
+        layers_layout = QVBoxLayout(widget)
 
-        info_form = QFormLayout()
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(QLabel("Apply QGIS theme:"))
+        self.qgis_theme_combo = QComboBox()
+        self.qgis_theme_combo.setToolTip(
+            "Select a QGIS map theme to apply its layer visibility to the export list"
+        )
+        self.qgis_theme_combo.currentIndexChanged.connect(self._on_qgis_theme_combo_changed)
+        theme_row.addWidget(self.qgis_theme_combo, 1)
+        layers_layout.addLayout(theme_row)
 
-        self.info_title_edit = QLineEdit()
-        self.info_title_edit.setText(QgsProject.instance().baseName() or "")
-        self.info_title_edit.setPlaceholderText("Panel title…")
-        info_form.addRow("Title:", self.info_title_edit)
+        layer_group = QGroupBox("Layers to export")
+        layer_layout = QVBoxLayout(layer_group)
 
-        self.info_text_edit = QTextEdit()
-        self.info_text_edit.setPlaceholderText("Description / information text…")
-        self.info_text_edit.setMinimumHeight(100)
-        info_form.addRow("Description:", self.info_text_edit)
+        btn_row = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.clicked.connect(self._select_all)
+        deselect_btn = QPushButton("Deselect All")
+        deselect_btn.clicked.connect(self._deselect_all)
+        btn_row.addWidget(select_all_btn)
+        btn_row.addWidget(deselect_btn)
+        btn_row.addStretch()
+        layer_layout.addLayout(btn_row)
 
-        self.info_date_edit = QLineEdit()
-        self.info_date_edit.setText(datetime.datetime.now().strftime("%d/%m/%Y"))
-        info_form.addRow("Date:", self.info_date_edit)
+        self.layer_tree_widget = QTreeWidget()
+        self.layer_tree_widget.setHeaderHidden(True)
+        self.layer_tree_widget.setMinimumHeight(200)
+        self.layer_tree_widget.itemChanged.connect(self._on_layer_item_changed)
+        layer_layout.addWidget(self.layer_tree_widget)
+        layers_layout.addWidget(layer_group)
 
-        self.info_doc_number_edit = QLineEdit()
-        self.info_doc_number_edit.setPlaceholderText("Document number…")
-        info_form.addRow("Doc number:", self.info_doc_number_edit)
+        return widget
 
-        self.info_revision_edit = QLineEdit()
-        self.info_revision_edit.setPlaceholderText("e.g. P1.02…")
-        info_form.addRow("Revision:", self.info_revision_edit)
+    # ── Export tab ────────────────────────────────────────────────────────────
 
-        self.info_purpose_edit = QLineEdit()
-        self.info_purpose_edit.setPlaceholderText("e.g. S2 – Suitable for information…")
-        info_form.addRow("Purpose of issue:", self.info_purpose_edit)
-
-        info_layout.addLayout(info_form)
-
-        # ── Project / Client ─────────────────────────────────────────────────
-        proj_group = QGroupBox("Project")
-        proj_form = QFormLayout(proj_group)
-        proj_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        self.info_client_edit = QLineEdit()
-        self.info_client_edit.setPlaceholderText("Client name…")
-        proj_form.addRow("Client:", self.info_client_edit)
-
-        _client_img_w = QWidget()
-        _client_img_l = QHBoxLayout(_client_img_w)
-        _client_img_l.setContentsMargins(0, 0, 0, 0)
-        self.info_client_img_edit = QLineEdit()
-        self.info_client_img_edit.setPlaceholderText("Client image path (optional)…")
-        _client_img_btn = QPushButton("…")
-        _client_img_btn.setFixedWidth(32)
-        _client_img_btn.clicked.connect(lambda: self._browse_image(self.info_client_img_edit))
-        _client_img_l.addWidget(self.info_client_img_edit)
-        _client_img_l.addWidget(_client_img_btn)
-        proj_form.addRow("Client image:", _client_img_w)
-
-        self.info_project_edit = QLineEdit()
-        self.info_project_edit.setPlaceholderText("Project name / number…")
-        proj_form.addRow("Project:", self.info_project_edit)
-
-        _project_img_w = QWidget()
-        _project_img_l = QHBoxLayout(_project_img_w)
-        _project_img_l.setContentsMargins(0, 0, 0, 0)
-        self.info_project_img_edit = QLineEdit()
-        self.info_project_img_edit.setPlaceholderText("Project image path (optional)…")
-        _project_img_btn = QPushButton("…")
-        _project_img_btn.setFixedWidth(32)
-        _project_img_btn.clicked.connect(lambda: self._browse_image(self.info_project_img_edit))
-        _project_img_l.addWidget(self.info_project_img_edit)
-        _project_img_l.addWidget(_project_img_btn)
-        proj_form.addRow("Project image:", _project_img_w)
-
-        info_layout.addWidget(proj_group)
-
-        # ── Document control block ───────────────────────────────────────────
-        from qgis.PyQt.QtWidgets import QGridLayout
-        dc_group = QGroupBox("Document Control")
-        dc_grid = QGridLayout(dc_group)
-        dc_grid.addWidget(QLabel(""), 0, 0)
-        dc_grid.addWidget(QLabel("<b>Name</b>"), 0, 1)
-        dc_grid.addWidget(QLabel("<b>Date</b>"), 0, 2)
-        for label_obj in dc_grid.findChildren(QLabel):
-            label_obj.setTextFormat(Qt.RichText)
-        _dc_roles = [("Originated", "originated"), ("Checked", "checked"),
-                     ("Reviewed", "reviewed"), ("Approved", "approved")]
-        for row_i, (label_text, key) in enumerate(_dc_roles, start=1):
-            dc_grid.addWidget(QLabel(label_text + ":"), row_i, 0)
-            name_edit = QLineEdit()
-            name_edit.setPlaceholderText("Name…")
-            date_edit = QLineEdit()
-            date_edit.setPlaceholderText("dd/mm/yyyy…")
-            setattr(self, f"info_{key}_name_edit", name_edit)
-            setattr(self, f"info_{key}_date_edit", date_edit)
-            dc_grid.addWidget(name_edit, row_i, 1)
-            dc_grid.addWidget(date_edit, row_i, 2)
-        dc_grid.setColumnStretch(1, 2)
-        dc_grid.setColumnStretch(2, 1)
-        info_layout.addWidget(dc_group)
-        info_layout.addStretch()
-
-        tabs.addTab(info_tab, "Map Info")
-
-        # ── Tab 4: Style ─────────────────────────────────────────────────────
-        style_tab = QWidget()
-        style_layout = QVBoxLayout(style_tab)
+    def _build_export_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
 
         theme_group = QGroupBox("Map theme")
         theme_form = QFormLayout(theme_group)
@@ -502,73 +634,49 @@ class WebMapExportDialog(QDockWidget):
         self.export_theme_combo.addItem("Modern Corporate", "corporate")
         self.export_theme_combo.addItem("AtkinsRéalis Purple", "purple")
         self.export_theme_combo.addItem("Dark", "dark")
-        self.export_theme_combo.setToolTip(
-            "Choose the colour theme applied to the exported web map"
-        )
+        self.export_theme_combo.setToolTip("Choose the colour theme applied to the exported web map")
         theme_form.addRow("Theme:", self.export_theme_combo)
-        style_layout.addWidget(theme_group)
-        style_layout.addStretch()
+        layout.addWidget(theme_group)
 
-        tabs.addTab(style_tab, "Style")
+        options_group = QGroupBox("Options")
+        options_layout = QVBoxLayout(options_group)
+        self.layer_control_cb = QCheckBox("Include legend / layer control (toggles + transparency)")
+        self.layer_control_cb.setChecked(True)
+        options_layout.addWidget(self.layer_control_cb)
+        self.basemap_cb = QCheckBox("Include OpenStreetMap basemap")
+        self.basemap_cb.setChecked(False)
+        options_layout.addWidget(self.basemap_cb)
 
-        # ── Progress + bottom buttons ────────────────────────────────────────
-        self.progress = QProgressBar()
-        self.progress.setVisible(False)
-        inner_layout.addWidget(self.progress)
+        view_row = QHBoxLayout()
+        recapture_btn = QPushButton("\U0001f4f7 Re-capture initial view")
+        recapture_btn.setToolTip(
+            "Sets the map’s opening extent to the current QGIS canvas view.\n"
+            "Default is the view at the time the panel was opened."
+        )
+        recapture_btn.clicked.connect(self._recapture_initial_extent)
+        view_row.addWidget(recapture_btn)
+        self.initial_extent_label = QLabel("View: (captured at open)")
+        self.initial_extent_label.setWordWrap(True)
+        view_row.addWidget(self.initial_extent_label, 1)
+        options_layout.addLayout(view_row)
+        layout.addWidget(options_group)
 
-        bottom = QHBoxLayout()
-        self.export_btn = QPushButton("Export")
-        self.export_btn.setObjectName("exportBtn")
-        self.export_btn.setDefault(True)
-        self.export_btn.clicked.connect(self._export)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self._on_close_clicked)
-        bottom.addStretch()
-        bottom.addWidget(self.export_btn)
-        bottom.addWidget(close_btn)
-        inner_layout.addLayout(bottom)
+        path_group = QGroupBox("Output file")
+        path_layout = QHBoxLayout(path_group)
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("Select output HTML file…")
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse)
+        path_layout.addWidget(self.path_edit)
+        path_layout.addWidget(browse_btn)
+        layout.addWidget(path_group)
 
-        layout.addWidget(inner)
-        self.setWidget(container)
+        layout.addStretch()
+        return widget
 
-    def _build_instance_bar(self):
-        """Top bar to save / load / delete named export instances."""
-        group = QGroupBox("Saved instances")
-        outer = QVBoxLayout(group)
-
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Instance:"))
-        self.instance_combo = QComboBox()
-        self.instance_combo.setToolTip("Saved export configurations")
-        self.instance_combo.setMinimumWidth(140)
-        row.addWidget(self.instance_combo, 1)
-        load_btn = QPushButton("Load")
-        load_btn.setToolTip("Load the selected instance into the panel")
-        load_btn.clicked.connect(self._instance_load)
-        row.addWidget(load_btn)
-        outer.addLayout(row)
-
-        btn_row = QHBoxLayout()
-        save_btn = QPushButton("Save")
-        save_btn.setToolTip("Update the selected instance with the current settings")
-        save_btn.clicked.connect(self._instance_save)
-        save_as_btn = QPushButton("Save As…")
-        save_as_btn.setToolTip("Save the current settings as a new named instance")
-        save_as_btn.clicked.connect(self._instance_save_as)
-        del_btn = QPushButton("Delete")
-        del_btn.setToolTip("Delete the selected instance")
-        del_btn.clicked.connect(self._instance_delete)
-        btn_row.addWidget(save_btn)
-        btn_row.addWidget(save_as_btn)
-        btn_row.addWidget(del_btn)
-        outer.addLayout(btn_row)
-
-        return group
-
-    # ── Instance manager ────────────────────────────────────────────────────────
+    # ── Instance manager ──────────────────────────────────────────────────────
 
     def _project_instances_key(self):
-        """Return a QSettings key scoped to the current QGIS project file."""
         path = QgsProject.instance().fileName()
         if not path:
             return f"{_SETTINGS_KEY}/instances/__no_project__"
@@ -586,7 +694,6 @@ class WebMapExportDialog(QDockWidget):
                     return data
             except Exception:
                 pass
-        # Migration: load from old global key on first use per project
         old = QSettings().value(_INSTANCES_KEY, "")
         if old:
             try:
@@ -614,48 +721,47 @@ class WebMapExportDialog(QDockWidget):
         self.instance_combo.blockSignals(False)
 
     def _collect_state(self):
-        """Capture all filled-in panel settings as a serialisable dict."""
         info = {
-            "enabled": self.include_info_cb.isChecked(),
-            "title": self.info_title_edit.text().strip(),
-            "text": self.info_text_edit.toPlainText().strip(),
-            "date": self.info_date_edit.text().strip(),
-            "doc_number": self.info_doc_number_edit.text().strip(),
-            "revision": self.info_revision_edit.text().strip(),
-            "purpose": self.info_purpose_edit.text().strip(),
-            "client": self.info_client_edit.text().strip(),
-            "client_img": self.info_client_img_edit.text().strip(),
-            "project": self.info_project_edit.text().strip(),
-            "project_img": self.info_project_img_edit.text().strip(),
+            "enabled":             self.include_info_cb.isChecked(),
+            "title":               self.info_title_edit.text().strip(),
+            "text":                self.info_text_edit.toPlainText().strip(),
+            "doc_number":          self.info_doc_number_edit.text().strip(),
+            "revision":            self.info_revision_edit.text().strip(),
+            "purpose":             self.info_purpose_combo.currentText().strip(),
+            "client":              self.info_client_edit.text().strip(),
+            "client_img":          self.info_client_img_edit.text().strip(),
+            "project_number":      self.info_project_number_edit.text().strip(),
+            "project":             self.info_project_edit.text().strip(),
+            "project_img":         self.info_project_img_edit.text().strip(),
+            "include_project_info":  self.include_project_info_cb.isChecked(),
+            "include_doc_metadata":  self.include_doc_metadata_cb.isChecked(),
+            "include_doc_control":   self.include_doc_control_cb.isChecked(),
+            "created_by_name":     self.info_created_by_name_edit.text().strip(),
         }
         for role in ("originated", "checked", "reviewed", "approved"):
             for part in ("name", "date"):
                 info[f"{role}_{part}"] = getattr(self, f"info_{role}_{part}_edit").text().strip()
         return {
-            "layer_names": self._checked_layer_names(),
+            "layer_names":         self._checked_layer_names(),
             "include_layer_control": self.layer_control_cb.isChecked(),
-            "include_basemap": self.basemap_cb.isChecked(),
-            "initial_extent": self._initial_extent,
-            "map_views": self._map_views,
-            "output_path": self.path_edit.text().strip(),
-            "info": info,
-            "theme": self.export_theme_combo.currentData(),
+            "include_basemap":     self.basemap_cb.isChecked(),
+            "initial_extent":      self._initial_extent,
+            "map_views":           self._map_views,
+            "output_path":         self.path_edit.text().strip(),
+            "info":                info,
+            "theme":               self.export_theme_combo.currentData(),
         }
 
     def _apply_state(self, state):
-        """Repopulate the panel from a saved instance dict."""
         self.layer_control_cb.setChecked(bool(state.get("include_layer_control", True)))
         self.basemap_cb.setChecked(bool(state.get("include_basemap", False)))
-
         ext = state.get("initial_extent")
         if ext:
             self._initial_extent = ext
             self._update_initial_extent_label()
-
         self._map_views = [dict(mv) for mv in state.get("map_views", [])]
         self._map_view_clear_form()
         self._map_views_list_refresh()
-
         out = state.get("output_path", "")
         if out:
             self.path_edit.setText(out)
@@ -664,14 +770,26 @@ class WebMapExportDialog(QDockWidget):
         self.include_info_cb.setChecked(bool(info.get("enabled", True)))
         self.info_title_edit.setText(info.get("title", ""))
         self.info_text_edit.setPlainText(info.get("text", ""))
-        self.info_date_edit.setText(info.get("date", ""))
         self.info_doc_number_edit.setText(info.get("doc_number", ""))
         self.info_revision_edit.setText(info.get("revision", ""))
-        self.info_purpose_edit.setText(info.get("purpose", ""))
+
+        purpose = info.get("purpose", "")
+        idx = self.info_purpose_combo.findText(purpose)
+        if idx >= 0:
+            self.info_purpose_combo.setCurrentIndex(idx)
+        else:
+            self.info_purpose_combo.setEditText(purpose)
+
         self.info_client_edit.setText(info.get("client", ""))
         self.info_client_img_edit.setText(info.get("client_img", ""))
+        self.info_project_number_edit.setText(info.get("project_number", ""))
         self.info_project_edit.setText(info.get("project", ""))
         self.info_project_img_edit.setText(info.get("project_img", ""))
+        self.include_project_info_cb.setChecked(bool(info.get("include_project_info", True)))
+        self.include_doc_metadata_cb.setChecked(bool(info.get("include_doc_metadata", True)))
+        self.include_doc_control_cb.setChecked(bool(info.get("include_doc_control", True)))
+        self.info_created_by_name_edit.setText(info.get("created_by_name", ""))
+
         for role in ("originated", "checked", "reviewed", "approved"):
             for part in ("name", "date"):
                 getattr(self, f"info_{role}_{part}_edit").setText(info.get(f"{role}_{part}", ""))
@@ -685,48 +803,51 @@ class WebMapExportDialog(QDockWidget):
     def _instance_load(self):
         name = self.instance_combo.currentData()
         if not name:
-            QMessageBox.information(self, "No instance", "Please select a saved instance to load.")
+            QMessageBox.information(self, "No config selected", "Please select a saved config to load.")
             return
         data = self._instances_load_all()
         state = data.get(name)
         if state is None:
-            QMessageBox.warning(self, "Not found", f"Instance '{name}' could not be found.")
+            QMessageBox.warning(self, "Not found", f"Config ‘{name}’ could not be found.")
             self._instances_refresh_combo()
             return
         self._apply_state(state)
+        self._loaded_instance_name = name
+        self.loaded_instance_label.setText(f"Loaded: {name}")
         missing = self._missing_layer_names(state.get("layer_names", []))
         if missing:
             QMessageBox.information(
                 self, "Loaded with missing layers",
-                "Instance '{}' loaded.\n\nThe following layers are not in the current "
+                "Config ‘{}’ loaded.\n\nThe following layers are not in the current "
                 "project and were skipped:\n  • {}".format(name, "\n  • ".join(missing))
             )
 
     def _instance_save(self):
         name = self.instance_combo.currentData()
         if not name:
-            # Nothing selected — fall back to Save As
             self._instance_save_as()
             return
         data = self._instances_load_all()
         data[name] = self._collect_state()
         self._instances_save_all(data)
         self._instances_refresh_combo(select_name=name)
-        self.iface.messageBar().pushInfo("InterCarta", f"Instance '{name}' updated.")
+        self._loaded_instance_name = name
+        self.loaded_instance_label.setText(f"Loaded: {name}")
+        self.iface.messageBar().pushInfo("InterCarta", f"Config ‘{name}’ updated.")
 
     def _instance_save_as(self):
-        name, ok = QInputDialog.getText(self, "Save instance as", "Instance name:")
+        name, ok = QInputDialog.getText(self, "Save config as", "Config name:")
         if not ok:
             return
         name = name.strip()
         if not name:
-            QMessageBox.warning(self, "Name required", "Please enter a name for the instance.")
+            QMessageBox.warning(self, "Name required", "Please enter a name for the config.")
             return
         data = self._instances_load_all()
         if name in data:
             resp = QMessageBox.question(
                 self, "Overwrite?",
-                f"An instance named '{name}' already exists. Overwrite it?",
+                f"A config named ‘{name}’ already exists. Overwrite it?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
             if resp != QMessageBox.Yes:
@@ -734,16 +855,18 @@ class WebMapExportDialog(QDockWidget):
         data[name] = self._collect_state()
         self._instances_save_all(data)
         self._instances_refresh_combo(select_name=name)
-        self.iface.messageBar().pushInfo("InterCarta", f"Instance '{name}' saved.")
+        self._loaded_instance_name = name
+        self.loaded_instance_label.setText(f"Loaded: {name}")
+        self.iface.messageBar().pushInfo("InterCarta", f"Config ‘{name}’ saved.")
 
     def _instance_delete(self):
         name = self.instance_combo.currentData()
         if not name:
-            QMessageBox.information(self, "No instance", "Please select a saved instance to delete.")
+            QMessageBox.information(self, "No config selected", "Please select a saved config to delete.")
             return
         resp = QMessageBox.question(
-            self, "Delete instance",
-            f"Delete the saved instance '{name}'?",
+            self, "Delete config",
+            f"Delete saved config ‘{name}’?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if resp != QMessageBox.Yes:
@@ -751,6 +874,9 @@ class WebMapExportDialog(QDockWidget):
         data = self._instances_load_all()
         data.pop(name, None)
         self._instances_save_all(data)
+        if self._loaded_instance_name == name:
+            self._loaded_instance_name = None
+            self.loaded_instance_label.setText("No config loaded")
         self._instances_refresh_combo()
 
     # ── Layer tree ────────────────────────────────────────────────────────────
@@ -819,7 +945,6 @@ class WebMapExportDialog(QDockWidget):
         add_nodes(self.layer_tree_widget, root)
         self.layer_tree_widget.expandAll()
         self.layer_tree_widget.blockSignals(False)
-
         self._populate_qgis_theme_combos()
 
     def _populate_qgis_theme_combos(self):
@@ -829,7 +954,6 @@ class WebMapExportDialog(QDockWidget):
             theme_names = list(theme_collection.mapThemes())
         except Exception:
             pass
-
         for combo in (self.qgis_theme_combo, self.import_theme_combo):
             combo.blockSignals(True)
             combo.clear()
@@ -852,7 +976,6 @@ class WebMapExportDialog(QDockWidget):
         except Exception as e:
             QMessageBox.warning(self, "Theme error", str(e))
             return
-
         self.layer_tree_widget.blockSignals(True)
 
         def update_item(item):
@@ -867,9 +990,7 @@ class WebMapExportDialog(QDockWidget):
         root = self.layer_tree_widget.invisibleRootItem()
         for i in range(root.childCount()):
             update_item(root.child(i))
-
         self.layer_tree_widget.blockSignals(False)
-
         self.qgis_theme_combo.blockSignals(True)
         self.qgis_theme_combo.setCurrentIndex(0)
         self.qgis_theme_combo.blockSignals(False)
@@ -885,7 +1006,6 @@ class WebMapExportDialog(QDockWidget):
         self.layer_tree_widget.blockSignals(False)
 
     def _checked_layer_names(self):
-        """Names of all currently checked layers in the Layers tab."""
         names = []
 
         def walk(parent_item):
@@ -904,7 +1024,6 @@ class WebMapExportDialog(QDockWidget):
         return names
 
     def _missing_layer_names(self, names):
-        """Subset of names that don't match any layer in the current tree."""
         present = set()
 
         def walk(parent_item):
@@ -922,7 +1041,6 @@ class WebMapExportDialog(QDockWidget):
         return [n for n in names if n not in present]
 
     def _set_checked_layers_by_name(self, names):
-        """Check exactly the layers whose names appear in `names`."""
         nameset = set(names)
         self.layer_tree_widget.blockSignals(True)
 
@@ -938,13 +1056,11 @@ class WebMapExportDialog(QDockWidget):
                     walk(item)
 
         walk(self.layer_tree_widget.invisibleRootItem())
-
         root = self.layer_tree_widget.invisibleRootItem()
         for i in range(root.childCount()):
             child = root.child(i)
             if child.childCount() > 0:
                 self._update_parent_check_state(child)
-
         self.layer_tree_widget.blockSignals(False)
 
     def _update_initial_extent_label(self):
@@ -977,7 +1093,6 @@ class WebMapExportDialog(QDockWidget):
         mv = self._map_views[row]
         self._editing_map_view_idx = row
         self._editing_map_view_extent = mv.get("extent")
-        # Block signals so we don't trigger _mv_autosave while loading
         self.map_view_name_edit.blockSignals(True)
         self.map_view_notes_edit.blockSignals(True)
         self.map_view_name_edit.setText(mv.get("name", ""))
@@ -1018,7 +1133,6 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_layers_label.setText("Layers: (not set)")
 
     def _mv_autosave(self):
-        """Auto-save the currently selected map view when any field changes."""
         idx = self._editing_map_view_idx
         if idx is None or idx < 0 or idx >= len(self._map_views):
             return
@@ -1026,7 +1140,6 @@ class WebMapExportDialog(QDockWidget):
         name = self.map_view_name_edit.text().strip()
         mv["name"] = name or mv.get("name", "(unnamed)")
         mv["notes"] = self.map_view_notes_edit.toPlainText().strip()
-        # Refresh list display to show updated name
         self.map_views_list_widget.blockSignals(True)
         item = self.map_views_list_widget.item(idx)
         if item:
@@ -1044,7 +1157,6 @@ class WebMapExportDialog(QDockWidget):
             self._map_views[idx]["extent"] = ext
 
     def _map_view_capture_layers(self):
-        """Capture currently visible QGIS layers as this map view's layer set."""
         try:
             root = QgsProject.instance().layerTreeRoot()
             layer_names = [
@@ -1063,7 +1175,6 @@ class WebMapExportDialog(QDockWidget):
         self._update_mv_layers_label(layer_names)
 
     def _map_view_use_theme(self):
-        """Populate layerIds from the selected QGIS theme."""
         theme_name = self.import_theme_combo.currentData()
         if not theme_name:
             QMessageBox.information(self, "No theme selected", "Select a QGIS theme first.")
@@ -1086,9 +1197,7 @@ class WebMapExportDialog(QDockWidget):
         mv = {"name": "New map view", "notes": "", "extent": None, "layerIds": []}
         self._map_views.append(mv)
         self._map_views_list_refresh()
-        new_row = len(self._map_views) - 1
-        self.map_views_list_widget.setCurrentRow(new_row)
-        # Select name text for immediate renaming
+        self.map_views_list_widget.setCurrentRow(len(self._map_views) - 1)
         self.map_view_name_edit.selectAll()
         self.map_view_name_edit.setFocus()
 
@@ -1098,7 +1207,6 @@ class WebMapExportDialog(QDockWidget):
             return
         del self._map_views[row]
         self._map_views_list_refresh()
-        # Select previous item or clear form
         new_row = min(row, len(self._map_views) - 1)
         if new_row >= 0:
             self.map_views_list_widget.setCurrentRow(new_row)
@@ -1120,10 +1228,6 @@ class WebMapExportDialog(QDockWidget):
         self._map_views[row], self._map_views[row + 1] = self._map_views[row + 1], self._map_views[row]
         self._map_views_list_refresh()
         self.map_views_list_widget.setCurrentRow(row + 1)
-
-    def _import_qgis_theme_as_map_view(self):
-        """Legacy method — kept for compatibility; use _map_view_use_theme instead."""
-        self._map_view_use_theme()
 
     # ── Browse / Export ───────────────────────────────────────────────────────
 
@@ -1199,27 +1303,44 @@ class WebMapExportDialog(QDockWidget):
             from .exporter import WebMapExporter
             info_panel = None
             if self.include_info_cb.isChecked():
+                today = datetime.datetime.now().strftime("%d/%m/%Y")
+                inc_dc   = self.include_doc_control_cb.isChecked()
+                inc_proj = self.include_project_info_cb.isChecked()
+                inc_dm   = self.include_doc_metadata_cb.isChecked()
+
+                created_by = ""
+                if not inc_dc:
+                    by_name = self.info_created_by_name_edit.text().strip()
+                    created_by = (
+                        f"Created by {by_name} on {today}" if by_name
+                        else f"Created on {today}"
+                    )
+
                 info_panel = {
-                    "enabled": True,
-                    "title": self.info_title_edit.text().strip(),
-                    "text": self.info_text_edit.toPlainText().strip(),
-                    "date": self.info_date_edit.text().strip(),
-                    "doc_number": self.info_doc_number_edit.text().strip(),
-                    "revision": self.info_revision_edit.text().strip(),
-                    "purpose": self.info_purpose_edit.text().strip(),
-                    "client": self.info_client_edit.text().strip(),
-                    "client_img": self.info_client_img_edit.text().strip(),
-                    "project": self.info_project_edit.text().strip(),
-                    "project_img": self.info_project_img_edit.text().strip(),
-                    "originated_name": self.info_originated_name_edit.text().strip(),
-                    "originated_date": self.info_originated_date_edit.text().strip(),
-                    "checked_name": self.info_checked_name_edit.text().strip(),
-                    "checked_date": self.info_checked_date_edit.text().strip(),
-                    "reviewed_name": self.info_reviewed_name_edit.text().strip(),
-                    "reviewed_date": self.info_reviewed_date_edit.text().strip(),
-                    "approved_name": self.info_approved_name_edit.text().strip(),
-                    "approved_date": self.info_approved_date_edit.text().strip(),
+                    "enabled":         True,
+                    "title":           self.info_title_edit.text().strip(),
+                    "text":            self.info_text_edit.toPlainText().strip(),
+                    "doc_number":      self.info_doc_number_edit.text().strip() if inc_dm else "",
+                    "revision":        self.info_revision_edit.text().strip()   if inc_dm else "",
+                    "purpose":         self.info_purpose_combo.currentText().strip() if inc_dm else "",
+                    "client":          self.info_client_edit.text().strip()          if inc_proj else "",
+                    "client_img":      self.info_client_img_edit.text().strip()      if inc_proj else "",
+                    "project_number":  self.info_project_number_edit.text().strip()  if inc_proj else "",
+                    "project":         self.info_project_edit.text().strip()          if inc_proj else "",
+                    "project_img":     self.info_project_img_edit.text().strip()      if inc_proj else "",
+                    "include_doc_control": inc_dc,
+                    "created_by":      created_by,
+                    "date":            today if not inc_dc else "",
+                    "originated_name": self.info_originated_name_edit.text().strip() if inc_dc else "",
+                    "originated_date": self.info_originated_date_edit.text().strip() if inc_dc else "",
+                    "checked_name":    self.info_checked_name_edit.text().strip()    if inc_dc else "",
+                    "checked_date":    self.info_checked_date_edit.text().strip()    if inc_dc else "",
+                    "reviewed_name":   self.info_reviewed_name_edit.text().strip()   if inc_dc else "",
+                    "reviewed_date":   self.info_reviewed_date_edit.text().strip()   if inc_dc else "",
+                    "approved_name":   self.info_approved_name_edit.text().strip()   if inc_dc else "",
+                    "approved_date":   self.info_approved_date_edit.text().strip()   if inc_dc else "",
                 }
+
             exporter = WebMapExporter(
                 layers=layers,
                 output_path=output_path,
