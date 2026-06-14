@@ -259,29 +259,36 @@ class WebMapExportDialog(QDockWidget):
         header = QWidget()
         header.setObjectName("icHeader")
         outer = QVBoxLayout(header)
-        outer.setContentsMargins(10, 8, 10, 8)
-        outer.setSpacing(3)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        top_row = QHBoxLayout()
-        top_row.setSpacing(8)
+        # ── Purple top strip: icon + InterCarta + description ─────────────────
+        top = QWidget()
+        top.setObjectName("icTop")
+        top_vl = QVBoxLayout(top)
+        top_vl.setContentsMargins(10, 8, 10, 8)
+        top_vl.setSpacing(3)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if os.path.exists(icon_path):
             icon_lbl = QLabel()
             pm = QPixmap(icon_path).scaled(22, 22, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_lbl.setPixmap(pm)
-            top_row.addWidget(icon_lbl)
+            title_row.addWidget(icon_lbl)
         name_lbl = QLabel("InterCarta")
         name_lbl.setObjectName("icName")
-        top_row.addWidget(name_lbl)
-        top_row.addStretch()
-        outer.addLayout(top_row)
+        title_row.addWidget(name_lbl)
+        title_row.addStretch()
+        top_vl.addLayout(title_row)
 
         desc1 = QLabel(
             "Plugin to generate interactive map packages in a standalone shareable HTML file."
         )
         desc1.setObjectName("icDesc1")
         desc1.setWordWrap(True)
-        outer.addWidget(desc1)
+        top_vl.addWidget(desc1)
 
         desc2 = QLabel(
             "This plugin is in open beta — for feature requests, bugs or further info "
@@ -289,7 +296,35 @@ class WebMapExportDialog(QDockWidget):
         )
         desc2.setObjectName("icDesc2")
         desc2.setWordWrap(True)
-        outer.addWidget(desc2)
+        top_vl.addWidget(desc2)
+        outer.addWidget(top)
+
+        # ── White logo strip: AtkinsRéalis wordmark ───────────────────────────
+        logo_strip = QWidget()
+        logo_strip.setObjectName("icLogoStrip")
+        logo_hl = QHBoxLayout(logo_strip)
+        logo_hl.setContentsMargins(10, 5, 10, 5)
+
+        svg_path = os.path.join(os.path.dirname(__file__), "vendor", "Logo.svg")
+        if os.path.exists(svg_path):
+            try:
+                from qgis.PyQt.QtSvg import QSvgRenderer
+                from qgis.PyQt.QtGui import QPainter
+                renderer = QSvgRenderer(svg_path)
+                logo_h = 18
+                logo_w = int(logo_h * (354.3684 / 47.7976))
+                pm = QPixmap(logo_w, logo_h)
+                pm.fill(Qt.transparent)
+                painter = QPainter(pm)
+                renderer.render(painter)
+                painter.end()
+                logo_lbl = QLabel()
+                logo_lbl.setPixmap(pm)
+                logo_hl.addWidget(logo_lbl)
+            except Exception:
+                logo_hl.addWidget(QLabel("AtkinsRéalis"))
+        logo_hl.addStretch()
+        outer.addWidget(logo_strip)
 
         return header
 
@@ -300,9 +335,13 @@ class WebMapExportDialog(QDockWidget):
         layout.setSpacing(0)
 
         container.setStyleSheet(f"""
-            QWidget#icHeader {{
+            QWidget#icTop {{
                 background: {_AR_PURPLE};
                 border-bottom: 3px solid {_AR_PURPLE_DARK};
+            }}
+            QWidget#icLogoStrip {{
+                background: #FFFFFF;
+                border-bottom: 1px solid #E2E8F0;
             }}
             QLabel#icName {{
                 color: #FFFFFF;
