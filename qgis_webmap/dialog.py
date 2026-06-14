@@ -685,10 +685,11 @@ class WebMapExportDialog(QDockWidget):
         theme_row.addWidget(QLabel("Slave to theme:"))
         self.import_theme_combo = QComboBox()
         self.import_theme_combo.setToolTip(
-            "Assign a QGIS map theme — visibility follows the theme rather than a snapshot.\n"
+            "Link to a QGIS map theme — visibility is resolved dynamically at export time.\n"
             "Reload the plugin if a new theme does not appear here."
         )
-        use_theme_btn = QPushButton("Apply")
+        use_theme_btn = QPushButton("Link to theme")
+        use_theme_btn.setToolTip("Store a dynamic reference to this theme (not a snapshot)")
         use_theme_btn.clicked.connect(self._map_view_use_theme)
         theme_row.addWidget(self.import_theme_combo, 1)
         theme_row.addWidget(use_theme_btn)
@@ -774,6 +775,7 @@ class WebMapExportDialog(QDockWidget):
         for i in range(self.map_views_list_widget.count()):
             self.map_views_list_widget.item(i).setData(Qt.UserRole, i)
         self._mv_update_rubber_bands()
+        self._update_required_layers()
 
     def _mv_view_in_canvas(self):
         idx = self._editing_map_view_idx
@@ -900,6 +902,14 @@ class WebMapExportDialog(QDockWidget):
         widget = QWidget()
         layers_layout = QVBoxLayout(widget)
 
+        # Sub-header
+        req_lbl = QLabel("Layers selected in map views are required and cannot be deselected.")
+        req_lbl.setWordWrap(True)
+        req_lbl.setStyleSheet(
+            f"color: {_AR_PURPLE}; font-size: 10px; font-weight: 600; padding: 2px 0 4px 0;"
+        )
+        layers_layout.addWidget(req_lbl)
+
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("Apply QGIS theme:"))
         self.qgis_theme_combo = QComboBox()
@@ -930,6 +940,11 @@ class WebMapExportDialog(QDockWidget):
         layer_layout.addWidget(self.layer_tree_widget)
         layers_layout.addWidget(layer_group)
 
+        # Basemap option (directly under layer list)
+        self.basemap_cb = QCheckBox("Add OpenStreetMap basemap")
+        self.basemap_cb.setChecked(False)
+        layers_layout.addWidget(self.basemap_cb)
+
         return widget
 
     # ── Export tab ────────────────────────────────────────────────────────────
@@ -953,9 +968,6 @@ class WebMapExportDialog(QDockWidget):
         self.layer_control_cb = QCheckBox("Include legend / layer control (toggles + transparency)")
         self.layer_control_cb.setChecked(True)
         options_layout.addWidget(self.layer_control_cb)
-        self.basemap_cb = QCheckBox("Include OpenStreetMap basemap")
-        self.basemap_cb.setChecked(False)
-        options_layout.addWidget(self.basemap_cb)
 
         view_row = QHBoxLayout()
         recapture_btn = QPushButton("\U0001f4f7 Re-capture initial view")
@@ -1192,11 +1204,61 @@ class WebMapExportDialog(QDockWidget):
 
     # ── Layer tree ────────────────────────────────────────────────────────────
 
+    def _get_required_layer_names(self):
+        """Return the set of layer names referenced by any map view (static or theme)."""
+        required = set()
+        for mv in self._map_views:
+            for name in mv.get("layerIds", []):
+                required.add(name)
+            theme_name = mv.get("theme")
+            if theme_name:
+                try:
+                    tc = QgsProject.instance().mapThemeCollection()
+                    for layer in tc.mapThemeVisibleLayers(theme_name):
+                        required.add(layer.name())
+                except Exception:
+                    pass
+        return required
+
+    def _update_required_layers(self):
+        """Re-apply lock styling to any layer that is referenced by a map view."""
+        required = self._get_required_layer_names()
+        self.layer_tree_widget.blockSignals(True)
+
+        def walk(parent_item):
+            for i in range(parent_item.childCount()):
+                item = parent_item.child(i)
+                layer_id = item.data(0, Qt.UserRole)
+                if layer_id is not None:
+                    layer = QgsProject.instance().mapLayer(layer_id)
+                    if layer and layer.name() in required:
+                        item.setCheckState(0, Qt.Checked)
+                        item.setToolTip(0, "Required by a map view — cannot be deselected")
+                        item.setForeground(0, QColor(_AR_PURPLE))
+                    else:
+                        item.setToolTip(0, "")
+                        item.setForeground(0, QColor())  # reset to default
+                walk(item)
+
+        walk(self.layer_tree_widget.invisibleRootItem())
+        self.layer_tree_widget.blockSignals(False)
+
     def _on_layer_item_changed(self, item, column):
         if column != 0:
             return
         self.layer_tree_widget.blockSignals(True)
         state = item.checkState(0)
+
+        # Prevent unchecking required layers
+        if state == Qt.Unchecked:
+            layer_id = item.data(0, Qt.UserRole)
+            if layer_id:
+                layer = QgsProject.instance().mapLayer(layer_id)
+                if layer and layer.name() in self._get_required_layer_names():
+                    item.setCheckState(0, Qt.Checked)
+                    self.layer_tree_widget.blockSignals(False)
+                    return
+
         if state != Qt.PartiallyChecked and item.childCount() > 0:
             self._set_children_check_state(item, state)
         parent = item.parent()
@@ -1258,6 +1320,7 @@ class WebMapExportDialog(QDockWidget):
         self.layer_tree_widget.blockSignals(False)
         self._populate_qgis_theme_combos()
         self._mv_populate_layer_combo()
+        self._update_required_layers()
 
     def _populate_qgis_theme_combos(self):
         theme_names = []
@@ -1499,6 +1562,7 @@ class WebMapExportDialog(QDockWidget):
         self._map_views[idx]["layerIds"] = layer_names
         self._map_views[idx].pop("theme", None)
         self._update_mv_layers_label(layer_names)
+        self._update_required_layers()
 
     def _map_view_use_theme(self):
         theme_name = self.import_theme_combo.currentData()
@@ -1509,9 +1573,11 @@ class WebMapExportDialog(QDockWidget):
         if idx is None or idx < 0 or idx >= len(self._map_views):
             QMessageBox.information(self, "No map view", "Select or add a map view first.")
             return
+        # Store theme name only — visibility is resolved dynamically at export time
         self._map_views[idx]["theme"] = theme_name
         self._map_views[idx].pop("layerIds", None)
         self._update_mv_layers_label(None, theme=theme_name)
+        self._update_required_layers()
 
     def _map_view_add(self):
         mv = {"name": "New map view", "notes": "", "extent": None, "layerIds": []}
@@ -1521,6 +1587,7 @@ class WebMapExportDialog(QDockWidget):
         self.map_views_list_widget.setCurrentRow(new_row)
         self.map_view_name_edit.selectAll()
         self.map_view_name_edit.setFocus()
+        self._update_required_layers()
 
     def _map_view_delete(self):
         row = self.map_views_list_widget.currentRow()
@@ -1544,6 +1611,7 @@ class WebMapExportDialog(QDockWidget):
             self._map_view_clear_form()
             self.mv_detail_scroll.setVisible(False)
         self._mv_update_rubber_bands()
+        self._update_required_layers()
 
     # ── Browse / Export ───────────────────────────────────────────────────────
 
