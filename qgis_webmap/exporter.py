@@ -947,7 +947,7 @@ def _layer_to_geojson(layer) -> dict:
     )
 
     features = []
-    _SIMPLIFY_TOL = 0.000008  # ~0.9m at equator; removes redundant vertices on lines/polygons
+    _SIMPLIFY_TOL = 0.0000001  # ~1cm at equator — removes only exact/near-duplicate vertices
     for feat in layer.getFeatures(QgsFeatureRequest()):
         geom = feat.geometry()
         if geom is None or geom.isEmpty():
