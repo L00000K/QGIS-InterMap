@@ -519,6 +519,9 @@ class WebMapExportDialog(QDockWidget):
         layout.addWidget(inner)
         self.setWidget(container)
 
+        self.info_project_number_edit.textChanged.connect(self._update_config_bar)
+        self.include_project_info_cb.toggled.connect(self._update_config_bar)
+
         for _sig in [
             self.info_title_edit.textChanged,
             self.info_text_edit.textChanged,
@@ -595,7 +598,15 @@ class WebMapExportDialog(QDockWidget):
         self._config_none_widget.setVisible(not loaded)
         self._config_loaded_widget.setVisible(loaded)
         if loaded:
-            self.config_name_label.setText(f"Map Package Configuration Settings: {self._loaded_instance_name}")
+            parts = [f"Map Package Configuration Settings: {self._loaded_instance_name}"]
+            try:
+                inc_proj = self.include_project_info_cb.isChecked()
+                proj_num = self.info_project_number_edit.text().strip()
+                if inc_proj and proj_num:
+                    parts.append(proj_num)
+            except AttributeError:
+                pass
+            self.config_name_label.setText("   ·   ".join(parts))
             self._refresh_config_save_btn()
 
     def _refresh_config_save_btn(self):
@@ -697,12 +708,26 @@ class WebMapExportDialog(QDockWidget):
         info_form.addRow("Description:", self.info_text_edit)
         layout.addWidget(info_group)
 
-        # ── Document metadata (optional grey box) ────────────────────────────
-        self.include_doc_metadata_cb = QCheckBox("Include document metadata")
+        # ── Document metadata ────────────────────────────────────────────────
+        _dm_hdr = QWidget()
+        _dm_hdr_l = QHBoxLayout(_dm_hdr)
+        _dm_hdr_l.setContentsMargins(0, 4, 0, 0)
+        _dm_hdr_l.setSpacing(4)
+        self._dm_toggle_btn = QPushButton("▼")
+        self._dm_toggle_btn.setFixedSize(18, 18)
+        self._dm_toggle_btn.setFlat(True)
+        self._dm_toggle_btn.setCheckable(True)
+        self._dm_toggle_btn.setChecked(True)
+        _dm_hdr_l.addWidget(self._dm_toggle_btn)
+        _dm_title_lbl = QLabel("Document metadata")
+        _dm_title_lbl.setStyleSheet("font-weight: 600;")
+        _dm_hdr_l.addWidget(_dm_title_lbl, 1)
+        self.include_doc_metadata_cb = QCheckBox("Include in export")
         self.include_doc_metadata_cb.setChecked(True)
-        layout.addWidget(self.include_doc_metadata_cb)
+        _dm_hdr_l.addWidget(self.include_doc_metadata_cb)
+        layout.addWidget(_dm_hdr)
 
-        self.doc_meta_widget = QGroupBox("Document metadata")
+        self.doc_meta_widget = QGroupBox()
         self.doc_meta_widget.setObjectName("greyBox")
         dm_form = QFormLayout(self.doc_meta_widget)
         dm_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
@@ -718,14 +743,33 @@ class WebMapExportDialog(QDockWidget):
             self.info_purpose_combo.addItem(opt)
         dm_form.addRow("Purpose of issue:", self.info_purpose_combo)
         layout.addWidget(self.doc_meta_widget)
-        self.include_doc_metadata_cb.toggled.connect(self.doc_meta_widget.setVisible)
+        self._dm_toggle_btn.toggled.connect(
+            lambda checked: (
+                self._dm_toggle_btn.setText("▼" if checked else "▶"),
+                self.doc_meta_widget.setVisible(checked),
+            )
+        )
 
-        # ── Project information (optional grey box) ───────────────────────────
-        self.include_project_info_cb = QCheckBox("Include project information")
+        # ── Project information ───────────────────────────────────────────────
+        _pi_hdr = QWidget()
+        _pi_hdr_l = QHBoxLayout(_pi_hdr)
+        _pi_hdr_l.setContentsMargins(0, 4, 0, 0)
+        _pi_hdr_l.setSpacing(4)
+        self._pi_toggle_btn = QPushButton("▼")
+        self._pi_toggle_btn.setFixedSize(18, 18)
+        self._pi_toggle_btn.setFlat(True)
+        self._pi_toggle_btn.setCheckable(True)
+        self._pi_toggle_btn.setChecked(True)
+        _pi_hdr_l.addWidget(self._pi_toggle_btn)
+        _pi_title_lbl = QLabel("Project information")
+        _pi_title_lbl.setStyleSheet("font-weight: 600;")
+        _pi_hdr_l.addWidget(_pi_title_lbl, 1)
+        self.include_project_info_cb = QCheckBox("Include in export")
         self.include_project_info_cb.setChecked(True)
-        layout.addWidget(self.include_project_info_cb)
+        _pi_hdr_l.addWidget(self.include_project_info_cb)
+        layout.addWidget(_pi_hdr)
 
-        self.proj_info_widget = QGroupBox("Project information")
+        self.proj_info_widget = QGroupBox()
         self.proj_info_widget.setObjectName("greyBox")
         proj_form = QFormLayout(self.proj_info_widget)
         proj_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
@@ -767,14 +811,33 @@ class WebMapExportDialog(QDockWidget):
         proj_form.addRow("Project image:", _pimg_w)
 
         layout.addWidget(self.proj_info_widget)
-        self.include_project_info_cb.toggled.connect(self.proj_info_widget.setVisible)
+        self._pi_toggle_btn.toggled.connect(
+            lambda checked: (
+                self._pi_toggle_btn.setText("▼" if checked else "▶"),
+                self.proj_info_widget.setVisible(checked),
+            )
+        )
 
-        # ── Document control (optional grey box) ─────────────────────────────
-        self.include_doc_control_cb = QCheckBox("Include document control")
+        # ── Document control ─────────────────────────────────────────────────
+        _dc_hdr = QWidget()
+        _dc_hdr_l = QHBoxLayout(_dc_hdr)
+        _dc_hdr_l.setContentsMargins(0, 4, 0, 0)
+        _dc_hdr_l.setSpacing(4)
+        self._dc_toggle_btn = QPushButton("▼")
+        self._dc_toggle_btn.setFixedSize(18, 18)
+        self._dc_toggle_btn.setFlat(True)
+        self._dc_toggle_btn.setCheckable(True)
+        self._dc_toggle_btn.setChecked(True)
+        _dc_hdr_l.addWidget(self._dc_toggle_btn)
+        _dc_title_lbl = QLabel("Document control")
+        _dc_title_lbl.setStyleSheet("font-weight: 600;")
+        _dc_hdr_l.addWidget(_dc_title_lbl, 1)
+        self.include_doc_control_cb = QCheckBox("Include in export")
         self.include_doc_control_cb.setChecked(True)
-        layout.addWidget(self.include_doc_control_cb)
+        _dc_hdr_l.addWidget(self.include_doc_control_cb)
+        layout.addWidget(_dc_hdr)
 
-        self.doc_control_widget = QGroupBox("Document control")
+        self.doc_control_widget = QGroupBox()
         self.doc_control_widget.setObjectName("greyBox")
         dc_vl = QVBoxLayout(self.doc_control_widget)
 
@@ -816,8 +879,14 @@ class WebMapExportDialog(QDockWidget):
         layout.addWidget(self.doc_control_widget)
         layout.addStretch()
 
+        self._dc_toggle_btn.toggled.connect(
+            lambda checked: (
+                self._dc_toggle_btn.setText("▼" if checked else "▶"),
+                self.doc_control_widget.setVisible(checked),
+            )
+        )
         self.include_doc_control_cb.toggled.connect(self._on_doc_control_toggled)
-        self._on_doc_control_toggled(True)
+        self._on_doc_control_toggled(self.include_doc_control_cb.isChecked())
 
         scroll.setWidget(widget)
         return scroll
