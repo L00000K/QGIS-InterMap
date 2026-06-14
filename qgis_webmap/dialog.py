@@ -408,14 +408,18 @@ class WebMapExportDialog(QDockWidget):
             QGroupBox {{
                 border: 1px solid #E2E8F0;
                 border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 4px;
+                margin-top: 16px;
+                padding-top: 6px;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
+                subcontrol-position: top left;
+                top: -1px;
                 left: 8px;
-                color: {_AR_PURPLE};
+                padding: 0 4px;
+                color: #374151;
                 font-weight: 600;
+                font-size: 10px;
             }}
             QGroupBox#greyBox {{
                 background: #F8F9FB;
