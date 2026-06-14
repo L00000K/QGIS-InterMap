@@ -23,19 +23,12 @@ _INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"
 _PURPOSE_OPTIONS = [
     "",
     "P1 – Preliminary",
-    "P2 – Work in progress",
-    "S1 – Suitable for coordination",
-    "S2 – Suitable for information",
-    "S3 – Suitable for review and comment",
-    "S4 – Suitable for construction",
-    "S5 – As built / record",
-    "AFC – Approved for construction",
-    "AFI – Approved for information",
-    "IFA – Issued for approval",
-    "IFC – Issued for construction",
-    "IFI – Issued for information",
-    "IFR – Issued for review",
-    "IFT – Issued for tender",
+    "P2 – Work in Progress",
+    "P3 – Suitable for Coordination",
+    "P4 – Suitable for Review",
+    "P5 – Suitable for Information",
+    "P6 – Suitable for Construction",
+    "P7 – As Built / Record",
 ]
 
 _AR_PURPLE       = "#5C2D91"
@@ -128,6 +121,7 @@ class WebMapExportDialog(QDockWidget):
         self._editing_map_view_idx = None
         self._editing_map_view_extent = None
         self._loaded_instance_name = None
+        self._has_unsaved_changes = False
         self._mv_rubber_bands = {}
         self._mv_draw_tool = None
         self._build_ui()
@@ -135,7 +129,6 @@ class WebMapExportDialog(QDockWidget):
         self.path_edit.setText(self._default_output_path())
         self._populate_layers()
         self._load_settings()
-        self._instances_refresh_combo()
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -262,11 +255,11 @@ class WebMapExportDialog(QDockWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # ── Purple top strip: icon + InterCarta + description ─────────────────
+        # ── Purple top strip: icon + InterCarta title only ────────────────────
         top = QWidget()
         top.setObjectName("icTop")
         top_vl = QVBoxLayout(top)
-        top_vl.setContentsMargins(10, 8, 10, 8)
+        top_vl.setContentsMargins(10, 10, 10, 10)
         top_vl.setSpacing(3)
 
         title_row = QHBoxLayout()
@@ -274,7 +267,7 @@ class WebMapExportDialog(QDockWidget):
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if os.path.exists(icon_path):
             icon_lbl = QLabel()
-            pm = QPixmap(icon_path).scaled(22, 22, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pm = QPixmap(icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_lbl.setPixmap(pm)
             title_row.addWidget(icon_lbl)
         name_lbl = QLabel("InterCarta")
@@ -282,28 +275,14 @@ class WebMapExportDialog(QDockWidget):
         title_row.addWidget(name_lbl)
         title_row.addStretch()
         top_vl.addLayout(title_row)
-
-        desc1 = QLabel(
-            "Plugin to generate interactive map packages in a standalone shareable HTML file."
-        )
-        desc1.setObjectName("icDesc1")
-        desc1.setWordWrap(True)
-        top_vl.addWidget(desc1)
-
-        desc2 = QLabel(
-            "This plugin is in open beta — for feature requests, bugs or further info "
-            "reach out to Luke.Johnstone@Atkinsrealis.com"
-        )
-        desc2.setObjectName("icDesc2")
-        desc2.setWordWrap(True)
-        top_vl.addWidget(desc2)
         outer.addWidget(top)
 
-        # ── White logo strip: AtkinsRéalis wordmark ───────────────────────────
+        # ── White logo strip: AtkinsRéalis wordmark + descriptions ───────────
         logo_strip = QWidget()
         logo_strip.setObjectName("icLogoStrip")
-        logo_hl = QHBoxLayout(logo_strip)
-        logo_hl.setContentsMargins(10, 5, 10, 5)
+        logo_vl = QVBoxLayout(logo_strip)
+        logo_vl.setContentsMargins(10, 6, 10, 6)
+        logo_vl.setSpacing(4)
 
         svg_path = os.path.join(os.path.dirname(__file__), "vendor", "Logo.svg")
         if os.path.exists(svg_path):
@@ -311,7 +290,7 @@ class WebMapExportDialog(QDockWidget):
                 from qgis.PyQt.QtSvg import QSvgRenderer
                 from qgis.PyQt.QtGui import QPainter
                 renderer = QSvgRenderer(svg_path)
-                logo_h = 18
+                logo_h = 20
                 logo_w = int(logo_h * (354.3684 / 47.7976))
                 pm = QPixmap(logo_w, logo_h)
                 pm.fill(Qt.transparent)
@@ -320,10 +299,27 @@ class WebMapExportDialog(QDockWidget):
                 painter.end()
                 logo_lbl = QLabel()
                 logo_lbl.setPixmap(pm)
-                logo_hl.addWidget(logo_lbl)
+                logo_vl.addWidget(logo_lbl)
             except Exception:
-                logo_hl.addWidget(QLabel("AtkinsRéalis"))
-        logo_hl.addStretch()
+                logo_vl.addWidget(QLabel("AtkinsRéalis"))
+        else:
+            logo_vl.addWidget(QLabel("AtkinsRéalis"))
+
+        desc1 = QLabel(
+            "Plugin to generate interactive map packages in a standalone shareable HTML file."
+        )
+        desc1.setObjectName("icDesc1")
+        desc1.setWordWrap(True)
+        logo_vl.addWidget(desc1)
+
+        desc2 = QLabel(
+            "This plugin is in open beta — for feature requests, bugs or further info "
+            "reach out to Luke.Johnstone@Atkinsrealis.com"
+        )
+        desc2.setObjectName("icDesc2")
+        desc2.setWordWrap(True)
+        logo_vl.addWidget(desc2)
+
         outer.addWidget(logo_strip)
 
         return header
@@ -343,17 +339,44 @@ class WebMapExportDialog(QDockWidget):
                 background: #FFFFFF;
                 border-bottom: 1px solid #E2E8F0;
             }}
+            QWidget#icConfigBar {{
+                background: #F8F9FB;
+                border-bottom: 1px solid #E2E8F0;
+            }}
+            QLabel#icConfigName {{
+                color: #374151;
+                font-weight: 600;
+                font-size: 11px;
+            }}
+            QPushButton#icConfigSave {{
+                background: #5C2D91;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 3px 10px;
+                font-size: 11px;
+            }}
+            QPushButton#icConfigSave:hover {{ background: #3D1A6B; }}
+            QPushButton#icConfigSaveRed {{
+                background: #DC2626;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 3px 10px;
+                font-size: 11px;
+            }}
+            QPushButton#icConfigSaveRed:hover {{ background: #B91C1C; }}
             QLabel#icName {{
                 color: #FFFFFF;
-                font-size: 14px;
+                font-size: 17px;
                 font-weight: 700;
             }}
             QLabel#icDesc1 {{
-                color: rgba(255,255,255,0.80);
+                color: #475569;
                 font-size: 10px;
             }}
             QLabel#icDesc2 {{
-                color: #FFB3B3;
+                color: #DC2626;
                 font-size: 10px;
             }}
             QTabWidget::pane {{
@@ -412,6 +435,7 @@ class WebMapExportDialog(QDockWidget):
         """)
 
         layout.addWidget(self._build_header())
+        layout.addWidget(self._build_config_bar())
 
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
@@ -445,6 +469,19 @@ class WebMapExportDialog(QDockWidget):
         layout.addWidget(inner)
         self.setWidget(container)
 
+        for _sig in [
+            self.info_title_edit.textChanged,
+            self.info_text_edit.textChanged,
+            self.export_theme_combo.currentIndexChanged,
+            self.include_info_cb.toggled,
+            self.include_doc_metadata_cb.toggled,
+            self.include_project_info_cb.toggled,
+            self.include_doc_control_cb.toggled,
+            self.layer_control_cb.toggled,
+            self.basemap_cb.toggled,
+        ]:
+            _sig.connect(self._mark_unsaved)
+
     # ── Map Info tab ──────────────────────────────────────────────────────────
 
     def _build_map_info_tab(self):
@@ -456,27 +493,6 @@ class WebMapExportDialog(QDockWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 8)
         layout.setSpacing(6)
-
-        # ── Saved map config ──────────────────────────────────────────────────
-        saved_group = QGroupBox("Saved map config")
-        saved_vl = QVBoxLayout(saved_group)
-        saved_vl.setSpacing(4)
-
-        self.loaded_instance_label = QLabel("No config loaded")
-        self.loaded_instance_label.setStyleSheet("color: #6B7280; font-style: italic; font-size: 10px;")
-        saved_vl.addWidget(self.loaded_instance_label)
-
-        combo_row = QHBoxLayout()
-        self.instance_combo = QComboBox()
-        self.instance_combo.setToolTip("Saved export configurations")
-        combo_row.addWidget(self.instance_combo, 1)
-        cog_btn = QPushButton("⚙")
-        cog_btn.setFixedWidth(30)
-        cog_btn.setToolTip("Load / Save / Save As / Delete")
-        cog_btn.clicked.connect(self._show_instance_menu)
-        combo_row.addWidget(cog_btn)
-        saved_vl.addLayout(combo_row)
-        layout.addWidget(saved_group)
 
         # ── Map info (grey box) ───────────────────────────────────────────────
         self.include_info_cb = QCheckBox("Include 'About this map' info panel")
@@ -626,24 +642,6 @@ class WebMapExportDialog(QDockWidget):
         self.dc_grid_widget.setVisible(checked)
         self.created_by_widget.setVisible(not checked)
 
-    def _show_instance_menu(self):
-        menu = QMenu(self)
-        load_act    = menu.addAction("Load")
-        save_act    = menu.addAction("Save")
-        save_as_act = menu.addAction("Save As…")
-        menu.addSeparator()
-        del_act = menu.addAction("Delete")
-        btn = self.sender()
-        action = menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
-        if action == load_act:
-            self._instance_load()
-        elif action == save_act:
-            self._instance_save()
-        elif action == save_as_act:
-            self._instance_save_as()
-        elif action == del_act:
-            self._instance_delete()
-
     # ── Map Views tab ─────────────────────────────────────────────────────────
 
     def _build_map_views_tab(self):
@@ -663,26 +661,41 @@ class WebMapExportDialog(QDockWidget):
         self.map_views_list_widget.model().rowsMoved.connect(self._on_mv_rows_moved)
         mv_layout.addWidget(self.map_views_list_widget)
 
-        # Placeholder (shown when list is empty)
-        self.mv_placeholder_label = QLabel(
-            "Default — no map views.\n\n"
-            "Edit default export settings below.\n"
-            "Add a map view to create named extents;\n"
-            "the first view becomes the default extent."
-        )
-        self.mv_placeholder_label.setAlignment(Qt.AlignCenter)
-        self.mv_placeholder_label.setWordWrap(True)
-        self.mv_placeholder_label.setStyleSheet(
-            "color: #9CA3AF; font-style: italic; font-size: 10px; padding: 4px;"
-        )
-        mv_layout.addWidget(self.mv_placeholder_label)
-
-        # Add button
+        # Add buttons (directly below list)
+        add_row = QHBoxLayout()
         add_mv_btn = QPushButton("＋  Add map view")
         add_mv_btn.clicked.connect(self._map_view_add)
-        mv_layout.addWidget(add_mv_btn)
+        add_row.addWidget(add_mv_btn)
+        add_theme_btn = QPushButton("＋  Add from theme")
+        add_theme_btn.setToolTip("Create a map view linked to a QGIS map theme")
+        add_theme_btn.clicked.connect(self._map_view_add_from_theme)
+        add_row.addWidget(add_theme_btn)
+        mv_layout.addLayout(add_row)
 
-        # ── Detail (scroll, hidden when nothing selected) ─────────────────────
+        # ── Default detail (shown when Default item selected) ─────────────────
+        self.mv_default_detail = QWidget()
+        def_layout = QVBoxLayout(self.mv_default_detail)
+        def_layout.setContentsMargins(0, 4, 0, 4)
+        def_layout.setSpacing(6)
+        def_lbl = QLabel("Default map state — applies before any map view is selected.")
+        def_lbl.setStyleSheet("color: #6B7280; font-size: 10px; font-style: italic;")
+        def_lbl.setWordWrap(True)
+        def_layout.addWidget(def_lbl)
+        def_ext_group = QGroupBox("Initial extent")
+        def_ext_vl = QVBoxLayout(def_ext_group)
+        def_ext_vl.setSpacing(4)
+        set_init_btn = QPushButton("📷  Set from map canvas")
+        set_init_btn.clicked.connect(self._recapture_initial_extent)
+        def_ext_vl.addWidget(set_init_btn)
+        self.default_extent_label = QLabel("(using full layer extent by default)")
+        self.default_extent_label.setStyleSheet("color: #6B7280; font-size: 10px;")
+        def_ext_vl.addWidget(self.default_extent_label)
+        def_layout.addWidget(def_ext_group)
+        def_layout.addStretch()
+        mv_layout.addWidget(self.mv_default_detail, 1)
+        self.mv_default_detail.setVisible(False)
+
+        # ── Map view detail (shown when real view selected) ───────────────────
         self.mv_detail_scroll = QScrollArea()
         self.mv_detail_scroll.setWidgetResizable(True)
         self.mv_detail_scroll.setFrameShape(QScrollArea.NoFrame)
@@ -692,12 +705,10 @@ class WebMapExportDialog(QDockWidget):
         detail_layout.setContentsMargins(0, 4, 0, 4)
         detail_layout.setSpacing(6)
 
-        # View in canvas
         view_canvas_btn = QPushButton("🗺  View in map canvas")
         view_canvas_btn.clicked.connect(self._mv_view_in_canvas)
         detail_layout.addWidget(view_canvas_btn)
 
-        # Name
         name_row = QHBoxLayout()
         name_row.addWidget(QLabel("Name:"))
         self.map_view_name_edit = QLineEdit()
@@ -706,7 +717,6 @@ class WebMapExportDialog(QDockWidget):
         name_row.addWidget(self.map_view_name_edit, 1)
         detail_layout.addLayout(name_row)
 
-        # Description
         detail_layout.addWidget(QLabel("Description:"))
         self.map_view_notes_edit = QTextEdit()
         self.map_view_notes_edit.setPlaceholderText("Description shown in the map viewer")
@@ -714,16 +724,14 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
         detail_layout.addWidget(self.map_view_notes_edit)
 
-        # ── Visible layers ────────────────────────────────────────────────────
+        # Visible layers
         layers_group = QGroupBox("Visible layers")
         layers_vl = QVBoxLayout(layers_group)
         layers_vl.setSpacing(4)
-
         copy_layers_btn = QPushButton("📷  Set to map canvas layers")
         copy_layers_btn.setToolTip("Snapshot which layers are currently visible in QGIS")
         copy_layers_btn.clicked.connect(self._map_view_capture_layers)
         layers_vl.addWidget(copy_layers_btn)
-
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("Slave to theme:"))
         self.import_theme_combo = QComboBox()
@@ -737,27 +745,23 @@ class WebMapExportDialog(QDockWidget):
         theme_row.addWidget(self.import_theme_combo, 1)
         theme_row.addWidget(use_theme_btn)
         layers_vl.addLayout(theme_row)
-
         self.map_view_layers_label = QLabel("Layers: (not set)")
         self.map_view_layers_label.setWordWrap(True)
         self.map_view_layers_label.setStyleSheet("color: #6B7280; font-size: 10px;")
         layers_vl.addWidget(self.map_view_layers_label)
         detail_layout.addWidget(layers_group)
 
-        # ── View extent ───────────────────────────────────────────────────────
+        # View extent
         extent_group = QGroupBox("View extent")
         extent_vl = QVBoxLayout(extent_group)
         extent_vl.setSpacing(4)
-
         set_canvas_btn = QPushButton("📷  Set to map canvas extent")
         set_canvas_btn.clicked.connect(self._map_view_capture_extent)
         extent_vl.addWidget(set_canvas_btn)
-
         draw_btn = QPushButton("✏  Draw extent on map canvas")
         draw_btn.setToolTip("Click and drag a rectangle on the map canvas")
         draw_btn.clicked.connect(self._mv_start_draw_extent)
         extent_vl.addWidget(draw_btn)
-
         layer_ext_row = QHBoxLayout()
         layer_ext_row.addWidget(QLabel("From layer:"))
         self.mv_layer_extent_combo = QComboBox()
@@ -766,7 +770,6 @@ class WebMapExportDialog(QDockWidget):
         layer_ext_row.addWidget(self.mv_layer_extent_combo, 1)
         layer_ext_row.addWidget(set_layer_ext_btn)
         extent_vl.addLayout(layer_ext_row)
-
         self.map_view_extent_label = QLabel("(not set)")
         self.map_view_extent_label.setWordWrap(True)
         self.map_view_extent_label.setStyleSheet("color: #6B7280; font-size: 10px;")
@@ -775,7 +778,6 @@ class WebMapExportDialog(QDockWidget):
 
         detail_layout.addStretch()
 
-        # Delete (red, bottom)
         del_btn = QPushButton("Delete this map view")
         del_btn.setObjectName("deleteBtn")
         del_btn.clicked.connect(self._map_view_delete)
@@ -783,18 +785,14 @@ class WebMapExportDialog(QDockWidget):
 
         self.mv_detail_scroll.setWidget(detail_widget)
         mv_layout.addWidget(self.mv_detail_scroll, 1)
+        self.mv_detail_scroll.setVisible(False)
 
-        self._mv_update_placeholder()
+        self._map_views_list_refresh()
         self._mv_populate_layer_combo()
 
         return widget
 
     # ── Map View helpers ──────────────────────────────────────────────────────
-
-    def _mv_update_placeholder(self):
-        empty = len(self._map_views) == 0
-        self.mv_placeholder_label.setVisible(empty)
-        self.mv_detail_scroll.setVisible(not empty and self._editing_map_view_idx is not None)
 
     def _mv_populate_layer_combo(self):
         """Fill the 'set extent from layer' combo with all project layers."""
@@ -806,17 +804,26 @@ class WebMapExportDialog(QDockWidget):
             pass
 
     def _on_mv_rows_moved(self, _parent, start, _end, _dest, dest_row):
-        """Sync self._map_views to match the QListWidget order after a drag-drop."""
+        # Guard: Default item must stay at position 0
+        for i in range(self.map_views_list_widget.count()):
+            if self.map_views_list_widget.item(i).data(Qt.UserRole) == -1 and i != 0:
+                self._map_views_list_refresh()
+                return
+
         new_order = []
         for i in range(self.map_views_list_widget.count()):
             orig_idx = self.map_views_list_widget.item(i).data(Qt.UserRole)
-            if orig_idx is not None and 0 <= orig_idx < len(self._map_views):
+            if orig_idx is not None and orig_idx != -1 and 0 <= orig_idx < len(self._map_views):
                 new_order.append(self._map_views[orig_idx])
         if len(new_order) == len(self._map_views):
             self._map_views = new_order
-        # Re-index UserRole values
+        # Re-index UserRole (skip Default at position 0)
+        j = 0
         for i in range(self.map_views_list_widget.count()):
-            self.map_views_list_widget.item(i).setData(Qt.UserRole, i)
+            item = self.map_views_list_widget.item(i)
+            if item.data(Qt.UserRole) != -1:
+                item.setData(Qt.UserRole, j)
+                j += 1
         self._mv_update_rubber_bands()
         self._update_required_layers()
 
@@ -1493,26 +1500,51 @@ class WebMapExportDialog(QDockWidget):
     # ── Map Views ─────────────────────────────────────────────────────────────
 
     def _map_views_list_refresh(self):
+        from qgis.PyQt.QtWidgets import QListWidgetItem
+        from qgis.PyQt.QtGui import QFont
         self.map_views_list_widget.blockSignals(True)
         self.map_views_list_widget.clear()
+
+        # Always-present Default item
+        default_item = QListWidgetItem("  Default – No map views")
+        default_item.setData(Qt.UserRole, -1)
+        default_item.setToolTip("Default map state — click to configure initial extent")
+        f = default_item.font()
+        f.setItalic(True)
+        default_item.setFont(f)
+        default_item.setForeground(QColor("#9CA3AF"))
+        default_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+        self.map_views_list_widget.addItem(default_item)
+
         for i, mv in enumerate(self._map_views):
-            from qgis.PyQt.QtWidgets import QListWidgetItem
             item = QListWidgetItem("⠿  " + (mv.get("name") or "(unnamed)"))
             item.setData(Qt.UserRole, i)
             item.setToolTip("Drag to reorder")
             self.map_views_list_widget.addItem(item)
+
         self.map_views_list_widget.blockSignals(False)
-        self._mv_update_placeholder()
 
     def _on_map_view_selected(self, row):
-        if row < 0 or row >= len(self._map_views):
-            self._map_view_clear_form()
+        item = self.map_views_list_widget.item(row) if row >= 0 else None
+        if item and item.data(Qt.UserRole) == -1:
+            # Default item
+            self._editing_map_view_idx = None
+            self.mv_default_detail.setVisible(True)
             self.mv_detail_scroll.setVisible(False)
             self._mv_update_rubber_bands()
             return
+        # Adjust for the Default item at position 0
+        mv_idx = row - 1
+        if row < 1 or mv_idx >= len(self._map_views):
+            self._map_view_clear_form()
+            self.mv_default_detail.setVisible(False)
+            self.mv_detail_scroll.setVisible(False)
+            self._mv_update_rubber_bands()
+            return
+        self.mv_default_detail.setVisible(False)
         self.mv_detail_scroll.setVisible(True)
-        mv = self._map_views[row]
-        self._editing_map_view_idx = row
+        mv = self._map_views[mv_idx]
+        self._editing_map_view_idx = mv_idx
         self._editing_map_view_extent = mv.get("extent")
         self.map_view_name_edit.blockSignals(True)
         self.map_view_notes_edit.blockSignals(True)
@@ -1565,7 +1597,7 @@ class WebMapExportDialog(QDockWidget):
         mv["name"] = name or mv.get("name", "(unnamed)")
         mv["notes"] = self.map_view_notes_edit.toPlainText().strip()
         self.map_views_list_widget.blockSignals(True)
-        item = self.map_views_list_widget.item(idx)
+        item = self.map_views_list_widget.item(idx + 1)  # +1 for Default item at 0
         if item:
             item.setText("⠿  " + mv["name"])
         self.map_views_list_widget.blockSignals(False)
