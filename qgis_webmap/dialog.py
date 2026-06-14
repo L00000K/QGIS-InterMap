@@ -8,6 +8,7 @@ from qgis.PyQt.QtWidgets import (
     QTabWidget, QTextEdit, QFormLayout, QWidget,
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
     QScrollArea, QMenu, QGridLayout, QAbstractItemView, QSizePolicy,
+    QStackedWidget,
 )
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings, pyqtSignal
 from qgis.PyQt.QtGui import QDesktopServices, QPixmap, QColor
@@ -31,9 +32,9 @@ _PURPOSE_OPTIONS = [
     "P7 – As Built / Record",
 ]
 
-_AR_PURPLE       = "#5C2D91"
-_AR_PURPLE_DARK  = "#3D1A6B"
-_AR_PURPLE_LIGHT = "#9B59C4"
+_AR_PURPLE       = "#3f32f1"
+_AR_PURPLE_DARK  = "#2b22c0"
+_AR_PURPLE_LIGHT = "#7066f5"
 
 
 # ── Drag-to-draw extent tool ──────────────────────────────────────────────────
@@ -54,7 +55,7 @@ class _RectExtentTool:
                     super().__init__(cv)
                     self._rb = QgsRubberBand(cv, QgsWkbTypes.PolygonGeometry)
                     self._rb.setStrokeColor(QColor(_AR_PURPLE))
-                    self._rb.setFillColor(QColor(92, 45, 145, 25))
+                    self._rb.setFillColor(QColor(63, 50, 241, 25))
                     self._rb.setWidth(2)
                     self._start = None
 
@@ -349,14 +350,14 @@ class WebMapExportDialog(QDockWidget):
                 font-size: 11px;
             }}
             QPushButton#icConfigSave {{
-                background: #5C2D91;
+                background: {_AR_PURPLE};
                 color: white;
                 border: none;
                 border-radius: 3px;
                 padding: 3px 10px;
                 font-size: 11px;
             }}
-            QPushButton#icConfigSave:hover {{ background: #3D1A6B; }}
+            QPushButton#icConfigSave:hover {{ background: {_AR_PURPLE_DARK}; }}
             QPushButton#icConfigSaveRed {{
                 background: #DC2626;
                 color: white;
@@ -379,20 +380,29 @@ class WebMapExportDialog(QDockWidget):
                 color: #DC2626;
                 font-size: 10px;
             }}
-            QTabWidget::pane {{
-                border-top: 2px solid {_AR_PURPLE};
-            }}
-            QTabBar::tab {{
-                padding: 5px 11px;
-                border-bottom: 2px solid transparent;
-            }}
-            QTabBar::tab:selected {{
+            QWidget#icNavBar {{
+                background: #FFFFFF;
                 border-bottom: 2px solid {_AR_PURPLE};
-                color: {_AR_PURPLE};
-                font-weight: 600;
             }}
-            QTabBar::tab:hover:!selected {{
-                border-bottom: 2px solid {_AR_PURPLE_LIGHT};
+            QPushButton#icNavBtn {{
+                background: transparent;
+                border: none;
+                padding: 6px 10px;
+                color: #6B7280;
+                font-size: 11px;
+            }}
+            QPushButton#icNavBtn:checked {{
+                color: {_AR_PURPLE};
+                font-weight: 700;
+                border-bottom: 2px solid {_AR_PURPLE};
+            }}
+            QPushButton#icNavBtn:hover:!checked {{
+                color: {_AR_PURPLE_LIGHT};
+            }}
+            QLabel#icNavSep {{
+                color: #D1D5DB;
+                font-size: 13px;
+                padding: 0 2px;
             }}
             QGroupBox {{
                 border: 1px solid #E2E8F0;
@@ -442,13 +452,40 @@ class WebMapExportDialog(QDockWidget):
         inner_layout.setContentsMargins(8, 6, 8, 0)
         inner_layout.setSpacing(4)
 
-        tabs = QTabWidget()
-        inner_layout.addWidget(tabs)
+        # ── Step navigation bar (replaces QTabWidget) ─────────────────────
+        nav_bar = QWidget()
+        nav_bar.setObjectName("icNavBar")
+        nav_hl = QHBoxLayout(nav_bar)
+        nav_hl.setContentsMargins(6, 0, 6, 0)
+        nav_hl.setSpacing(0)
 
-        tabs.addTab(self._build_map_info_tab(),   "Map Info")
-        tabs.addTab(self._build_map_views_tab(),  "Map Views")
-        tabs.addTab(self._build_layers_tab(),     "Layers")
-        tabs.addTab(self._build_export_tab(),     "Export")
+        self._tab_stack = QStackedWidget()
+        self._nav_btns = []
+
+        _tab_defs = [
+            ("Map Info",  self._build_map_info_tab()),
+            ("Map Views", self._build_map_views_tab()),
+            ("Layers",    self._build_layers_tab()),
+            ("Export",    self._build_export_tab()),
+        ]
+        for i, (label, page_widget) in enumerate(_tab_defs):
+            if i > 0:
+                sep = QLabel("›")
+                sep.setObjectName("icNavSep")
+                nav_hl.addWidget(sep)
+            btn = QPushButton(label)
+            btn.setObjectName("icNavBtn")
+            btn.setCheckable(True)
+            btn.setFlat(True)
+            btn.clicked.connect(lambda _checked, idx=i: self._switch_tab(idx))
+            self._nav_btns.append(btn)
+            nav_hl.addWidget(btn)
+            self._tab_stack.addWidget(page_widget)
+
+        nav_hl.addStretch()
+        inner_layout.addWidget(nav_bar)
+        inner_layout.addWidget(self._tab_stack, 1)
+        self._switch_tab(0)
 
         self.progress = QProgressBar()
         self.progress.setVisible(False)
@@ -481,6 +518,133 @@ class WebMapExportDialog(QDockWidget):
             self.basemap_cb.toggled,
         ]:
             _sig.connect(self._mark_unsaved)
+
+    def _switch_tab(self, idx):
+        self._tab_stack.setCurrentIndex(idx)
+        for i, btn in enumerate(self._nav_btns):
+            btn.setChecked(i == idx)
+
+    # ── Config bar ────────────────────────────────────────────────────────────
+
+    def _build_config_bar(self):
+        bar = QWidget()
+        bar.setObjectName("icConfigBar")
+        bar_hl = QHBoxLayout(bar)
+        bar_hl.setContentsMargins(8, 5, 8, 5)
+        bar_hl.setSpacing(6)
+
+        # State: no config loaded
+        self._config_none_widget = QWidget()
+        none_hl = QHBoxLayout(self._config_none_widget)
+        none_hl.setContentsMargins(0, 0, 0, 0)
+        none_hl.setSpacing(6)
+        load_btn = QPushButton("Load Config")
+        load_btn.clicked.connect(self._config_bar_load)
+        none_hl.addWidget(load_btn)
+        create_btn = QPushButton("Create Config")
+        create_btn.clicked.connect(self._config_bar_create)
+        none_hl.addWidget(create_btn)
+        none_hl.addStretch()
+        bar_hl.addWidget(self._config_none_widget)
+
+        # State: config loaded
+        self._config_loaded_widget = QWidget()
+        loaded_hl = QHBoxLayout(self._config_loaded_widget)
+        loaded_hl.setContentsMargins(0, 0, 0, 0)
+        loaded_hl.setSpacing(6)
+        self.config_name_label = QLabel("")
+        self.config_name_label.setObjectName("icConfigName")
+        loaded_hl.addWidget(self.config_name_label)
+        loaded_hl.addStretch()
+        self.config_save_btn = QPushButton("Save")
+        self.config_save_btn.setObjectName("icConfigSave")
+        self.config_save_btn.clicked.connect(self._instance_save)
+        loaded_hl.addWidget(self.config_save_btn)
+        self.config_menu_btn = QPushButton("☰")
+        self.config_menu_btn.setFixedWidth(32)
+        self.config_menu_btn.setToolTip("Switch / Load, Save As, Delete")
+        self.config_menu_btn.clicked.connect(self._show_config_menu)
+        loaded_hl.addWidget(self.config_menu_btn)
+        bar_hl.addWidget(self._config_loaded_widget)
+
+        self._update_config_bar()
+        return bar
+
+    def _update_config_bar(self):
+        loaded = self._loaded_instance_name is not None
+        self._config_none_widget.setVisible(not loaded)
+        self._config_loaded_widget.setVisible(loaded)
+        if loaded:
+            self.config_name_label.setText(f"Config: {self._loaded_instance_name}")
+            self._refresh_config_save_btn()
+
+    def _refresh_config_save_btn(self):
+        obj = "icConfigSaveRed" if self._has_unsaved_changes else "icConfigSave"
+        self.config_save_btn.setObjectName(obj)
+        self.config_save_btn.style().unpolish(self.config_save_btn)
+        self.config_save_btn.style().polish(self.config_save_btn)
+
+    def _mark_unsaved(self, *_):
+        if self._loaded_instance_name is None:
+            return
+        self._has_unsaved_changes = True
+        self._refresh_config_save_btn()
+
+    def _config_bar_load(self):
+        data = self._instances_load_all()
+        if not data:
+            QMessageBox.information(self, "No saved configs",
+                "No saved configurations found. Use 'Create Config' to save the current settings.")
+            return
+        names = sorted(data.keys(), key=str.lower)
+        name, ok = QInputDialog.getItem(self, "Load Config", "Select a saved config:", names, 0, False)
+        if not ok or not name:
+            return
+        state = data.get(name)
+        if state is None:
+            return
+        self._apply_state(state)
+        self._loaded_instance_name = name
+        self._has_unsaved_changes = False
+        self._update_config_bar()
+        missing = self._missing_layer_names(state.get("layer_names", []))
+        if missing:
+            QMessageBox.information(
+                self, "Loaded with missing layers",
+                "Config '{}' loaded.\n\nLayers not in current project (skipped):\n  • {}".format(
+                    name, "\n  • ".join(missing))
+            )
+
+    def _config_bar_create(self):
+        name, ok = QInputDialog.getText(self, "Create Config", "New config name:")
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            QMessageBox.warning(self, "Name required", "Please enter a name.")
+            return
+        data = self._instances_load_all()
+        data[name] = self._collect_state()
+        self._instances_save_all(data)
+        self._loaded_instance_name = name
+        self._has_unsaved_changes = False
+        self._update_config_bar()
+        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' created.")
+
+    def _show_config_menu(self):
+        menu = QMenu(self)
+        switch_act  = menu.addAction("Switch / Load…")
+        save_as_act = menu.addAction("Save As…")
+        menu.addSeparator()
+        del_act = menu.addAction("Delete")
+        btn = self.sender()
+        action = menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+        if action == switch_act:
+            self._config_bar_load()
+        elif action == save_as_act:
+            self._instance_save_as()
+        elif action == del_act:
+            self._instance_delete()
 
     # ── Map Info tab ──────────────────────────────────────────────────────────
 
@@ -921,7 +1085,7 @@ class WebMapExportDialog(QDockWidget):
                 if i == selected_row:
                     rb.setStrokeColor(QColor(_AR_PURPLE))
                     rb.setWidth(2)
-                    rb.setFillColor(QColor(92, 45, 145, 20))
+                    rb.setFillColor(QColor(63, 50, 241, 20))
                 else:
                     rb.setStrokeColor(QColor(120, 120, 120, 180))
                     rb.setWidth(1)
