@@ -1,11 +1,11 @@
 [general]
-name=InterCarta
+name=InterMap
 qgisMinimumVersion=3.0
 description=Export QGIS layers to a self-contained interactive map package (HTML)
 version=1.3.0
-author=InterCarta
+author=InterMap
 email=
-about=InterCarta exports your QGIS project to a self-contained HTML interactive map package. Preserves symbology, labels with collision detection, layer groups, and rich interactive features including map views, attribute tables, per-layer filters, feature info panels, and explode/group for point layers. Based on Leaflet.js — no server required.
+about=InterMap exports your QGIS project to a self-contained HTML interactive map package. Preserves symbology, labels with collision detection, layer groups, and rich interactive features including map views, attribute tables, per-layer filters, feature info panels, and explode/group for point layers. Based on Leaflet.js — no server required.
 tracker=
 repository=
 hasProcessingProvider=no

@@ -110,12 +110,12 @@ class _RectExtentTool:
 # ── Main dialog ───────────────────────────────────────────────────────────────
 
 class WebMapExportDialog(QDockWidget):
-    """Dockable InterCarta export panel."""
+    """Dockable InterMap export panel."""
 
     def __init__(self, iface, parent=None):
-        super().__init__("InterCarta", parent or iface.mainWindow())
+        super().__init__("InterMap", parent or iface.mainWindow())
         self.iface = iface
-        self.setObjectName("InterCartaPanel")
+        self.setObjectName("InterMapPanel")
         self.setMinimumWidth(420)
         self._initial_extent = self._capture_canvas_extent()
         self._map_views = []
@@ -257,7 +257,7 @@ class WebMapExportDialog(QDockWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # ── Purple top strip: icon + InterCarta title only ────────────────────
+        # ── Purple top strip: icon + InterMap title ───────────────────────────
         top = QWidget()
         top.setObjectName("icTop")
         top_vl = QVBoxLayout(top)
@@ -265,54 +265,53 @@ class WebMapExportDialog(QDockWidget):
         top_vl.setSpacing(3)
 
         title_row = QHBoxLayout()
-        title_row.setSpacing(8)
-        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
-        if os.path.exists(icon_path):
-            icon_lbl = QLabel()
-            pm = QPixmap(icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        title_row.setSpacing(10)
+
+        # Prefer icon.svg; fall back to icon.png
+        icon_lbl = QLabel()
+        svg_icon_path = os.path.join(os.path.dirname(__file__), "icon.svg")
+        png_icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        if os.path.exists(svg_icon_path):
+            try:
+                from qgis.PyQt.QtSvg import QSvgRenderer
+                from qgis.PyQt.QtGui import QPainter
+                renderer = QSvgRenderer(svg_icon_path)
+                sz = 26
+                pm = QPixmap(sz, sz)
+                pm.fill(Qt.transparent)
+                painter = QPainter(pm)
+                renderer.render(painter)
+                painter.end()
+                icon_lbl.setPixmap(pm)
+            except Exception:
+                if os.path.exists(png_icon_path):
+                    pm = QPixmap(png_icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    icon_lbl.setPixmap(pm)
+        elif os.path.exists(png_icon_path):
+            pm = QPixmap(png_icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_lbl.setPixmap(pm)
-            title_row.addWidget(icon_lbl)
-        name_lbl = QLabel("InterCarta")
+        title_row.addWidget(icon_lbl)
+
+        name_lbl = QLabel("InterMap")
         name_lbl.setObjectName("icName")
         title_row.addWidget(name_lbl)
         title_row.addStretch()
         top_vl.addLayout(title_row)
         outer.addWidget(top)
 
-        # ── White logo strip: AtkinsRéalis wordmark + descriptions ───────────
-        logo_strip = QWidget()
-        logo_strip.setObjectName("icLogoStrip")
-        logo_vl = QVBoxLayout(logo_strip)
-        logo_vl.setContentsMargins(10, 6, 10, 6)
-        logo_vl.setSpacing(4)
-
-        svg_path = os.path.join(os.path.dirname(__file__), "vendor", "Logo.svg")
-        if os.path.exists(svg_path):
-            try:
-                from qgis.PyQt.QtSvg import QSvgRenderer
-                from qgis.PyQt.QtGui import QPainter
-                renderer = QSvgRenderer(svg_path)
-                logo_h = 20
-                logo_w = int(logo_h * (354.3684 / 47.7976))
-                pm = QPixmap(logo_w, logo_h)
-                pm.fill(Qt.transparent)
-                painter = QPainter(pm)
-                renderer.render(painter)
-                painter.end()
-                logo_lbl = QLabel()
-                logo_lbl.setPixmap(pm)
-                logo_vl.addWidget(logo_lbl)
-            except Exception:
-                logo_vl.addWidget(QLabel("AtkinsRéalis"))
-        else:
-            logo_vl.addWidget(QLabel("AtkinsRéalis"))
+        # ── White strip: descriptions only (no AR logo) ───────────────────────
+        desc_strip = QWidget()
+        desc_strip.setObjectName("icLogoStrip")
+        desc_vl = QVBoxLayout(desc_strip)
+        desc_vl.setContentsMargins(10, 6, 10, 6)
+        desc_vl.setSpacing(3)
 
         desc1 = QLabel(
             "Plugin to generate interactive map packages in a standalone shareable HTML file."
         )
         desc1.setObjectName("icDesc1")
         desc1.setWordWrap(True)
-        logo_vl.addWidget(desc1)
+        desc_vl.addWidget(desc1)
 
         desc2 = QLabel(
             "This plugin is in open beta — for feature requests, bugs or further info "
@@ -320,9 +319,9 @@ class WebMapExportDialog(QDockWidget):
         )
         desc2.setObjectName("icDesc2")
         desc2.setWordWrap(True)
-        logo_vl.addWidget(desc2)
+        desc_vl.addWidget(desc2)
 
-        outer.addWidget(logo_strip)
+        outer.addWidget(desc_strip)
 
         return header
 
@@ -641,7 +640,7 @@ class WebMapExportDialog(QDockWidget):
         self._loaded_instance_name = name
         self._has_unsaved_changes = False
         self._update_config_bar()
-        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' created.")
+        self.iface.messageBar().pushInfo("InterMap", f"Config '{name}' created.")
 
     def _show_config_menu(self):
         menu = QMenu(self)
@@ -1032,7 +1031,7 @@ class WebMapExportDialog(QDockWidget):
             QMessageBox.information(self, "No map view", "Select or add a map view first.")
             return
         self.iface.messageBar().pushInfo(
-            "InterCarta", "Click and drag on the map canvas to draw the extent."
+            "InterMap", "Click and drag on the map canvas to draw the extent."
         )
         self._mv_draw_tool = _RectExtentTool(
             self.iface.mapCanvas(), self._on_canvas_extent_drawn
@@ -1378,7 +1377,7 @@ class WebMapExportDialog(QDockWidget):
         self._instances_save_all(data)
         self._has_unsaved_changes = False
         self._update_config_bar()
-        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' saved.")
+        self.iface.messageBar().pushInfo("InterMap", f"Config '{name}' saved.")
 
     def _instance_save_as(self):
         name, ok = QInputDialog.getText(self, "Save config as", "Config name:")
@@ -1402,7 +1401,7 @@ class WebMapExportDialog(QDockWidget):
         self._loaded_instance_name = name
         self._has_unsaved_changes = False
         self._update_config_bar()
-        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' saved.")
+        self.iface.messageBar().pushInfo("InterMap", f"Config '{name}' saved.")
 
     def _instance_delete(self):
         name = self._loaded_instance_name
@@ -1909,7 +1908,7 @@ class WebMapExportDialog(QDockWidget):
         current = self.path_edit.text().strip()
         start_dir = os.path.dirname(current) if current else ""
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save InterCarta Package", start_dir, "HTML Files (*.html);;All Files (*)"
+            self, "Save InterMap Package", start_dir, "HTML Files (*.html);;All Files (*)"
         )
         if path:
             if not path.lower().endswith(".html"):

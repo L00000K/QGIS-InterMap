@@ -11,18 +11,20 @@ class WebMapExporterPlugin:
         self._dlg = None
 
     def tr(self, message):
-        return QCoreApplication.translate("InterCarta", message)
+        return QCoreApplication.translate("InterMap", message)
 
     def initGui(self):
-        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        svg_path = os.path.join(os.path.dirname(__file__), "icon.svg")
+        png_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        icon_path = svg_path if os.path.exists(svg_path) else png_path
         icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
-        self.action = QAction(icon, self.tr("InterCarta — Interactive Map Package…"), self.iface.mainWindow())
+        self.action = QAction(icon, self.tr("InterMap — Interactive Map Package…"), self.iface.mainWindow())
         self.action.triggered.connect(self.run)
-        self.iface.addPluginToWebMenu(self.tr("InterCarta"), self.action)
+        self.iface.addPluginToWebMenu(self.tr("InterMap"), self.action)
         self.iface.addToolBarIcon(self.action)
 
     def unload(self):
-        self.iface.removePluginWebMenu(self.tr("InterCarta"), self.action)
+        self.iface.removePluginWebMenu(self.tr("InterMap"), self.action)
         self.iface.removeToolBarIcon(self.action)
         if self._dlg:
             self.iface.removeDockWidget(self._dlg)
