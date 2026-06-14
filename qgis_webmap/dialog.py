@@ -227,6 +227,9 @@ class WebMapExportDialog(QDockWidget):
         idx = self.export_theme_combo.findData(theme_val)
         if idx >= 0:
             self.export_theme_combo.setCurrentIndex(idx)
+        key = f"{_SETTINGS_KEY}/save_config_on_export"
+        if s.contains(key):
+            self.save_config_on_export_cb.setChecked(s.value(key, True, type=bool))
 
     def _save_settings(self):
         s = QSettings()
@@ -248,6 +251,7 @@ class WebMapExportDialog(QDockWidget):
                 s.setValue(f"{_SETTINGS_KEY}/info_{role}_{part}",
                            getattr(self, f"info_{role}_{part}_edit").text().strip())
         s.setValue(f"{_SETTINGS_KEY}/export_theme", self.export_theme_combo.currentData())
+        s.setValue(f"{_SETTINGS_KEY}/save_config_on_export", self.save_config_on_export_cb.isChecked())
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -953,44 +957,44 @@ class WebMapExportDialog(QDockWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        theme_group = QGroupBox("Map theme")
+        theme_group = QGroupBox("Theme")
         theme_form = QFormLayout(theme_group)
         self.export_theme_combo = QComboBox()
         self.export_theme_combo.addItem("Modern Corporate", "corporate")
         self.export_theme_combo.addItem("AtkinsRéalis Purple", "purple")
         self.export_theme_combo.addItem("Dark", "dark")
-        self.export_theme_combo.setToolTip("Choose the colour theme applied to the exported web map")
+        self.export_theme_combo.setToolTip("Colour theme applied to the exported web map")
         theme_form.addRow("Theme:", self.export_theme_combo)
         layout.addWidget(theme_group)
 
-        options_group = QGroupBox("Options")
-        options_layout = QVBoxLayout(options_group)
+        tools_group = QGroupBox("Tools")
+        tools_layout = QVBoxLayout(tools_group)
         self.layer_control_cb = QCheckBox("Include legend / layer control (toggles + transparency)")
         self.layer_control_cb.setChecked(True)
-        options_layout.addWidget(self.layer_control_cb)
+        tools_layout.addWidget(self.layer_control_cb)
+        layout.addWidget(tools_group)
 
-        view_row = QHBoxLayout()
-        recapture_btn = QPushButton("\U0001f4f7 Re-capture initial view")
-        recapture_btn.setToolTip(
-            "Sets the map's opening extent to the current QGIS canvas view.\n"
-            "Default is the view at the time the panel was opened."
+        self.save_config_on_export_cb = QCheckBox("Save configuration on export")
+        self.save_config_on_export_cb.setChecked(True)
+        self.save_config_on_export_cb.setToolTip(
+            "Automatically save the current settings to the active named config after each export"
         )
-        recapture_btn.clicked.connect(self._recapture_initial_extent)
-        view_row.addWidget(recapture_btn)
-        self.initial_extent_label = QLabel("View: (captured at open)")
-        self.initial_extent_label.setWordWrap(True)
-        view_row.addWidget(self.initial_extent_label, 1)
-        options_layout.addLayout(view_row)
-        layout.addWidget(options_group)
+        layout.addWidget(self.save_config_on_export_cb)
 
         path_group = QGroupBox("Output file")
-        path_layout = QHBoxLayout(path_group)
+        path_vl = QVBoxLayout(path_group)
+        path_row = QHBoxLayout()
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText("Select output HTML file…")
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self._browse)
-        path_layout.addWidget(self.path_edit)
-        path_layout.addWidget(browse_btn)
+        path_row.addWidget(self.path_edit)
+        path_row.addWidget(browse_btn)
+        path_vl.addLayout(path_row)
+        downloads_btn = QPushButton("Save to downloads folder")
+        downloads_btn.setToolTip("Reset to the default filename in your Downloads folder")
+        downloads_btn.clicked.connect(self._save_to_downloads)
+        path_vl.addWidget(downloads_btn)
         layout.addWidget(path_group)
 
         layout.addStretch()
@@ -1439,18 +1443,13 @@ class WebMapExportDialog(QDockWidget):
         self.layer_tree_widget.blockSignals(False)
 
     def _update_initial_extent_label(self):
-        ext = self._initial_extent
-        if ext:
-            self.initial_extent_label.setText(
-                f"View: S={ext[0][0]:.4f} W={ext[0][1]:.4f} "
-                f"N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
-            )
-        else:
-            self.initial_extent_label.setText("View: (not captured)")
+        pass  # label removed; _initial_extent still used in export
 
     def _recapture_initial_extent(self):
         self._initial_extent = self._capture_canvas_extent()
-        self._update_initial_extent_label()
+
+    def _save_to_downloads(self):
+        self.path_edit.setText(self._default_output_path())
 
     # ── Map Views ─────────────────────────────────────────────────────────────
 
@@ -1739,6 +1738,8 @@ class WebMapExportDialog(QDockWidget):
             )
             exporter.export()
             self._save_settings()
+            if self.save_config_on_export_cb.isChecked():
+                self._instance_save()
             self._show_success(output_path)
         except Exception as e:
             QMessageBox.critical(self, "Export failed", str(e))
