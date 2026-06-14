@@ -139,6 +139,7 @@ class WebMapExportDialog(QDockWidget):
         super().closeEvent(event)
 
     def _on_close_clicked(self):
+        self._mv_clear_rubber_bands()
         self._save_settings()
         self.hide()
 
@@ -519,10 +520,17 @@ class WebMapExportDialog(QDockWidget):
         ]:
             _sig.connect(self._mark_unsaved)
 
+    _MAP_VIEWS_TAB = 1
+
     def _switch_tab(self, idx):
+        prev = self._tab_stack.currentIndex()
         self._tab_stack.setCurrentIndex(idx)
         for i, btn in enumerate(self._nav_btns):
             btn.setChecked(i == idx)
+        if prev == self._MAP_VIEWS_TAB and idx != self._MAP_VIEWS_TAB:
+            self._mv_clear_rubber_bands()
+        elif idx == self._MAP_VIEWS_TAB and prev != self._MAP_VIEWS_TAB:
+            self._mv_update_rubber_bands()
 
     # ── Config bar ────────────────────────────────────────────────────────────
 
