@@ -1101,6 +1101,7 @@ class WebMapExportDialog(QDockWidget):
 
         self.doc_meta_widget = QGroupBox()
         self.doc_meta_widget.setObjectName("greyBox")
+        self.doc_meta_widget.setStyleSheet("QGroupBox { margin-top: 0px; padding-top: 6px; }")
         dm_form = QFormLayout(self.doc_meta_widget)
         dm_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         self.info_doc_number_edit = QLineEdit()
@@ -1121,6 +1122,7 @@ class WebMapExportDialog(QDockWidget):
                 self.doc_meta_widget.setVisible(checked),
             )
         )
+        self.include_doc_metadata_cb.toggled.connect(self._dm_toggle_btn.setChecked)
 
         # ── Project information ───────────────────────────────────────────────
         _pi_hdr = QWidget()
@@ -1143,6 +1145,7 @@ class WebMapExportDialog(QDockWidget):
 
         self.proj_info_widget = QGroupBox()
         self.proj_info_widget.setObjectName("greyBox")
+        self.proj_info_widget.setStyleSheet("QGroupBox { margin-top: 0px; padding-top: 6px; }")
         proj_form = QFormLayout(self.proj_info_widget)
         proj_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
@@ -1189,6 +1192,7 @@ class WebMapExportDialog(QDockWidget):
                 self.proj_info_widget.setVisible(checked),
             )
         )
+        self.include_project_info_cb.toggled.connect(self._pi_toggle_btn.setChecked)
 
         # ── Document control ─────────────────────────────────────────────────
         _dc_hdr = QWidget()
@@ -1211,6 +1215,7 @@ class WebMapExportDialog(QDockWidget):
 
         self.doc_control_widget = QGroupBox()
         self.doc_control_widget.setObjectName("greyBox")
+        self.doc_control_widget.setStyleSheet("QGroupBox { margin-top: 0px; padding-top: 6px; }")
         dc_vl = QVBoxLayout(self.doc_control_widget)
 
         self.dc_grid_widget = QWidget()
@@ -1257,6 +1262,7 @@ class WebMapExportDialog(QDockWidget):
                 self.doc_control_widget.setVisible(checked),
             )
         )
+        self.include_doc_control_cb.toggled.connect(self._dc_toggle_btn.setChecked)
         self.include_doc_control_cb.toggled.connect(self._on_doc_control_toggled)
         self._on_doc_control_toggled(self.include_doc_control_cb.isChecked())
 
@@ -1534,6 +1540,9 @@ class WebMapExportDialog(QDockWidget):
     # ── Map canvas rubber bands ───────────────────────────────────────────────
 
     def _mv_update_rubber_bands(self):
+        if self._tab_stack.currentIndex() != self._MAP_VIEWS_TAB:
+            self._mv_clear_rubber_bands()
+            return
         self._mv_clear_rubber_bands()
         try:
             from qgis.gui import QgsRubberBand
