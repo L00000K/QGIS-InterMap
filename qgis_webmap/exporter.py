@@ -186,14 +186,14 @@ _THEMES = {
         map="#e8ecf0",
     ),
     "purple": dict(
-        hdr="#5C2D91",       hdr_bdr="#3D1A6B",
-        acc="#5C2D91",       acc_dk="#3D1A6B",
-        acc_lt="#ede9fe",    acc_md="#c4a8e0",    acc_ft="#f7f3fc",
-        pnl="#ffffff",       pnl_a="#f9f6fd",
+        hdr="#3f32f1",       hdr_bdr="#2b22c0",
+        acc="#3f32f1",       acc_dk="#2b22c0",
+        acc_lt="#ede9fe",    acc_md="#d5cffc",    acc_ft="#f4f3fe",
+        pnl="#ffffff",       pnl_a="#f8f7ff",
         pnl_r="rgba(255,255,255,0.97)",
         txt="#1a1a2e",       txt2="#555",          txt3="#888",
-        bdr="#e0d5f0",       bdr2="#f0ebf9",
-        map="#ece4f5",
+        bdr="#e2e0f0",       bdr2="#f0eff9",
+        map="#eceaf8",
     ),
     "dark": dict(
         hdr="#0f172a",       hdr_bdr="#020617",
@@ -1097,7 +1097,22 @@ class WebMapExporter:
         include_legend = "true" if self.include_layer_control else "false"
         include_basemap_json = "true" if self.include_basemap else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
-        themes_json = json.dumps(self.map_views, separators=(",", ":")).replace("</", "<\\/")
+
+        # Resolve QGIS theme references to layer name lists at export time so the
+        # web map JavaScript can toggle layers without needing the QGIS theme API.
+        resolved_views = []
+        for mv in self.map_views:
+            mv_copy = dict(mv)
+            if mv_copy.get("theme") and not mv_copy.get("layerIds"):
+                try:
+                    tc = QgsProject.instance().mapThemeCollection()
+                    mv_copy["layerIds"] = [
+                        lyr.name() for lyr in tc.mapThemeVisibleLayers(mv_copy["theme"])
+                    ]
+                except Exception:
+                    mv_copy["layerIds"] = []
+            resolved_views.append(mv_copy)
+        themes_json = json.dumps(resolved_views, separators=(",", ":")).replace("</", "<\\/")
 
         import html as _html_mod
         _info = self.info_panel
