@@ -43,6 +43,34 @@ _AR_PURPLE_LIGHT = "#7066f5"
 
 # ── Drag-to-draw extent tool ──────────────────────────────────────────────────
 
+# ── Vertical resize handle for rich-text editors ─────────────────────────────
+
+class _VResizeHandle(QWidget):
+    """Thin drag strip that resizes a QTextEdit vertically."""
+    def __init__(self, target, min_h=50, parent=None):
+        super().__init__(parent)
+        self._target = target
+        self._drag_y = None
+        self._start_h = None
+        self._min_h = min_h
+        self.setFixedHeight(6)
+        self.setCursor(Qt.SizeVerCursor)
+        self.setToolTip("Drag to resize")
+        self.setStyleSheet("background:#CBD5E1; border-radius:2px; margin:1px 0;")
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._drag_y = e.globalPos().y()
+            self._start_h = self._target.height()
+
+    def mouseMoveEvent(self, e):
+        if self._drag_y is not None:
+            delta = e.globalPos().y() - self._drag_y
+            self._target.setFixedHeight(max(self._min_h, self._start_h + delta))
+
+    def mouseReleaseEvent(self, e):
+        self._drag_y = None
+
 class _RectExtentTool:
     """Minimal wrapper that activates a rubber-band rectangle drawing tool on the
     QGIS map canvas. Calls ``callback(QgsRectangle)`` in canvas CRS on release."""
@@ -1070,13 +1098,14 @@ class WebMapExportDialog(QDockWidget):
         self.info_text_edit = QTextEdit()
         self.info_text_edit.setAcceptRichText(True)
         self.info_text_edit.setPlaceholderText("Description / information text…")
-        self.info_text_edit.setMinimumHeight(80)
+        self.info_text_edit.setFixedHeight(100)
         _desc_w = QWidget()
         _desc_vl = QVBoxLayout(_desc_w)
         _desc_vl.setContentsMargins(0, 0, 0, 0)
         _desc_vl.setSpacing(0)
         _desc_vl.addWidget(self._build_richtext_toolbar(self.info_text_edit))
         _desc_vl.addWidget(self.info_text_edit)
+        _desc_vl.addWidget(_VResizeHandle(self.info_text_edit))
         info_form.addRow("Description:", _desc_w)
         layout.addWidget(info_group)
 
@@ -1337,10 +1366,11 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_notes_edit = QTextEdit()
         self.map_view_notes_edit.setAcceptRichText(True)
         self.map_view_notes_edit.setPlaceholderText("Description shown in the map viewer")
-        self.map_view_notes_edit.setMinimumHeight(52)
+        self.map_view_notes_edit.setFixedHeight(80)
         self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
         box_vl.addWidget(self._build_richtext_toolbar(self.map_view_notes_edit))
-        box_vl.addWidget(self.map_view_notes_edit, 1)
+        box_vl.addWidget(self.map_view_notes_edit)
+        box_vl.addWidget(_VResizeHandle(self.map_view_notes_edit))
 
         # Layers: status label (standard text, info bold) + toggle + sub-panel
         self.map_view_layers_label = QLabel("Layers: <b>(not configured)</b>")
@@ -1356,19 +1386,16 @@ class WebMapExportDialog(QDockWidget):
 
         self.mv_layers_panel = QWidget()
         layers_panel_vl = QVBoxLayout(self.mv_layers_panel)
-        layers_panel_vl.setContentsMargins(0, 0, 0, 0)
+        layers_panel_vl.setContentsMargins(12, 0, 0, 0)
         layers_panel_vl.setSpacing(4)
-        layers_btn_row = QHBoxLayout()
-        layers_btn_row.setSpacing(6)
-        copy_layers_btn = QPushButton("📷  Set to map canvas layers")
+        copy_layers_btn = QPushButton("from canvas")
         copy_layers_btn.setToolTip("Snapshot which layers are currently visible in QGIS")
         copy_layers_btn.clicked.connect(self._map_view_capture_layers)
-        layers_btn_row.addWidget(copy_layers_btn)
-        link_theme_btn = QPushButton("🔗  Link to theme")
-        link_theme_btn.setToolTip("Choose a QGIS map theme to link dynamically")
+        layers_panel_vl.addWidget(copy_layers_btn)
+        link_theme_btn = QPushButton("from theme")
+        link_theme_btn.setToolTip("Link this view to a QGIS map theme")
         link_theme_btn.clicked.connect(self._mv_pick_and_link_theme)
-        layers_btn_row.addWidget(link_theme_btn)
-        layers_panel_vl.addLayout(layers_btn_row)
+        layers_panel_vl.addWidget(link_theme_btn)
         self.mv_layers_panel.setVisible(False)
         box_vl.addWidget(self.mv_layers_panel)
 
@@ -1386,24 +1413,21 @@ class WebMapExportDialog(QDockWidget):
 
         self.mv_extent_panel = QWidget()
         extent_panel_vl = QVBoxLayout(self.mv_extent_panel)
-        extent_panel_vl.setContentsMargins(0, 0, 0, 0)
+        extent_panel_vl.setContentsMargins(12, 0, 0, 0)
         extent_panel_vl.setSpacing(4)
-        extent_btn_row = QHBoxLayout()
-        extent_btn_row.setSpacing(6)
-        set_canvas_btn = QPushButton("📷  Set from map canvas")
+        set_canvas_btn = QPushButton("from canvas")
         set_canvas_btn.clicked.connect(self._map_view_capture_extent)
-        extent_btn_row.addWidget(set_canvas_btn)
-        draw_btn = QPushButton("✏  Draw on map canvas")
+        extent_panel_vl.addWidget(set_canvas_btn)
+        draw_btn = QPushButton("draw on canvas")
         draw_btn.setToolTip("Click and drag a rectangle on the map canvas")
         draw_btn.clicked.connect(self._mv_start_draw_extent)
-        extent_btn_row.addWidget(draw_btn)
-        extent_panel_vl.addLayout(extent_btn_row)
+        extent_panel_vl.addWidget(draw_btn)
         layer_ext_row = QHBoxLayout()
         layer_ext_row.setSpacing(6)
-        layer_ext_row.addWidget(QLabel("From layer:"))
         self.mv_layer_extent_combo = QComboBox()
         layer_ext_row.addWidget(self.mv_layer_extent_combo, 1)
-        set_layer_ext_btn = QPushButton("Set")
+        set_layer_ext_btn = QPushButton("from layer")
+        set_layer_ext_btn.setFixedWidth(80)
         set_layer_ext_btn.clicked.connect(self._mv_set_from_layer_extent)
         layer_ext_row.addWidget(set_layer_ext_btn)
         extent_panel_vl.addLayout(layer_ext_row)
@@ -2449,7 +2473,9 @@ class WebMapExportDialog(QDockWidget):
                     "project_number":  self.info_project_number_edit.text().strip()  if inc_proj else "",
                     "project":         self.info_project_edit.text().strip()          if inc_proj else "",
                     "project_img":     self.info_project_img_edit.text().strip()      if inc_proj else "",
-                    "include_doc_control": inc_dc,
+                    "include_doc_control":  inc_dc,
+                    "include_project_info": inc_proj,
+                    "include_doc_metadata": inc_dm,
                     "created_by":      created_by,
                     "date":            today if not inc_dc else "",
                     "originated_name": self.info_originated_name_edit.text().strip() if inc_dc else "",

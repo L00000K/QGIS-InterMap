@@ -1162,8 +1162,11 @@ class WebMapExporter:
         _info_title = _html_mod.escape(str(_info.get("title", "") or ""))
         _info_text = _richtext_body(str(_info.get("text", "") or ""))
         _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
-        _info_client = _html_mod.escape(str(_info.get("client", "") or ""))
-        _info_project = _html_mod.escape(str(_info.get("project", "") or ""))
+        _info_client         = _html_mod.escape(str(_info.get("client", "") or ""))
+        _info_project        = _html_mod.escape(str(_info.get("project", "") or ""))
+        _info_project_number = _html_mod.escape(str(_info.get("project_number", "") or ""))
+        _inc_proj = bool(_info.get("include_project_info", True))
+        _inc_dm   = bool(_info.get("include_doc_metadata",  True))
         _doc_control = [
             ("Originated", _html_mod.escape(str(_info.get("originated_name", "") or "")),
                            _html_mod.escape(str(_info.get("originated_date", "") or ""))),
@@ -1327,6 +1330,7 @@ class WebMapExporter:
                     f'<td class="cad-dc-name">{name}</td>'
                     f'<td class="cad-dc-date">{date}</td></tr>'
                     for role, name, date in _doc_control
+                    if name or date
                 )
 
                 # ── Assemble CAD title block ───────────────────────────────────
@@ -1348,25 +1352,39 @@ class WebMapExporter:
                         '</div>'
                     )
 
-                _cad_block_html = (
-                    '<div class="cad-block">'
+                _cad_parts = [
+                    '<div class="cad-block">',
                     f'<div class="cad-section"><div class="cad-label">Produced By</div>'
-                    f'{_cad_logo_html}</div>'
-                    f'<div class="cad-section"><div class="cad-label">Client</div>'
-                    f'{_client_inner}</div>'
-                    f'<div class="cad-section"><div class="cad-label">Project</div>'
-                    f'{_project_inner}</div>'
+                    f'{_cad_logo_html}</div>',
+                ]
+                if _inc_proj:
+                    _cad_parts.append(
+                        f'<div class="cad-section"><div class="cad-label">Client</div>'
+                        f'{_client_inner}</div>'
+                    )
+                    if _info_project_number:
+                        _cad_parts.append(
+                            f'<div class="cad-section"><div class="cad-label">Project Number</div>'
+                            f'<div class="cad-value">{_info_project_number}</div></div>'
+                        )
+                    _cad_parts.append(
+                        f'<div class="cad-section"><div class="cad-label">Project</div>'
+                        f'{_project_inner}</div>'
+                    )
+                _cad_parts.append(
                     f'<div class="cad-section"><div class="cad-label">Document Name</div>'
                     f'<div class="cad-value">{_info_title or "&nbsp;"}</div></div>'
-                    + (
+                )
+                if _inc_dm and _info_doc_number:
+                    _cad_parts.append(
                         f'<div class="cad-section"><div class="cad-label">Document Number</div>'
                         f'<div class="cad-value">{_info_doc_number}</div></div>'
-                        if _info_doc_number else ""
                     )
-                    + _rev_poi_html
-                    + _dc_section_html
-                    + '</div>'
-                )
+                if _inc_dm:
+                    _cad_parts.append(_rev_poi_html)
+                _cad_parts.append(_dc_section_html)
+                _cad_parts.append('</div>')
+                _cad_block_html = "".join(_cad_parts)
 
             _footer_html = (
                 f'<div id="left-panel-footer">{"".join(_footer_parts)}</div>'
