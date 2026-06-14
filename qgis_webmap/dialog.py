@@ -1093,7 +1093,7 @@ class WebMapExportDialog(QDockWidget):
             return
 
         canvas = self.iface.mapCanvas()
-        selected_row = self.map_views_list_widget.currentRow()
+        selected_idx = self._editing_map_view_idx  # index into _map_views, not list row
 
         for i, mv in enumerate(self._map_views):
             ext = mv.get("extent")
@@ -1102,7 +1102,7 @@ class WebMapExportDialog(QDockWidget):
             try:
                 transformed = self._wgs84_to_canvas_rect(ext)
                 rb = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
-                if i == selected_row:
+                if i == selected_idx:
                     rb.setStrokeColor(QColor(_AR_PURPLE))
                     rb.setWidth(2)
                     rb.setFillColor(QColor(63, 50, 241, 20))
@@ -1187,11 +1187,11 @@ class WebMapExportDialog(QDockWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        theme_group = QGroupBox("Theme")
+        theme_group = QGroupBox("Export colour theme")
         theme_form = QFormLayout(theme_group)
         self.export_theme_combo = QComboBox()
-        self.export_theme_combo.addItem("Modern Corporate", "corporate")
-        self.export_theme_combo.addItem("AtkinsRéalis Purple", "purple")
+        self.export_theme_combo.addItem("Grey / Black", "corporate")
+        self.export_theme_combo.addItem("Blue", "purple")
         self.export_theme_combo.addItem("Dark", "dark")
         self.export_theme_combo.setToolTip("Colour theme applied to the exported web map")
         theme_form.addRow("Theme:", self.export_theme_combo)
