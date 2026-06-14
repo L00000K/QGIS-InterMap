@@ -7,11 +7,15 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox, QProgressBar, QCheckBox, QGroupBox,
     QTabWidget, QTextEdit, QFormLayout, QWidget,
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
-    QScrollArea, QMenu, QGridLayout,
+    QScrollArea, QMenu, QGridLayout, QAbstractItemView, QSizePolicy,
 )
-from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings
-from qgis.PyQt.QtGui import QDesktopServices, QPixmap
-from qgis.core import QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer
+from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings, pyqtSignal
+from qgis.PyQt.QtGui import QDesktopServices, QPixmap, QColor
+from qgis.core import (
+    QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer,
+    QgsCoordinateTransform, QgsCoordinateReferenceSystem,
+    QgsRectangle, QgsPointXY, QgsWkbTypes,
+)
 
 _SETTINGS_KEY = "QgsWebMapExporter"
 _INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"
@@ -39,6 +43,78 @@ _AR_PURPLE_DARK  = "#3D1A6B"
 _AR_PURPLE_LIGHT = "#9B59C4"
 
 
+# ── Drag-to-draw extent tool ──────────────────────────────────────────────────
+
+class _RectExtentTool:
+    """Minimal wrapper that activates a rubber-band rectangle drawing tool on the
+    QGIS map canvas. Calls ``callback(QgsRectangle)`` in canvas CRS on release."""
+
+    def __init__(self, canvas, callback):
+        try:
+            from qgis.gui import QgsMapTool, QgsRubberBand
+            from qgis.PyQt.QtCore import pyqtSignal
+
+            class _Tool(QgsMapTool):
+                rectDrawn = pyqtSignal(object)
+
+                def __init__(self, cv):
+                    super().__init__(cv)
+                    self._rb = QgsRubberBand(cv, QgsWkbTypes.PolygonGeometry)
+                    self._rb.setStrokeColor(QColor(_AR_PURPLE))
+                    self._rb.setFillColor(QColor(92, 45, 145, 25))
+                    self._rb.setWidth(2)
+                    self._start = None
+
+                def canvasPressEvent(self, e):
+                    self._start = self.toMapCoordinates(e.pos())
+                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+
+                def canvasMoveEvent(self, e):
+                    if not self._start:
+                        return
+                    end = self.toMapCoordinates(e.pos())
+                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    for pt in [
+                        QgsPointXY(self._start.x(), self._start.y()),
+                        QgsPointXY(self._start.x(), end.y()),
+                        QgsPointXY(end.x(), end.y()),
+                        QgsPointXY(end.x(), self._start.y()),
+                        QgsPointXY(self._start.x(), self._start.y()),
+                    ]:
+                        self._rb.addPoint(pt)
+
+                def canvasReleaseEvent(self, e):
+                    if not self._start:
+                        return
+                    end = self.toMapCoordinates(e.pos())
+                    rect = QgsRectangle(self._start, end)
+                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    self._start = None
+                    if not rect.isEmpty():
+                        self.rectDrawn.emit(rect)
+
+                def deactivate(self):
+                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    super().deactivate()
+
+            self._tool = _Tool(canvas)
+            self._tool.rectDrawn.connect(callback)
+            self._prev = canvas.mapTool()
+            canvas.setMapTool(self._tool)
+            self._canvas = canvas
+        except Exception:
+            self._tool = None
+
+    def deactivate(self):
+        if self._tool and self._canvas:
+            try:
+                self._canvas.setMapTool(self._prev)
+            except Exception:
+                pass
+
+
+# ── Main dialog ───────────────────────────────────────────────────────────────
+
 class WebMapExportDialog(QDockWidget):
     """Dockable InterCarta export panel."""
 
@@ -52,6 +128,8 @@ class WebMapExportDialog(QDockWidget):
         self._editing_map_view_idx = None
         self._editing_map_view_extent = None
         self._loaded_instance_name = None
+        self._mv_rubber_bands = {}
+        self._mv_draw_tool = None
         self._build_ui()
         self._update_initial_extent_label()
         self.path_edit.setText(self._default_output_path())
@@ -62,6 +140,7 @@ class WebMapExportDialog(QDockWidget):
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
     def closeEvent(self, event):
+        self._mv_clear_rubber_bands()
         self._save_settings()
         super().closeEvent(event)
 
@@ -73,7 +152,6 @@ class WebMapExportDialog(QDockWidget):
 
     def _capture_canvas_extent(self):
         try:
-            from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem
             canvas = self.iface.mapCanvas()
             ext = canvas.extent()
             src_crs = canvas.mapSettings().destinationCrs()
@@ -83,6 +161,15 @@ class WebMapExportDialog(QDockWidget):
             return [[e.yMinimum(), e.xMinimum()], [e.yMaximum(), e.xMaximum()]]
         except Exception:
             return None
+
+    def _wgs84_to_canvas_rect(self, ext):
+        """Convert [[s,w],[n,e]] WGS-84 extent to QgsRectangle in canvas CRS."""
+        canvas = self.iface.mapCanvas()
+        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        canvas_crs = canvas.mapSettings().destinationCrs()
+        tr = QgsCoordinateTransform(wgs84, canvas_crs, QgsProject.instance())
+        rect = QgsRectangle(ext[0][1], ext[0][0], ext[1][1], ext[1][0])
+        return tr.transformBoundingBox(rect)
 
     def _default_output_path(self):
         downloads = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation)
@@ -268,6 +355,17 @@ class WebMapExportDialog(QDockWidget):
             }}
             QPushButton#exportBtn:hover   {{ background: {_AR_PURPLE_DARK}; }}
             QPushButton#exportBtn:pressed {{ background: {_AR_PURPLE_DARK}; }}
+            QPushButton#deleteBtn {{
+                background: #DC2626;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 12px;
+                font-weight: 600;
+                min-height: 26px;
+            }}
+            QPushButton#deleteBtn:hover   {{ background: #B91C1C; }}
+            QPushButton#deleteBtn:pressed {{ background: #991B1B; }}
         """)
 
         layout.addWidget(self._build_header())
@@ -338,7 +436,7 @@ class WebMapExportDialog(QDockWidget):
         layout.addWidget(saved_group)
 
         # ── Map info (grey box) ───────────────────────────────────────────────
-        self.include_info_cb = QCheckBox("Include ‘About this map’ info panel")
+        self.include_info_cb = QCheckBox("Include 'About this map' info panel")
         self.include_info_cb.setChecked(True)
         layout.addWidget(self.include_info_cb)
 
@@ -437,7 +535,6 @@ class WebMapExportDialog(QDockWidget):
         self.doc_control_widget.setObjectName("greyBox")
         dc_vl = QVBoxLayout(self.doc_control_widget)
 
-        # Full grid shown when doc control is checked
         self.dc_grid_widget = QWidget()
         dc_grid = QGridLayout(self.dc_grid_widget)
         dc_grid.setContentsMargins(0, 0, 0, 0)
@@ -461,7 +558,6 @@ class WebMapExportDialog(QDockWidget):
         dc_grid.setColumnStretch(2, 1)
         dc_vl.addWidget(self.dc_grid_widget)
 
-        # "Created by" row shown when doc control is NOT checked
         self.created_by_widget = QWidget()
         cb_hl = QHBoxLayout(self.created_by_widget)
         cb_hl.setContentsMargins(0, 0, 0, 0)
@@ -510,33 +606,55 @@ class WebMapExportDialog(QDockWidget):
     def _build_map_views_tab(self):
         widget = QWidget()
         mv_layout = QVBoxLayout(widget)
+        mv_layout.setContentsMargins(4, 4, 4, 4)
+        mv_layout.setSpacing(4)
 
-        top_row = QHBoxLayout()
+        # ── List ──────────────────────────────────────────────────────────────
         self.map_views_list_widget = QListWidget()
-        self.map_views_list_widget.setMinimumHeight(120)
-        self.map_views_list_widget.setMaximumHeight(160)
+        self.map_views_list_widget.setFixedHeight(130)
+        self.map_views_list_widget.setDragEnabled(True)
+        self.map_views_list_widget.setAcceptDrops(True)
+        self.map_views_list_widget.setDragDropMode(QAbstractItemView.InternalMove)
+        self.map_views_list_widget.setDefaultDropAction(Qt.MoveAction)
         self.map_views_list_widget.currentRowChanged.connect(self._on_map_view_selected)
-        top_row.addWidget(self.map_views_list_widget, 1)
+        self.map_views_list_widget.model().rowsMoved.connect(self._on_mv_rows_moved)
+        mv_layout.addWidget(self.map_views_list_widget)
 
-        btn_col = QVBoxLayout()
-        btn_col.setSpacing(2)
-        add_mv_btn = QPushButton("＋ Add")
+        # Placeholder (shown when list is empty)
+        self.mv_placeholder_label = QLabel(
+            "Default — no map views.\n\n"
+            "Edit default export settings below.\n"
+            "Add a map view to create named extents;\n"
+            "the first view becomes the default extent."
+        )
+        self.mv_placeholder_label.setAlignment(Qt.AlignCenter)
+        self.mv_placeholder_label.setWordWrap(True)
+        self.mv_placeholder_label.setStyleSheet(
+            "color: #9CA3AF; font-style: italic; font-size: 10px; padding: 4px;"
+        )
+        mv_layout.addWidget(self.mv_placeholder_label)
+
+        # Add button
+        add_mv_btn = QPushButton("＋  Add map view")
         add_mv_btn.clicked.connect(self._map_view_add)
-        del_mv_btn = QPushButton("✕ Delete")
-        del_mv_btn.clicked.connect(self._map_view_delete)
-        up_btn = QPushButton("↑ Up")
-        up_btn.clicked.connect(self._map_view_move_up)
-        down_btn = QPushButton("↓ Down")
-        down_btn.clicked.connect(self._map_view_move_down)
-        for b in (add_mv_btn, del_mv_btn, up_btn, down_btn):
-            btn_col.addWidget(b)
-        btn_col.addStretch()
-        top_row.addLayout(btn_col)
-        mv_layout.addLayout(top_row)
+        mv_layout.addWidget(add_mv_btn)
 
-        detail_group = QGroupBox("Map view details")
-        detail_layout = QVBoxLayout(detail_group)
+        # ── Detail (scroll, hidden when nothing selected) ─────────────────────
+        self.mv_detail_scroll = QScrollArea()
+        self.mv_detail_scroll.setWidgetResizable(True)
+        self.mv_detail_scroll.setFrameShape(QScrollArea.NoFrame)
 
+        detail_widget = QWidget()
+        detail_layout = QVBoxLayout(detail_widget)
+        detail_layout.setContentsMargins(0, 4, 0, 4)
+        detail_layout.setSpacing(6)
+
+        # View in canvas
+        view_canvas_btn = QPushButton("🗺  View in map canvas")
+        view_canvas_btn.clicked.connect(self._mv_view_in_canvas)
+        detail_layout.addWidget(view_canvas_btn)
+
+        # Name
         name_row = QHBoxLayout()
         name_row.addWidget(QLabel("Name:"))
         self.map_view_name_edit = QLineEdit()
@@ -545,44 +663,236 @@ class WebMapExportDialog(QDockWidget):
         name_row.addWidget(self.map_view_name_edit, 1)
         detail_layout.addLayout(name_row)
 
-        notes_row = QHBoxLayout()
-        notes_row.addWidget(QLabel("Notes:"))
+        # Description
+        detail_layout.addWidget(QLabel("Description:"))
         self.map_view_notes_edit = QTextEdit()
-        self.map_view_notes_edit.setPlaceholderText("Notes shown below map view name")
-        self.map_view_notes_edit.setMaximumHeight(60)
+        self.map_view_notes_edit.setPlaceholderText("Description shown in the map viewer")
+        self.map_view_notes_edit.setFixedHeight(56)
         self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
-        notes_row.addWidget(self.map_view_notes_edit, 1)
-        detail_layout.addLayout(notes_row)
+        detail_layout.addWidget(self.map_view_notes_edit)
 
-        extent_row = QHBoxLayout()
-        capture_ext_btn = QPushButton("\U0001f4f7 Capture extent from QGIS")
-        capture_ext_btn.clicked.connect(self._map_view_capture_extent)
-        self.map_view_extent_label = QLabel("(not captured)")
-        self.map_view_extent_label.setWordWrap(True)
-        extent_row.addWidget(capture_ext_btn)
-        extent_row.addWidget(self.map_view_extent_label, 1)
-        detail_layout.addLayout(extent_row)
+        # ── Visible layers ────────────────────────────────────────────────────
+        layers_group = QGroupBox("Visible layers")
+        layers_vl = QVBoxLayout(layers_group)
+        layers_vl.setSpacing(4)
 
-        layers_row = QHBoxLayout()
-        layers_row.addWidget(QLabel("Layers:"))
+        copy_layers_btn = QPushButton("📷  Copy current layer visibility")
+        copy_layers_btn.setToolTip("Snapshot which layers are currently visible in QGIS")
+        copy_layers_btn.clicked.connect(self._map_view_capture_layers)
+        layers_vl.addWidget(copy_layers_btn)
+
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(QLabel("Slave to theme:"))
         self.import_theme_combo = QComboBox()
-        self.import_theme_combo.setToolTip("Select a QGIS theme to use for this map view's layer visibility")
-        use_theme_btn = QPushButton("Use QGIS theme")
+        self.import_theme_combo.setToolTip(
+            "Assign a QGIS map theme — visibility follows the theme rather than a snapshot.\n"
+            "Reload the plugin if a new theme does not appear here."
+        )
+        use_theme_btn = QPushButton("Apply")
         use_theme_btn.clicked.connect(self._map_view_use_theme)
-        capture_layers_btn = QPushButton("\U0001f4f7 Capture visible")
-        capture_layers_btn.setToolTip("Capture currently visible layers in QGIS as this map view's layer set")
-        capture_layers_btn.clicked.connect(self._map_view_capture_layers)
-        layers_row.addWidget(self.import_theme_combo, 1)
-        layers_row.addWidget(use_theme_btn)
-        layers_row.addWidget(capture_layers_btn)
-        detail_layout.addLayout(layers_row)
+        theme_row.addWidget(self.import_theme_combo, 1)
+        theme_row.addWidget(use_theme_btn)
+        layers_vl.addLayout(theme_row)
 
         self.map_view_layers_label = QLabel("Layers: (not set)")
-        detail_layout.addWidget(self.map_view_layers_label)
+        self.map_view_layers_label.setWordWrap(True)
+        self.map_view_layers_label.setStyleSheet("color: #6B7280; font-size: 10px;")
+        layers_vl.addWidget(self.map_view_layers_label)
+        detail_layout.addWidget(layers_group)
 
-        mv_layout.addWidget(detail_group)
-        mv_layout.addStretch()
+        # ── View extent ───────────────────────────────────────────────────────
+        extent_group = QGroupBox("View extent")
+        extent_vl = QVBoxLayout(extent_group)
+        extent_vl.setSpacing(4)
+
+        set_canvas_btn = QPushButton("📷  Set to map canvas extent")
+        set_canvas_btn.clicked.connect(self._map_view_capture_extent)
+        extent_vl.addWidget(set_canvas_btn)
+
+        draw_btn = QPushButton("✏  Draw extent on map canvas")
+        draw_btn.setToolTip("Click and drag a rectangle on the map canvas")
+        draw_btn.clicked.connect(self._mv_start_draw_extent)
+        extent_vl.addWidget(draw_btn)
+
+        layer_ext_row = QHBoxLayout()
+        layer_ext_row.addWidget(QLabel("From layer:"))
+        self.mv_layer_extent_combo = QComboBox()
+        set_layer_ext_btn = QPushButton("Set")
+        set_layer_ext_btn.clicked.connect(self._mv_set_from_layer_extent)
+        layer_ext_row.addWidget(self.mv_layer_extent_combo, 1)
+        layer_ext_row.addWidget(set_layer_ext_btn)
+        extent_vl.addLayout(layer_ext_row)
+
+        self.map_view_extent_label = QLabel("(not set)")
+        self.map_view_extent_label.setWordWrap(True)
+        self.map_view_extent_label.setStyleSheet("color: #6B7280; font-size: 10px;")
+        extent_vl.addWidget(self.map_view_extent_label)
+        detail_layout.addWidget(extent_group)
+
+        detail_layout.addStretch()
+
+        # Delete (red, bottom)
+        del_btn = QPushButton("Delete this map view")
+        del_btn.setObjectName("deleteBtn")
+        del_btn.clicked.connect(self._map_view_delete)
+        detail_layout.addWidget(del_btn)
+
+        self.mv_detail_scroll.setWidget(detail_widget)
+        mv_layout.addWidget(self.mv_detail_scroll, 1)
+
+        self._mv_update_placeholder()
+        self._mv_populate_layer_combo()
+
         return widget
+
+    # ── Map View helpers ──────────────────────────────────────────────────────
+
+    def _mv_update_placeholder(self):
+        empty = len(self._map_views) == 0
+        self.mv_placeholder_label.setVisible(empty)
+        self.mv_detail_scroll.setVisible(not empty and self._editing_map_view_idx is not None)
+
+    def _mv_populate_layer_combo(self):
+        """Fill the 'set extent from layer' combo with all project layers."""
+        self.mv_layer_extent_combo.clear()
+        try:
+            for layer in QgsProject.instance().mapLayers().values():
+                self.mv_layer_extent_combo.addItem(layer.name(), layer.id())
+        except Exception:
+            pass
+
+    def _on_mv_rows_moved(self, _parent, start, _end, _dest, dest_row):
+        """Sync self._map_views to match the QListWidget order after a drag-drop."""
+        new_order = []
+        for i in range(self.map_views_list_widget.count()):
+            orig_idx = self.map_views_list_widget.item(i).data(Qt.UserRole)
+            if orig_idx is not None and 0 <= orig_idx < len(self._map_views):
+                new_order.append(self._map_views[orig_idx])
+        if len(new_order) == len(self._map_views):
+            self._map_views = new_order
+        # Re-index UserRole values
+        for i in range(self.map_views_list_widget.count()):
+            self.map_views_list_widget.item(i).setData(Qt.UserRole, i)
+        self._mv_update_rubber_bands()
+
+    def _mv_view_in_canvas(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            return
+        ext = self._map_views[idx].get("extent")
+        if not ext:
+            QMessageBox.information(self, "No extent", "This map view has no extent set yet.")
+            return
+        try:
+            transformed = self._wgs84_to_canvas_rect(ext)
+            self.iface.mapCanvas().setExtent(transformed)
+            self.iface.mapCanvas().refresh()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+    def _mv_start_draw_extent(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select or add a map view first.")
+            return
+        self.iface.messageBar().pushInfo(
+            "InterCarta", "Click and drag on the map canvas to draw the extent."
+        )
+        self._mv_draw_tool = _RectExtentTool(
+            self.iface.mapCanvas(), self._on_canvas_extent_drawn
+        )
+
+    def _on_canvas_extent_drawn(self, rect):
+        """Called by _RectExtentTool with a QgsRectangle in canvas CRS."""
+        try:
+            canvas_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
+            wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+            tr = QgsCoordinateTransform(canvas_crs, wgs84, QgsProject.instance())
+            e = tr.transformBoundingBox(rect)
+            ext = [[e.yMinimum(), e.xMinimum()], [e.yMaximum(), e.xMaximum()]]
+            idx = self._editing_map_view_idx
+            if idx is not None and 0 <= idx < len(self._map_views):
+                self._map_views[idx]["extent"] = ext
+                self._editing_map_view_extent = ext
+                self._update_mv_extent_label(ext)
+                self._mv_update_rubber_bands()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+        finally:
+            if self._mv_draw_tool:
+                self._mv_draw_tool.deactivate()
+                self._mv_draw_tool = None
+
+    def _mv_set_from_layer_extent(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select or add a map view first.")
+            return
+        layer_id = self.mv_layer_extent_combo.currentData()
+        if not layer_id:
+            return
+        try:
+            layer = QgsProject.instance().mapLayer(layer_id)
+            if not layer:
+                return
+            layer_crs = layer.crs()
+            wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+            tr = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
+            e = tr.transformBoundingBox(layer.extent())
+            ext = [[e.yMinimum(), e.xMinimum()], [e.yMaximum(), e.xMaximum()]]
+            self._map_views[idx]["extent"] = ext
+            self._editing_map_view_extent = ext
+            self._update_mv_extent_label(ext)
+            self._mv_update_rubber_bands()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+    # ── Map canvas rubber bands ───────────────────────────────────────────────
+
+    def _mv_update_rubber_bands(self):
+        self._mv_clear_rubber_bands()
+        try:
+            from qgis.gui import QgsRubberBand
+        except ImportError:
+            return
+
+        canvas = self.iface.mapCanvas()
+        selected_row = self.map_views_list_widget.currentRow()
+
+        for i, mv in enumerate(self._map_views):
+            ext = mv.get("extent")
+            if not ext:
+                continue
+            try:
+                transformed = self._wgs84_to_canvas_rect(ext)
+                rb = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
+                if i == selected_row:
+                    rb.setStrokeColor(QColor(_AR_PURPLE))
+                    rb.setWidth(2)
+                    rb.setFillColor(QColor(92, 45, 145, 20))
+                else:
+                    rb.setStrokeColor(QColor(120, 120, 120, 180))
+                    rb.setWidth(1)
+                    rb.setFillColor(QColor(0, 0, 0, 0))
+                xmin, ymin = transformed.xMinimum(), transformed.yMinimum()
+                xmax, ymax = transformed.xMaximum(), transformed.yMaximum()
+                for pt in [
+                    QgsPointXY(xmin, ymin), QgsPointXY(xmin, ymax),
+                    QgsPointXY(xmax, ymax), QgsPointXY(xmax, ymin),
+                    QgsPointXY(xmin, ymin),
+                ]:
+                    rb.addPoint(pt)
+                self._mv_rubber_bands[i] = rb
+            except Exception:
+                pass
+
+    def _mv_clear_rubber_bands(self):
+        for rb in self._mv_rubber_bands.values():
+            try:
+                rb.reset(QgsWkbTypes.PolygonGeometry)
+            except Exception:
+                pass
+        self._mv_rubber_bands = {}
 
     # ── Layers tab ────────────────────────────────────────────────────────────
 
@@ -650,7 +960,7 @@ class WebMapExportDialog(QDockWidget):
         view_row = QHBoxLayout()
         recapture_btn = QPushButton("\U0001f4f7 Re-capture initial view")
         recapture_btn.setToolTip(
-            "Sets the map’s opening extent to the current QGIS canvas view.\n"
+            "Sets the map's opening extent to the current QGIS canvas view.\n"
             "Default is the view at the time the panel was opened."
         )
         recapture_btn.clicked.connect(self._recapture_initial_extent)
@@ -742,14 +1052,14 @@ class WebMapExportDialog(QDockWidget):
             for part in ("name", "date"):
                 info[f"{role}_{part}"] = getattr(self, f"info_{role}_{part}_edit").text().strip()
         return {
-            "layer_names":         self._checked_layer_names(),
+            "layer_names":           self._checked_layer_names(),
             "include_layer_control": self.layer_control_cb.isChecked(),
-            "include_basemap":     self.basemap_cb.isChecked(),
-            "initial_extent":      self._initial_extent,
-            "map_views":           self._map_views,
-            "output_path":         self.path_edit.text().strip(),
-            "info":                info,
-            "theme":               self.export_theme_combo.currentData(),
+            "include_basemap":       self.basemap_cb.isChecked(),
+            "initial_extent":        self._initial_extent,
+            "map_views":             self._map_views,
+            "output_path":           self.path_edit.text().strip(),
+            "info":                  info,
+            "theme":                 self.export_theme_combo.currentData(),
         }
 
     def _apply_state(self, state):
@@ -762,6 +1072,7 @@ class WebMapExportDialog(QDockWidget):
         self._map_views = [dict(mv) for mv in state.get("map_views", [])]
         self._map_view_clear_form()
         self._map_views_list_refresh()
+        self._mv_update_rubber_bands()
         out = state.get("output_path", "")
         if out:
             self.path_edit.setText(out)
@@ -808,7 +1119,7 @@ class WebMapExportDialog(QDockWidget):
         data = self._instances_load_all()
         state = data.get(name)
         if state is None:
-            QMessageBox.warning(self, "Not found", f"Config ‘{name}’ could not be found.")
+            QMessageBox.warning(self, "Not found", f"Config '{name}' could not be found.")
             self._instances_refresh_combo()
             return
         self._apply_state(state)
@@ -818,7 +1129,7 @@ class WebMapExportDialog(QDockWidget):
         if missing:
             QMessageBox.information(
                 self, "Loaded with missing layers",
-                "Config ‘{}’ loaded.\n\nThe following layers are not in the current "
+                "Config '{}' loaded.\n\nThe following layers are not in the current "
                 "project and were skipped:\n  • {}".format(name, "\n  • ".join(missing))
             )
 
@@ -833,7 +1144,7 @@ class WebMapExportDialog(QDockWidget):
         self._instances_refresh_combo(select_name=name)
         self._loaded_instance_name = name
         self.loaded_instance_label.setText(f"Loaded: {name}")
-        self.iface.messageBar().pushInfo("InterCarta", f"Config ‘{name}’ updated.")
+        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' updated.")
 
     def _instance_save_as(self):
         name, ok = QInputDialog.getText(self, "Save config as", "Config name:")
@@ -847,7 +1158,7 @@ class WebMapExportDialog(QDockWidget):
         if name in data:
             resp = QMessageBox.question(
                 self, "Overwrite?",
-                f"A config named ‘{name}’ already exists. Overwrite it?",
+                f"A config named '{name}' already exists. Overwrite it?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
             if resp != QMessageBox.Yes:
@@ -857,7 +1168,7 @@ class WebMapExportDialog(QDockWidget):
         self._instances_refresh_combo(select_name=name)
         self._loaded_instance_name = name
         self.loaded_instance_label.setText(f"Loaded: {name}")
-        self.iface.messageBar().pushInfo("InterCarta", f"Config ‘{name}’ saved.")
+        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' saved.")
 
     def _instance_delete(self):
         name = self.instance_combo.currentData()
@@ -866,7 +1177,7 @@ class WebMapExportDialog(QDockWidget):
             return
         resp = QMessageBox.question(
             self, "Delete config",
-            f"Delete saved config ‘{name}’?",
+            f"Delete saved config '{name}'?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if resp != QMessageBox.Yes:
@@ -946,6 +1257,7 @@ class WebMapExportDialog(QDockWidget):
         self.layer_tree_widget.expandAll()
         self.layer_tree_widget.blockSignals(False)
         self._populate_qgis_theme_combos()
+        self._mv_populate_layer_combo()
 
     def _populate_qgis_theme_combos(self):
         theme_names = []
@@ -1082,14 +1394,22 @@ class WebMapExportDialog(QDockWidget):
     def _map_views_list_refresh(self):
         self.map_views_list_widget.blockSignals(True)
         self.map_views_list_widget.clear()
-        for mv in self._map_views:
-            self.map_views_list_widget.addItem(mv.get("name") or "(unnamed)")
+        for i, mv in enumerate(self._map_views):
+            from qgis.PyQt.QtWidgets import QListWidgetItem
+            item = QListWidgetItem("⠿  " + (mv.get("name") or "(unnamed)"))
+            item.setData(Qt.UserRole, i)
+            item.setToolTip("Drag to reorder")
+            self.map_views_list_widget.addItem(item)
         self.map_views_list_widget.blockSignals(False)
+        self._mv_update_placeholder()
 
     def _on_map_view_selected(self, row):
         if row < 0 or row >= len(self._map_views):
             self._map_view_clear_form()
+            self.mv_detail_scroll.setVisible(False)
+            self._mv_update_rubber_bands()
             return
+        self.mv_detail_scroll.setVisible(True)
         mv = self._map_views[row]
         self._editing_map_view_idx = row
         self._editing_map_view_extent = mv.get("extent")
@@ -1100,7 +1420,8 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
         self._update_mv_extent_label(mv.get("extent"))
-        self._update_mv_layers_label(mv.get("layerIds"))
+        self._update_mv_layers_label(mv.get("layerIds"), mv.get("theme"))
+        self._mv_update_rubber_bands()
 
     def _update_mv_extent_label(self, ext):
         if ext:
@@ -1109,10 +1430,12 @@ class WebMapExportDialog(QDockWidget):
                 f"N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
             )
         else:
-            self.map_view_extent_label.setText("(not captured)")
+            self.map_view_extent_label.setText("(not set)")
 
-    def _update_mv_layers_label(self, layer_ids):
-        if layer_ids:
+    def _update_mv_layers_label(self, layer_ids, theme=None):
+        if theme:
+            self.map_view_layers_label.setText(f"Theme: {theme}")
+        elif layer_ids:
             n = len(layer_ids)
             preview = ", ".join(layer_ids[:3])
             suffix = f", +{n-3} more" if n > 3 else ""
@@ -1129,7 +1452,7 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_notes_edit.clear()
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
-        self.map_view_extent_label.setText("(not captured)")
+        self.map_view_extent_label.setText("(not set)")
         self.map_view_layers_label.setText("Layers: (not set)")
 
     def _mv_autosave(self):
@@ -1143,18 +1466,20 @@ class WebMapExportDialog(QDockWidget):
         self.map_views_list_widget.blockSignals(True)
         item = self.map_views_list_widget.item(idx)
         if item:
-            item.setText(mv["name"])
+            item.setText("⠿  " + mv["name"])
         self.map_views_list_widget.blockSignals(False)
 
     def _map_view_capture_extent(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select or add a map view first.")
+            return
         ext = self._capture_canvas_extent()
         self._editing_map_view_extent = ext
         self._update_mv_extent_label(ext)
-        if ext is None:
-            return
-        idx = self._editing_map_view_idx
-        if idx is not None and 0 <= idx < len(self._map_views):
+        if ext is not None:
             self._map_views[idx]["extent"] = ext
+            self._mv_update_rubber_bands()
 
     def _map_view_capture_layers(self):
         try:
@@ -1172,6 +1497,7 @@ class WebMapExportDialog(QDockWidget):
             QMessageBox.information(self, "No map view", "Select or add a map view first.")
             return
         self._map_views[idx]["layerIds"] = layer_names
+        self._map_views[idx].pop("theme", None)
         self._update_mv_layers_label(layer_names)
 
     def _map_view_use_theme(self):
@@ -1183,51 +1509,41 @@ class WebMapExportDialog(QDockWidget):
         if idx is None or idx < 0 or idx >= len(self._map_views):
             QMessageBox.information(self, "No map view", "Select or add a map view first.")
             return
-        try:
-            theme_collection = QgsProject.instance().mapThemeCollection()
-            visible_layers = theme_collection.mapThemeVisibleLayers(theme_name)
-            layer_names = [la.name() for la in visible_layers]
-        except Exception as e:
-            QMessageBox.warning(self, "Theme error", str(e))
-            return
-        self._map_views[idx]["layerIds"] = layer_names
-        self._update_mv_layers_label(layer_names)
+        self._map_views[idx]["theme"] = theme_name
+        self._map_views[idx].pop("layerIds", None)
+        self._update_mv_layers_label(None, theme=theme_name)
 
     def _map_view_add(self):
         mv = {"name": "New map view", "notes": "", "extent": None, "layerIds": []}
         self._map_views.append(mv)
         self._map_views_list_refresh()
-        self.map_views_list_widget.setCurrentRow(len(self._map_views) - 1)
+        new_row = len(self._map_views) - 1
+        self.map_views_list_widget.setCurrentRow(new_row)
         self.map_view_name_edit.selectAll()
         self.map_view_name_edit.setFocus()
 
     def _map_view_delete(self):
         row = self.map_views_list_widget.currentRow()
-        if row < 0:
+        if row < 0 or row >= len(self._map_views):
+            return
+        name = self._map_views[row].get("name", "this map view")
+        resp = QMessageBox.question(
+            self, "Delete map view",
+            f"Delete '{name}'?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if resp != QMessageBox.Yes:
             return
         del self._map_views[row]
+        self._mv_clear_rubber_bands()
         self._map_views_list_refresh()
         new_row = min(row, len(self._map_views) - 1)
         if new_row >= 0:
             self.map_views_list_widget.setCurrentRow(new_row)
         else:
             self._map_view_clear_form()
-
-    def _map_view_move_up(self):
-        row = self.map_views_list_widget.currentRow()
-        if row <= 0:
-            return
-        self._map_views[row - 1], self._map_views[row] = self._map_views[row], self._map_views[row - 1]
-        self._map_views_list_refresh()
-        self.map_views_list_widget.setCurrentRow(row - 1)
-
-    def _map_view_move_down(self):
-        row = self.map_views_list_widget.currentRow()
-        if row < 0 or row >= len(self._map_views) - 1:
-            return
-        self._map_views[row], self._map_views[row + 1] = self._map_views[row + 1], self._map_views[row]
-        self._map_views_list_refresh()
-        self.map_views_list_widget.setCurrentRow(row + 1)
+            self.mv_detail_scroll.setVisible(False)
+        self._mv_update_rubber_bands()
 
     # ── Browse / Export ───────────────────────────────────────────────────────
 
