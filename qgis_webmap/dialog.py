@@ -9,7 +9,7 @@ from qgis.PyQt.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
 )
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings
-from qgis.PyQt.QtGui import QDesktopServices
+from qgis.PyQt.QtGui import QDesktopServices, QPixmap, QFont
 from qgis.core import QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer
 
 _SETTINGS_KEY = "QgsWebMapExporter"
@@ -20,9 +20,9 @@ class WebMapExportDialog(QDockWidget):
     """Dockable Web Map export panel with a saved-instance manager."""
 
     def __init__(self, iface, parent=None):
-        super().__init__("Export to Web Map", parent or iface.mainWindow())
+        super().__init__("InterCarta", parent or iface.mainWindow())
         self.iface = iface
-        self.setObjectName("WebMapExportPanel")
+        self.setObjectName("InterCartaPanel")
         self.setMinimumWidth(420)
         self._initial_extent = self._capture_canvas_extent()
         self._map_views = []
@@ -131,15 +131,103 @@ class WebMapExportDialog(QDockWidget):
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
+    def _build_header(self):
+        header = QWidget()
+        header.setObjectName("icHeader")
+        header.setFixedHeight(42)
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(10, 0, 10, 0)
+        hl.setSpacing(8)
+
+        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        if os.path.exists(icon_path):
+            icon_lbl = QLabel()
+            pm = QPixmap(icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_lbl.setPixmap(pm)
+            hl.addWidget(icon_lbl)
+
+        name_lbl = QLabel("InterCarta")
+        name_lbl.setObjectName("icName")
+        hl.addWidget(name_lbl)
+
+        sub_lbl = QLabel("Interactive Map Package")
+        sub_lbl.setObjectName("icSub")
+        hl.addWidget(sub_lbl)
+        hl.addStretch()
+        return header
+
     def _build_ui(self):
         container = QWidget()
         layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 8)
+        layout.setSpacing(0)
+
+        container.setStyleSheet("""
+            QWidget#icHeader {
+                background: #1E293B;
+                border-bottom: 3px solid #2563EB;
+            }
+            QLabel#icName {
+                color: #FFFFFF;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLabel#icSub {
+                color: rgba(255,255,255,0.48);
+                font-size: 10px;
+            }
+            QTabWidget::pane {
+                border-top: 2px solid #2563EB;
+            }
+            QTabBar::tab {
+                padding: 5px 11px;
+                border-bottom: 2px solid transparent;
+            }
+            QTabBar::tab:selected {
+                border-bottom: 2px solid #2563EB;
+                color: #2563EB;
+                font-weight: 600;
+            }
+            QTabBar::tab:hover:!selected {
+                border-bottom: 2px solid #93C5FD;
+            }
+            QGroupBox {
+                border: 1px solid #E2E8F0;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 4px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                color: #1D4ED8;
+                font-weight: 600;
+            }
+            QPushButton#exportBtn {
+                background: #2563EB;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 22px;
+                font-weight: 600;
+                min-height: 26px;
+            }
+            QPushButton#exportBtn:hover  { background: #1D4ED8; }
+            QPushButton#exportBtn:pressed { background: #1E40AF; }
+        """)
+
+        # ── Header banner ─────────────────────────────────────────────────────
+        layout.addWidget(self._build_header())
+
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(8, 6, 8, 0)
 
         # ── Instance manager bar ──────────────────────────────────────────────
-        layout.addWidget(self._build_instance_bar())
+        inner_layout.addWidget(self._build_instance_bar())
 
         tabs = QTabWidget()
-        layout.addWidget(tabs)
+        inner_layout.addWidget(tabs)
 
         # ── Tab 1: Layers ────────────────────────────────────────────────────
         layers_tab = QWidget()
@@ -426,10 +514,11 @@ class WebMapExportDialog(QDockWidget):
         # ── Progress + bottom buttons ────────────────────────────────────────
         self.progress = QProgressBar()
         self.progress.setVisible(False)
-        layout.addWidget(self.progress)
+        inner_layout.addWidget(self.progress)
 
         bottom = QHBoxLayout()
         self.export_btn = QPushButton("Export")
+        self.export_btn.setObjectName("exportBtn")
         self.export_btn.setDefault(True)
         self.export_btn.clicked.connect(self._export)
         close_btn = QPushButton("Close")
@@ -437,8 +526,9 @@ class WebMapExportDialog(QDockWidget):
         bottom.addStretch()
         bottom.addWidget(self.export_btn)
         bottom.addWidget(close_btn)
-        layout.addLayout(bottom)
+        inner_layout.addLayout(bottom)
 
+        layout.addWidget(inner)
         self.setWidget(container)
 
     def _build_instance_bar(self):
@@ -622,7 +712,7 @@ class WebMapExportDialog(QDockWidget):
         data[name] = self._collect_state()
         self._instances_save_all(data)
         self._instances_refresh_combo(select_name=name)
-        self.iface.messageBar().pushInfo("Web Map Exporter", f"Instance '{name}' updated.")
+        self.iface.messageBar().pushInfo("InterCarta", f"Instance '{name}' updated.")
 
     def _instance_save_as(self):
         name, ok = QInputDialog.getText(self, "Save instance as", "Instance name:")
@@ -644,7 +734,7 @@ class WebMapExportDialog(QDockWidget):
         data[name] = self._collect_state()
         self._instances_save_all(data)
         self._instances_refresh_combo(select_name=name)
-        self.iface.messageBar().pushInfo("Web Map Exporter", f"Instance '{name}' saved.")
+        self.iface.messageBar().pushInfo("InterCarta", f"Instance '{name}' saved.")
 
     def _instance_delete(self):
         name = self.instance_combo.currentData()
@@ -1049,7 +1139,7 @@ class WebMapExportDialog(QDockWidget):
         current = self.path_edit.text().strip()
         start_dir = os.path.dirname(current) if current else ""
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save Web Map", start_dir, "HTML Files (*.html);;All Files (*)"
+            self, "Save InterCarta Package", start_dir, "HTML Files (*.html);;All Files (*)"
         )
         if path:
             if not path.lower().endswith(".html"):

@@ -1122,7 +1122,7 @@ class WebMapExporter:
         _info_purpose    = _html_mod.escape(str(_info.get("purpose",    "") or ""))
         _client_img_path  = str(_info.get("client_img",  "") or "")
         _project_img_path = str(_info.get("project_img", "") or "")
-        _page_title = _html_mod.escape(_info.get("title", "") or "QGIS Web Map")
+        _page_title = _html_mod.escape(_info.get("title", "") or "InterCarta")
 
         # ── Theme colours ────────────────────────────────────────────────────
         _t = _THEMES.get(self.theme or "corporate", _THEMES["corporate"])
