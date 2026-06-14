@@ -1080,17 +1080,8 @@ class WebMapExportDialog(QDockWidget):
         QSettings().setValue(self._project_instances_key(), json.dumps(data))
 
     def _instances_refresh_combo(self, select_name=None):
-        data = self._instances_load_all()
-        self.instance_combo.blockSignals(True)
-        self.instance_combo.clear()
-        self.instance_combo.addItem("— None —", "")
-        for name in sorted(data.keys(), key=str.lower):
-            self.instance_combo.addItem(name, name)
-        if select_name:
-            idx = self.instance_combo.findData(select_name)
-            if idx >= 0:
-                self.instance_combo.setCurrentIndex(idx)
-        self.instance_combo.blockSignals(False)
+        # Legacy stub — config bar replaces the old combo
+        self._update_config_bar()
 
     def _collect_state(self):
         info = {
@@ -1173,20 +1164,18 @@ class WebMapExportDialog(QDockWidget):
         if idx >= 0:
             self.export_theme_combo.setCurrentIndex(idx)
 
-    def _instance_load(self):
-        name = self.instance_combo.currentData()
-        if not name:
-            QMessageBox.information(self, "No config selected", "Please select a saved config to load.")
+    def _instance_load(self, name=None):
+        if name is None:
             return
         data = self._instances_load_all()
         state = data.get(name)
         if state is None:
             QMessageBox.warning(self, "Not found", f"Config '{name}' could not be found.")
-            self._instances_refresh_combo()
             return
         self._apply_state(state)
         self._loaded_instance_name = name
-        self.loaded_instance_label.setText(f"Loaded: {name}")
+        self._has_unsaved_changes = False
+        self._update_config_bar()
         missing = self._missing_layer_names(state.get("layer_names", []))
         if missing:
             QMessageBox.information(
@@ -1196,17 +1185,16 @@ class WebMapExportDialog(QDockWidget):
             )
 
     def _instance_save(self):
-        name = self.instance_combo.currentData()
+        name = self._loaded_instance_name
         if not name:
             self._instance_save_as()
             return
         data = self._instances_load_all()
         data[name] = self._collect_state()
         self._instances_save_all(data)
-        self._instances_refresh_combo(select_name=name)
-        self._loaded_instance_name = name
-        self.loaded_instance_label.setText(f"Loaded: {name}")
-        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' updated.")
+        self._has_unsaved_changes = False
+        self._update_config_bar()
+        self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' saved.")
 
     def _instance_save_as(self):
         name, ok = QInputDialog.getText(self, "Save config as", "Config name:")
@@ -1227,15 +1215,14 @@ class WebMapExportDialog(QDockWidget):
                 return
         data[name] = self._collect_state()
         self._instances_save_all(data)
-        self._instances_refresh_combo(select_name=name)
         self._loaded_instance_name = name
-        self.loaded_instance_label.setText(f"Loaded: {name}")
+        self._has_unsaved_changes = False
+        self._update_config_bar()
         self.iface.messageBar().pushInfo("InterCarta", f"Config '{name}' saved.")
 
     def _instance_delete(self):
-        name = self.instance_combo.currentData()
+        name = self._loaded_instance_name
         if not name:
-            QMessageBox.information(self, "No config selected", "Please select a saved config to delete.")
             return
         resp = QMessageBox.question(
             self, "Delete config",
@@ -1247,10 +1234,9 @@ class WebMapExportDialog(QDockWidget):
         data = self._instances_load_all()
         data.pop(name, None)
         self._instances_save_all(data)
-        if self._loaded_instance_name == name:
-            self._loaded_instance_name = None
-            self.loaded_instance_label.setText("No config loaded")
-        self._instances_refresh_combo()
+        self._loaded_instance_name = None
+        self._has_unsaved_changes = False
+        self._update_config_bar()
 
     # ── Layer tree ────────────────────────────────────────────────────────────
 
@@ -1653,17 +1639,39 @@ class WebMapExportDialog(QDockWidget):
         mv = {"name": "New map view", "notes": "", "extent": None, "layerIds": []}
         self._map_views.append(mv)
         self._map_views_list_refresh()
-        new_row = len(self._map_views) - 1
+        new_row = len(self._map_views)  # +1 for Default at 0, but count = len+1, last = len
         self.map_views_list_widget.setCurrentRow(new_row)
         self.map_view_name_edit.selectAll()
         self.map_view_name_edit.setFocus()
         self._update_required_layers()
 
-    def _map_view_delete(self):
-        row = self.map_views_list_widget.currentRow()
-        if row < 0 or row >= len(self._map_views):
+    def _map_view_add_from_theme(self):
+        theme_names = []
+        try:
+            tc = QgsProject.instance().mapThemeCollection()
+            theme_names = sorted(tc.mapThemes())
+        except Exception:
+            pass
+        if not theme_names:
+            QMessageBox.information(self, "No themes", "No QGIS map themes found in this project.")
             return
-        name = self._map_views[row].get("name", "this map view")
+        name, ok = QInputDialog.getItem(
+            self, "Add map view from theme", "Select a QGIS map theme:", theme_names, 0, False
+        )
+        if not ok or not name:
+            return
+        mv = {"name": name, "notes": "", "extent": None, "layerIds": [], "theme": name}
+        self._map_views.append(mv)
+        self._map_views_list_refresh()
+        new_row = self.map_views_list_widget.count() - 1
+        self.map_views_list_widget.setCurrentRow(new_row)
+        self._update_required_layers()
+
+    def _map_view_delete(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            return
+        name = self._map_views[idx].get("name", "this map view")
         resp = QMessageBox.question(
             self, "Delete map view",
             f"Delete '{name}'?",
@@ -1671,16 +1679,15 @@ class WebMapExportDialog(QDockWidget):
         )
         if resp != QMessageBox.Yes:
             return
-        del self._map_views[row]
+        del self._map_views[idx]
         self._mv_clear_rubber_bands()
         self._map_views_list_refresh()
-        new_row = min(row, len(self._map_views) - 1)
-        if new_row >= 0:
+        # Select adjacent view or Default
+        if self._map_views:
+            new_row = min(idx + 1, len(self._map_views))  # +1 for Default
             self.map_views_list_widget.setCurrentRow(new_row)
         else:
-            self._map_view_clear_form()
-            self.mv_detail_scroll.setVisible(False)
-        self._mv_update_rubber_bands()
+            self.map_views_list_widget.setCurrentRow(0)  # Select Default
         self._update_required_layers()
 
     # ── Browse / Export ───────────────────────────────────────────────────────
