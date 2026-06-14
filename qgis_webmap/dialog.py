@@ -138,6 +138,16 @@ class WebMapExportDialog(QDockWidget):
         self._save_settings()
         super().closeEvent(event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Only show rubber bands when actually on the Map Views tab
+        if self._tab_stack.currentIndex() != self._MAP_VIEWS_TAB:
+            self._mv_clear_rubber_bands()
+
+    def hideEvent(self, event):
+        self._mv_clear_rubber_bands()
+        super().hideEvent(event)
+
     def _on_close_clicked(self):
         self._mv_clear_rubber_bands()
         self._save_settings()
@@ -369,16 +379,14 @@ class WebMapExportDialog(QDockWidget):
             QPushButton#icConfigSaveRed:hover {{ background: #B91C1C; }}
             QLabel#icName {{
                 color: #FFFFFF;
-                font-size: 17px;
+                font-size: 22px;
                 font-weight: 700;
             }}
             QLabel#icDesc1 {{
                 color: #475569;
-                font-size: 10px;
             }}
             QLabel#icDesc2 {{
                 color: #DC2626;
-                font-size: 10px;
             }}
             QWidget#icNavBar {{
                 background: #FFFFFF;
@@ -387,14 +395,15 @@ class WebMapExportDialog(QDockWidget):
             QPushButton#icNavBtn {{
                 background: transparent;
                 border: none;
-                padding: 6px 10px;
+                padding: 6px 14px;
                 color: #6B7280;
                 font-size: 11px;
+                font-weight: 600;
+                min-width: 64px;
             }}
             QPushButton#icNavBtn:checked {{
                 color: {_AR_PURPLE};
-                font-weight: 700;
-                border-bottom: 2px solid {_AR_PURPLE};
+                border-bottom: 3px solid {_AR_PURPLE};
             }}
             QPushButton#icNavBtn:hover:!checked {{
                 color: {_AR_PURPLE_LIGHT};
@@ -586,7 +595,7 @@ class WebMapExportDialog(QDockWidget):
         self._config_none_widget.setVisible(not loaded)
         self._config_loaded_widget.setVisible(loaded)
         if loaded:
-            self.config_name_label.setText(f"Config: {self._loaded_instance_name}")
+            self.config_name_label.setText(f"Map Package Configuration Settings: {self._loaded_instance_name}")
             self._refresh_config_save_btn()
 
     def _refresh_config_save_btn(self):
@@ -899,20 +908,30 @@ class WebMapExportDialog(QDockWidget):
         name_row.addWidget(view_canvas_btn)
         box_vl.addLayout(name_row)
 
-        # Description
+        # Description (no fixed height — let it grow; scroll handles overflow)
         box_vl.addWidget(QLabel("Description:"))
         self.map_view_notes_edit = QTextEdit()
         self.map_view_notes_edit.setPlaceholderText("Description shown in the map viewer")
-        self.map_view_notes_edit.setFixedHeight(52)
+        self.map_view_notes_edit.setMinimumHeight(52)
         self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
-        box_vl.addWidget(self.map_view_notes_edit)
+        box_vl.addWidget(self.map_view_notes_edit, 1)
 
-        # Layers status + buttons
-        self.map_view_layers_label = QLabel("Layers: (not configured)")
+        # Layers: status label (standard text, info bold) + toggle + sub-panel
+        self.map_view_layers_label = QLabel("Layers: <b>(not configured)</b>")
+        self.map_view_layers_label.setTextFormat(Qt.RichText)
         self.map_view_layers_label.setWordWrap(True)
-        self.map_view_layers_label.setStyleSheet("color: #6B7280; font-size: 10px; padding: 2px 0;")
         box_vl.addWidget(self.map_view_layers_label)
 
+        self._mv_layers_toggle_btn = QPushButton("▶  Set layers")
+        self._mv_layers_toggle_btn.setFlat(True)
+        self._mv_layers_toggle_btn.setStyleSheet("text-align: left; color: #374151; padding: 2px 0;")
+        self._mv_layers_toggle_btn.clicked.connect(self._toggle_mv_layers_panel)
+        box_vl.addWidget(self._mv_layers_toggle_btn)
+
+        self.mv_layers_panel = QWidget()
+        layers_panel_vl = QVBoxLayout(self.mv_layers_panel)
+        layers_panel_vl.setContentsMargins(0, 0, 0, 0)
+        layers_panel_vl.setSpacing(4)
         layers_btn_row = QHBoxLayout()
         layers_btn_row.setSpacing(6)
         copy_layers_btn = QPushButton("📷  Set to map canvas layers")
@@ -923,25 +942,36 @@ class WebMapExportDialog(QDockWidget):
         link_theme_btn.setToolTip("Choose a QGIS map theme to link dynamically")
         link_theme_btn.clicked.connect(self._mv_pick_and_link_theme)
         layers_btn_row.addWidget(link_theme_btn)
-        box_vl.addLayout(layers_btn_row)
+        layers_panel_vl.addLayout(layers_btn_row)
+        self.mv_layers_panel.setVisible(False)
+        box_vl.addWidget(self.mv_layers_panel)
 
-        # Extent status + buttons
-        self.map_view_extent_label = QLabel("View extent: (not set)")
+        # View extent: status label + toggle + sub-panel
+        self.map_view_extent_label = QLabel("View extent: <b>(not set)</b>")
+        self.map_view_extent_label.setTextFormat(Qt.RichText)
         self.map_view_extent_label.setWordWrap(True)
-        self.map_view_extent_label.setStyleSheet("color: #6B7280; font-size: 10px; padding: 2px 0;")
         box_vl.addWidget(self.map_view_extent_label)
 
-        extent_btn_row1 = QHBoxLayout()
-        extent_btn_row1.setSpacing(6)
+        self._mv_extent_toggle_btn = QPushButton("▶  Set extent")
+        self._mv_extent_toggle_btn.setFlat(True)
+        self._mv_extent_toggle_btn.setStyleSheet("text-align: left; color: #374151; padding: 2px 0;")
+        self._mv_extent_toggle_btn.clicked.connect(self._toggle_mv_extent_panel)
+        box_vl.addWidget(self._mv_extent_toggle_btn)
+
+        self.mv_extent_panel = QWidget()
+        extent_panel_vl = QVBoxLayout(self.mv_extent_panel)
+        extent_panel_vl.setContentsMargins(0, 0, 0, 0)
+        extent_panel_vl.setSpacing(4)
+        extent_btn_row = QHBoxLayout()
+        extent_btn_row.setSpacing(6)
         set_canvas_btn = QPushButton("📷  Set from map canvas")
         set_canvas_btn.clicked.connect(self._map_view_capture_extent)
-        extent_btn_row1.addWidget(set_canvas_btn)
+        extent_btn_row.addWidget(set_canvas_btn)
         draw_btn = QPushButton("✏  Draw on map canvas")
         draw_btn.setToolTip("Click and drag a rectangle on the map canvas")
         draw_btn.clicked.connect(self._mv_start_draw_extent)
-        extent_btn_row1.addWidget(draw_btn)
-        box_vl.addLayout(extent_btn_row1)
-
+        extent_btn_row.addWidget(draw_btn)
+        extent_panel_vl.addLayout(extent_btn_row)
         layer_ext_row = QHBoxLayout()
         layer_ext_row.setSpacing(6)
         layer_ext_row.addWidget(QLabel("From layer:"))
@@ -950,11 +980,13 @@ class WebMapExportDialog(QDockWidget):
         set_layer_ext_btn = QPushButton("Set")
         set_layer_ext_btn.clicked.connect(self._mv_set_from_layer_extent)
         layer_ext_row.addWidget(set_layer_ext_btn)
-        box_vl.addLayout(layer_ext_row)
+        extent_panel_vl.addLayout(layer_ext_row)
+        self.mv_extent_panel.setVisible(False)
+        box_vl.addWidget(self.mv_extent_panel)
 
-        detail_layout.addWidget(mv_settings_box)
+        detail_layout.addWidget(mv_settings_box, 1)
 
-        # Duplicate + Delete below the box
+        # Duplicate + Delete at the bottom (outside grey box)
         dup_btn = QPushButton("Duplicate map view")
         dup_btn.clicked.connect(self._map_view_duplicate)
         detail_layout.addWidget(dup_btn)
@@ -963,8 +995,6 @@ class WebMapExportDialog(QDockWidget):
         del_btn.setObjectName("deleteBtn")
         del_btn.clicked.connect(self._map_view_delete)
         detail_layout.addWidget(del_btn)
-
-        detail_layout.addStretch()
 
         self.mv_detail_scroll.setWidget(detail_widget)
         mv_layout.addWidget(self.mv_detail_scroll, 1)
@@ -1009,6 +1039,16 @@ class WebMapExportDialog(QDockWidget):
                 j += 1
         self._mv_update_rubber_bands()
         self._update_required_layers()
+
+    def _toggle_mv_layers_panel(self):
+        visible = not self.mv_layers_panel.isVisible()
+        self.mv_layers_panel.setVisible(visible)
+        self._mv_layers_toggle_btn.setText("▼  Set layers" if visible else "▶  Set layers")
+
+    def _toggle_mv_extent_panel(self):
+        visible = not self.mv_extent_panel.isVisible()
+        self.mv_extent_panel.setVisible(visible)
+        self._mv_extent_toggle_btn.setText("▼  Set extent" if visible else "▶  Set extent")
 
     def _mv_view_in_canvas(self):
         idx = self._editing_map_view_idx
@@ -1444,22 +1484,37 @@ class WebMapExportDialog(QDockWidget):
         required = self._get_required_layer_names()
         self.layer_tree_widget.blockSignals(True)
 
-        def walk(parent_item):
-            for i in range(parent_item.childCount()):
-                item = parent_item.child(i)
-                layer_id = item.data(0, Qt.UserRole)
-                if layer_id is not None:
-                    layer = QgsProject.instance().mapLayer(layer_id)
-                    if layer and layer.name() in required:
-                        item.setCheckState(0, Qt.Checked)
-                        item.setToolTip(0, "Required by a map view — cannot be deselected")
-                        item.setForeground(0, QColor(_AR_PURPLE))
-                    else:
-                        item.setToolTip(0, "")
-                        item.setForeground(0, QColor())  # reset to default
-                walk(item)
+        def walk(item):
+            """Return True if this item or any descendant is a required layer."""
+            layer_id = item.data(0, Qt.UserRole)
+            if layer_id is not None:
+                layer = QgsProject.instance().mapLayer(layer_id)
+                if layer and layer.name() in required:
+                    item.setCheckState(0, Qt.Checked)
+                    item.setToolTip(0, "Required by a map view — cannot be deselected")
+                    item.setForeground(0, QColor(_AR_PURPLE))
+                    return True
+                else:
+                    item.setToolTip(0, "")
+                    item.setForeground(0, QColor())
+                    return False
+            else:
+                # Group item — walk children first
+                child_required = False
+                for i in range(item.childCount()):
+                    if walk(item.child(i)):
+                        child_required = True
+                if child_required:
+                    item.setCheckState(0, Qt.Checked)
+                    item.setForeground(0, QColor(_AR_PURPLE))
+                else:
+                    item.setForeground(0, QColor())
+                return child_required
 
-        walk(self.layer_tree_widget.invisibleRootItem())
+        root = self.layer_tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            walk(root.child(i))
+
         self.layer_tree_widget.blockSignals(False)
 
     def _on_layer_item_changed(self, item, column):
@@ -1727,22 +1782,28 @@ class WebMapExportDialog(QDockWidget):
     def _update_mv_extent_label(self, ext):
         if ext:
             self.map_view_extent_label.setText(
-                f"View extent:  S {ext[0][0]:.4f}  W {ext[0][1]:.4f}  "
-                f"N {ext[1][0]:.4f}  E {ext[1][1]:.4f}"
+                f"View extent: <b>S {ext[0][0]:.4f}  W {ext[0][1]:.4f}  "
+                f"N {ext[1][0]:.4f}  E {ext[1][1]:.4f}</b>"
             )
         else:
-            self.map_view_extent_label.setText("View extent: (not set)")
+            self.map_view_extent_label.setText("View extent: <b>(not set)</b>")
 
     def _update_mv_layers_label(self, layer_ids, theme=None):
         if theme:
-            self.map_view_layers_label.setText(f"Layers: slaved to theme — {theme}")
+            import html as _h
+            self.map_view_layers_label.setText(
+                f"Layers: <b>slaved to theme — {_h.escape(theme)}</b>"
+            )
         elif layer_ids:
             n = len(layer_ids)
-            preview = ", ".join(layer_ids[:3])
+            import html as _h
+            preview = ", ".join(_h.escape(x) for x in layer_ids[:3])
             suffix = f", +{n-3} more" if n > 3 else ""
-            self.map_view_layers_label.setText(f"Layers: set manually — {n} layer(s): {preview}{suffix}")
+            self.map_view_layers_label.setText(
+                f"Layers: <b>set manually — {n} layer(s): {preview}{suffix}</b>"
+            )
         else:
-            self.map_view_layers_label.setText("Layers: (not set)")
+            self.map_view_layers_label.setText("Layers: <b>(not configured)</b>")
 
     def _map_view_clear_form(self):
         self._editing_map_view_idx = None
@@ -1753,8 +1814,8 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_notes_edit.clear()
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
-        self.map_view_extent_label.setText("View extent: (not set)")
-        self.map_view_layers_label.setText("Layers: (not configured)")
+        self.map_view_extent_label.setText("View extent: <b>(not set)</b>")
+        self.map_view_layers_label.setText("Layers: <b>(not configured)</b>")
 
     def _mv_autosave(self):
         idx = self._editing_map_view_idx
