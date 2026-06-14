@@ -11,7 +11,7 @@ from qgis.PyQt.QtWidgets import (
     QStackedWidget,
 )
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings, pyqtSignal
-from qgis.PyQt.QtGui import QDesktopServices, QPixmap, QColor
+from qgis.PyQt.QtGui import QDesktopServices, QPixmap, QColor, QFont, QTextCharFormat
 from qgis.core import (
     QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer,
     QgsCoordinateTransform, QgsCoordinateReferenceSystem,
@@ -212,7 +212,7 @@ class WebMapExportDialog(QDockWidget):
 
         text = s.value(f"{_SETTINGS_KEY}/info_text", "")
         if text:
-            self.info_text_edit.setPlainText(text)
+            self._set_richtext(self.info_text_edit, text)
 
         purpose_val = s.value(f"{_SETTINGS_KEY}/info_purpose", "")
         if purpose_val:
@@ -245,7 +245,7 @@ class WebMapExportDialog(QDockWidget):
         s.setValue(f"{_SETTINGS_KEY}/include_doc_metadata",  self.include_doc_metadata_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_doc_control",   self.include_doc_control_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/info_title",            self.info_title_edit.text().strip())
-        s.setValue(f"{_SETTINGS_KEY}/info_text",             self.info_text_edit.toPlainText().strip())
+        s.setValue(f"{_SETTINGS_KEY}/info_text",             self.info_text_edit.toHtml())
         for fld in ("info_client", "info_client_img",
                     "info_project_number", "info_project", "info_project_img",
                     "info_doc_number", "info_revision", "info_created_by_name"):
@@ -677,6 +677,81 @@ class WebMapExportDialog(QDockWidget):
         elif action == del_act:
             self._instance_delete()
 
+    # ── Rich-text helpers ─────────────────────────────────────────────────────
+
+    def _build_richtext_toolbar(self, edit):
+        """Return a B / I / U mini-toolbar wired to *edit* (a QTextEdit)."""
+        bar = QWidget()
+        hl = QHBoxLayout(bar)
+        hl.setContentsMargins(0, 0, 0, 2)
+        hl.setSpacing(2)
+
+        btns = []
+        for label, tip in [("B", "Bold"), ("I", "Italic"), ("U", "Underline")]:
+            btn = QPushButton(label)
+            btn.setToolTip(tip)
+            btn.setFixedSize(22, 22)
+            btn.setCheckable(True)
+            btn.setStyleSheet(
+                f"QPushButton {{ font-size:10px; padding:0; border:1px solid #D1D5DB; border-radius:2px; }}"
+                f"QPushButton:checked {{ background:#ede9ff; border-color:{_AR_PURPLE}; }}"
+            )
+            if label == "B":
+                btn.setStyleSheet(btn.styleSheet() + "QPushButton { font-weight:bold; }")
+            elif label == "I":
+                btn.setStyleSheet(btn.styleSheet() + "QPushButton { font-style:italic; }")
+            elif label == "U":
+                btn.setStyleSheet(btn.styleSheet() + "QPushButton { text-decoration:underline; }")
+            btns.append(btn)
+            hl.addWidget(btn)
+        hl.addStretch()
+
+        b_btn, i_btn, u_btn = btns
+
+        def _apply_fmt(_checked):
+            fmt = QTextCharFormat()
+            fmt.setFontWeight(QFont.Bold if b_btn.isChecked() else QFont.Normal)
+            fmt.setFontItalic(i_btn.isChecked())
+            fmt.setFontUnderline(u_btn.isChecked())
+            edit.textCursor().mergeCharFormat(fmt)
+            edit.mergeCurrentCharFormat(fmt)
+
+        for btn in btns:
+            btn.clicked.connect(_apply_fmt)
+
+        def _sync(_fmt=None):
+            fmt = edit.currentCharFormat()
+            for btn in btns:
+                btn.blockSignals(True)
+            b_btn.setChecked(fmt.fontWeight() >= QFont.Bold)
+            i_btn.setChecked(fmt.fontItalic())
+            u_btn.setChecked(fmt.fontUnderline())
+            for btn in btns:
+                btn.blockSignals(False)
+
+        edit.currentCharFormatChanged.connect(_sync)
+        return bar
+
+    @staticmethod
+    def _set_richtext(edit, text):
+        """Load *text* into *edit*, auto-detecting HTML vs plain text."""
+        if text and ("<html" in text[:80] or "<!DOCTYPE" in text[:80]):
+            edit.setHtml(text)
+        else:
+            edit.setPlainText(text or "")
+
+    @staticmethod
+    def _richtext_to_body(html):
+        """Strip Qt's full-document HTML wrapper; return the inner body fragment."""
+        import re
+        m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
+        if m:
+            body = m.group(1).strip()
+            # Remove surrounding <p> if it's the only block and has no special style
+            body = re.sub(r"^<p\s[^>]*>", "<p>", body)
+            return body
+        return html
+
     # ── Map Info tab ──────────────────────────────────────────────────────────
 
     def _build_map_info_tab(self):
@@ -703,9 +778,16 @@ class WebMapExportDialog(QDockWidget):
         self.info_title_edit.setPlaceholderText("Panel title…")
         info_form.addRow("Title:", self.info_title_edit)
         self.info_text_edit = QTextEdit()
+        self.info_text_edit.setAcceptRichText(True)
         self.info_text_edit.setPlaceholderText("Description / information text…")
         self.info_text_edit.setMinimumHeight(80)
-        info_form.addRow("Description:", self.info_text_edit)
+        _desc_w = QWidget()
+        _desc_vl = QVBoxLayout(_desc_w)
+        _desc_vl.setContentsMargins(0, 0, 0, 0)
+        _desc_vl.setSpacing(0)
+        _desc_vl.addWidget(self._build_richtext_toolbar(self.info_text_edit))
+        _desc_vl.addWidget(self.info_text_edit)
+        info_form.addRow("Description:", _desc_w)
         layout.addWidget(info_group)
 
         # ── Document metadata ────────────────────────────────────────────────
@@ -980,9 +1062,11 @@ class WebMapExportDialog(QDockWidget):
         # Description (no fixed height — let it grow; scroll handles overflow)
         box_vl.addWidget(QLabel("Description:"))
         self.map_view_notes_edit = QTextEdit()
+        self.map_view_notes_edit.setAcceptRichText(True)
         self.map_view_notes_edit.setPlaceholderText("Description shown in the map viewer")
         self.map_view_notes_edit.setMinimumHeight(52)
         self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
+        box_vl.addWidget(self._build_richtext_toolbar(self.map_view_notes_edit))
         box_vl.addWidget(self.map_view_notes_edit, 1)
 
         # Layers: status label (standard text, info bold) + toggle + sub-panel
@@ -1379,7 +1463,7 @@ class WebMapExportDialog(QDockWidget):
         info = {
             "enabled":             self.include_info_cb.isChecked(),
             "title":               self.info_title_edit.text().strip(),
-            "text":                self.info_text_edit.toPlainText().strip(),
+            "text":                self.info_text_edit.toHtml(),
             "doc_number":          self.info_doc_number_edit.text().strip(),
             "revision":            self.info_revision_edit.text().strip(),
             "purpose":             self.info_purpose_combo.currentText().strip(),
@@ -1425,7 +1509,7 @@ class WebMapExportDialog(QDockWidget):
         info = state.get("info", {})
         self.include_info_cb.setChecked(bool(info.get("enabled", True)))
         self.info_title_edit.setText(info.get("title", ""))
-        self.info_text_edit.setPlainText(info.get("text", ""))
+        self._set_richtext(self.info_text_edit, info.get("text", ""))
         self.info_doc_number_edit.setText(info.get("doc_number", ""))
         self.info_revision_edit.setText(info.get("revision", ""))
 
@@ -1841,7 +1925,7 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_name_edit.blockSignals(True)
         self.map_view_notes_edit.blockSignals(True)
         self.map_view_name_edit.setText(mv.get("name", ""))
-        self.map_view_notes_edit.setPlainText(mv.get("notes", ""))
+        self._set_richtext(self.map_view_notes_edit, mv.get("notes", ""))
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
         self._update_mv_extent_label(mv.get("extent"))
@@ -1893,7 +1977,7 @@ class WebMapExportDialog(QDockWidget):
         mv = self._map_views[idx]
         name = self.map_view_name_edit.text().strip()
         mv["name"] = name or mv.get("name", "(unnamed)")
-        mv["notes"] = self.map_view_notes_edit.toPlainText().strip()
+        mv["notes"] = self.map_view_notes_edit.toHtml()
         self.map_views_list_widget.blockSignals(True)
         item = self.map_views_list_widget.item(idx + 1)  # +1 for Default item at 0
         if item:

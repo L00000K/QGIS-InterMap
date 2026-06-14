@@ -24,6 +24,20 @@ try:
 except ImportError:
     _QgsSimpleMarkerBase = None
 
+def _richtext_body(html):
+    """Extract inner body from Qt rich-text HTML; fall back to html.escape for plain text."""
+    import re
+    import html as _h
+    m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
+    if m:
+        body = m.group(1).strip()
+        # Strip Qt's default paragraph style attrs (keep bold/italic/underline inline)
+        body = re.sub(r'<p\s+style="[^"]*-qt-[^"]*"', "<p", body)
+        body = re.sub(r'<p\s+style="\s*margin[^"]*"\s*>', "<p>", body)
+        return body
+    return _h.escape(html)
+
+
 # Optional fill symbol layer classes (availability varies across QGIS versions)
 def _opt_import(name):
     try:
@@ -1111,6 +1125,8 @@ class WebMapExporter:
                     ]
                 except Exception:
                     mv_copy["layerIds"] = []
+            if mv_copy.get("notes"):
+                mv_copy["notes"] = _richtext_body(mv_copy["notes"])
             resolved_views.append(mv_copy)
         themes_json = json.dumps(resolved_views, separators=(",", ":")).replace("</", "<\\/")
 
@@ -1118,7 +1134,7 @@ class WebMapExporter:
         _info = self.info_panel
         _info_enabled = bool(_info.get("enabled", False))
         _info_title = _html_mod.escape(str(_info.get("title", "") or ""))
-        _info_text = _html_mod.escape(str(_info.get("text", "") or ""))
+        _info_text = _richtext_body(str(_info.get("text", "") or ""))
         _info_date = _html_mod.escape(str(_info.get("date", "") or ""))
         _info_client = _html_mod.escape(str(_info.get("client", "") or ""))
         _info_project = _html_mod.escape(str(_info.get("project", "") or ""))
@@ -4727,7 +4743,7 @@ class WebMapExporter:
         mvItem.className = 'mv-item';
         mvItem.dataset.mvIdx = i;
         mvItem.innerHTML = '<div class="mv-item-name">' + escHtml(th.name || 'Map View ' + (i + 1)) + '</div>'
-                         + (th.notes ? '<div class="mv-item-notes">' + escHtml(th.notes) + '</div>' : '');
+                         + (th.notes ? '<div class="mv-item-notes">' + th.notes + '</div>' : '');
         mvItem.addEventListener('click', function() {{
           mvSection.querySelectorAll('.mv-item').forEach(function(el) {{ el.classList.remove('active'); }});
           mvItem.classList.add('active');
