@@ -878,86 +878,94 @@ class WebMapExportDialog(QDockWidget):
 
         detail_widget = QWidget()
         detail_layout = QVBoxLayout(detail_widget)
-        detail_layout.setContentsMargins(0, 4, 0, 4)
+        detail_layout.setContentsMargins(0, 6, 0, 4)
         detail_layout.setSpacing(6)
 
-        view_canvas_btn = QPushButton("🗺  View in map canvas")
-        view_canvas_btn.clicked.connect(self._mv_view_in_canvas)
-        detail_layout.addWidget(view_canvas_btn)
+        # ── Single grey settings box ──────────────────────────────────────────
+        mv_settings_box = QGroupBox("Map view settings")
+        mv_settings_box.setObjectName("greyBox")
+        box_vl = QVBoxLayout(mv_settings_box)
+        box_vl.setSpacing(6)
 
+        # Name + View in canvas on same line
         name_row = QHBoxLayout()
+        name_row.setSpacing(6)
         name_row.addWidget(QLabel("Name:"))
         self.map_view_name_edit = QLineEdit()
         self.map_view_name_edit.setPlaceholderText("Map view name")
         self.map_view_name_edit.textChanged.connect(self._mv_autosave)
         name_row.addWidget(self.map_view_name_edit, 1)
-        detail_layout.addLayout(name_row)
+        view_canvas_btn = QPushButton("🗺  View in canvas")
+        view_canvas_btn.clicked.connect(self._mv_view_in_canvas)
+        name_row.addWidget(view_canvas_btn)
+        box_vl.addLayout(name_row)
 
-        detail_layout.addWidget(QLabel("Description:"))
+        # Description
+        box_vl.addWidget(QLabel("Description:"))
         self.map_view_notes_edit = QTextEdit()
         self.map_view_notes_edit.setPlaceholderText("Description shown in the map viewer")
-        self.map_view_notes_edit.setFixedHeight(56)
+        self.map_view_notes_edit.setFixedHeight(52)
         self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
-        detail_layout.addWidget(self.map_view_notes_edit)
+        box_vl.addWidget(self.map_view_notes_edit)
 
-        # Visible layers
-        layers_group = QGroupBox("Visible layers")
-        layers_vl = QVBoxLayout(layers_group)
-        layers_vl.setSpacing(4)
+        # Layers status + buttons
+        self.map_view_layers_label = QLabel("Layers: (not configured)")
+        self.map_view_layers_label.setWordWrap(True)
+        self.map_view_layers_label.setStyleSheet("color: #6B7280; font-size: 10px; padding: 2px 0;")
+        box_vl.addWidget(self.map_view_layers_label)
+
+        layers_btn_row = QHBoxLayout()
+        layers_btn_row.setSpacing(6)
         copy_layers_btn = QPushButton("📷  Set to map canvas layers")
         copy_layers_btn.setToolTip("Snapshot which layers are currently visible in QGIS")
         copy_layers_btn.clicked.connect(self._map_view_capture_layers)
-        layers_vl.addWidget(copy_layers_btn)
-        theme_row = QHBoxLayout()
-        theme_row.addWidget(QLabel("Slave to theme:"))
-        self.import_theme_combo = QComboBox()
-        self.import_theme_combo.setToolTip(
-            "Link to a QGIS map theme — visibility is resolved dynamically at export time.\n"
-            "Reload the plugin if a new theme does not appear here."
-        )
-        use_theme_btn = QPushButton("Link to theme")
-        use_theme_btn.setToolTip("Store a dynamic reference to this theme (not a snapshot)")
-        use_theme_btn.clicked.connect(self._map_view_use_theme)
-        theme_row.addWidget(self.import_theme_combo, 1)
-        theme_row.addWidget(use_theme_btn)
-        layers_vl.addLayout(theme_row)
-        self.map_view_layers_label = QLabel("Layers: (not set)")
-        self.map_view_layers_label.setWordWrap(True)
-        self.map_view_layers_label.setStyleSheet("color: #6B7280; font-size: 10px;")
-        layers_vl.addWidget(self.map_view_layers_label)
-        detail_layout.addWidget(layers_group)
+        layers_btn_row.addWidget(copy_layers_btn)
+        link_theme_btn = QPushButton("🔗  Link to theme")
+        link_theme_btn.setToolTip("Choose a QGIS map theme to link dynamically")
+        link_theme_btn.clicked.connect(self._mv_pick_and_link_theme)
+        layers_btn_row.addWidget(link_theme_btn)
+        box_vl.addLayout(layers_btn_row)
 
-        # View extent
-        extent_group = QGroupBox("View extent")
-        extent_vl = QVBoxLayout(extent_group)
-        extent_vl.setSpacing(4)
-        set_canvas_btn = QPushButton("📷  Set to map canvas extent")
+        # Extent status + buttons
+        self.map_view_extent_label = QLabel("View extent: (not set)")
+        self.map_view_extent_label.setWordWrap(True)
+        self.map_view_extent_label.setStyleSheet("color: #6B7280; font-size: 10px; padding: 2px 0;")
+        box_vl.addWidget(self.map_view_extent_label)
+
+        extent_btn_row1 = QHBoxLayout()
+        extent_btn_row1.setSpacing(6)
+        set_canvas_btn = QPushButton("📷  Set from map canvas")
         set_canvas_btn.clicked.connect(self._map_view_capture_extent)
-        extent_vl.addWidget(set_canvas_btn)
-        draw_btn = QPushButton("✏  Draw extent on map canvas")
+        extent_btn_row1.addWidget(set_canvas_btn)
+        draw_btn = QPushButton("✏  Draw on map canvas")
         draw_btn.setToolTip("Click and drag a rectangle on the map canvas")
         draw_btn.clicked.connect(self._mv_start_draw_extent)
-        extent_vl.addWidget(draw_btn)
+        extent_btn_row1.addWidget(draw_btn)
+        box_vl.addLayout(extent_btn_row1)
+
         layer_ext_row = QHBoxLayout()
+        layer_ext_row.setSpacing(6)
         layer_ext_row.addWidget(QLabel("From layer:"))
         self.mv_layer_extent_combo = QComboBox()
+        layer_ext_row.addWidget(self.mv_layer_extent_combo, 1)
         set_layer_ext_btn = QPushButton("Set")
         set_layer_ext_btn.clicked.connect(self._mv_set_from_layer_extent)
-        layer_ext_row.addWidget(self.mv_layer_extent_combo, 1)
         layer_ext_row.addWidget(set_layer_ext_btn)
-        extent_vl.addLayout(layer_ext_row)
-        self.map_view_extent_label = QLabel("(not set)")
-        self.map_view_extent_label.setWordWrap(True)
-        self.map_view_extent_label.setStyleSheet("color: #6B7280; font-size: 10px;")
-        extent_vl.addWidget(self.map_view_extent_label)
-        detail_layout.addWidget(extent_group)
+        box_vl.addLayout(layer_ext_row)
 
-        detail_layout.addStretch()
+        detail_layout.addWidget(mv_settings_box)
 
-        del_btn = QPushButton("Delete this map view")
+        # Duplicate + Delete below the box
+        dup_btn = QPushButton("Duplicate map view")
+        dup_btn.clicked.connect(self._map_view_duplicate)
+        detail_layout.addWidget(dup_btn)
+
+        del_btn = QPushButton("Delete map view")
         del_btn.setObjectName("deleteBtn")
         del_btn.clicked.connect(self._map_view_delete)
         detail_layout.addWidget(del_btn)
+
+        detail_layout.addStretch()
 
         self.mv_detail_scroll.setWidget(detail_widget)
         mv_layout.addWidget(self.mv_detail_scroll, 1)
@@ -1541,13 +1549,12 @@ class WebMapExportDialog(QDockWidget):
             theme_names = list(theme_collection.mapThemes())
         except Exception:
             pass
-        for combo in (self.qgis_theme_combo, self.import_theme_combo):
-            combo.blockSignals(True)
-            combo.clear()
-            combo.addItem("— Select QGIS theme —", "")
-            for name in theme_names:
-                combo.addItem(name, name)
-            combo.blockSignals(False)
+        self.qgis_theme_combo.blockSignals(True)
+        self.qgis_theme_combo.clear()
+        self.qgis_theme_combo.addItem("— Select QGIS theme —", "")
+        for name in theme_names:
+            self.qgis_theme_combo.addItem(name, name)
+        self.qgis_theme_combo.blockSignals(False)
 
     def _on_qgis_theme_combo_changed(self, index):
         theme_name = self.qgis_theme_combo.itemData(index)
@@ -1721,20 +1728,20 @@ class WebMapExportDialog(QDockWidget):
     def _update_mv_extent_label(self, ext):
         if ext:
             self.map_view_extent_label.setText(
-                f"S={ext[0][0]:.4f} W={ext[0][1]:.4f} "
-                f"N={ext[1][0]:.4f} E={ext[1][1]:.4f}"
+                f"View extent:  S {ext[0][0]:.4f}  W {ext[0][1]:.4f}  "
+                f"N {ext[1][0]:.4f}  E {ext[1][1]:.4f}"
             )
         else:
-            self.map_view_extent_label.setText("(not set)")
+            self.map_view_extent_label.setText("View extent: (not set)")
 
     def _update_mv_layers_label(self, layer_ids, theme=None):
         if theme:
-            self.map_view_layers_label.setText(f"Theme: {theme}")
+            self.map_view_layers_label.setText(f"Layers: slaved to theme — {theme}")
         elif layer_ids:
             n = len(layer_ids)
             preview = ", ".join(layer_ids[:3])
             suffix = f", +{n-3} more" if n > 3 else ""
-            self.map_view_layers_label.setText(f"{n} layer(s): {preview}{suffix}")
+            self.map_view_layers_label.setText(f"Layers: set manually — {n} layer(s): {preview}{suffix}")
         else:
             self.map_view_layers_label.setText("Layers: (not set)")
 
@@ -1747,8 +1754,8 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_notes_edit.clear()
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
-        self.map_view_extent_label.setText("(not set)")
-        self.map_view_layers_label.setText("Layers: (not set)")
+        self.map_view_extent_label.setText("View extent: (not set)")
+        self.map_view_layers_label.setText("Layers: (not configured)")
 
     def _mv_autosave(self):
         idx = self._editing_map_view_idx
@@ -1796,23 +1803,33 @@ class WebMapExportDialog(QDockWidget):
         self._update_mv_layers_label(layer_names)
         self._update_required_layers()
 
-    def _map_view_use_theme(self):
-        theme_name = self.import_theme_combo.currentData()
-        if not theme_name:
-            QMessageBox.information(self, "No theme selected", "Select a QGIS theme first.")
-            return
+    def _mv_pick_and_link_theme(self):
         idx = self._editing_map_view_idx
         if idx is None or idx < 0 or idx >= len(self._map_views):
             QMessageBox.information(self, "No map view", "Select or add a map view first.")
             return
-        # Store theme name only — visibility is resolved dynamically at export time
-        self._map_views[idx]["theme"] = theme_name
+        theme_names = []
+        try:
+            tc = QgsProject.instance().mapThemeCollection()
+            theme_names = sorted(tc.mapThemes())
+        except Exception:
+            pass
+        if not theme_names:
+            QMessageBox.information(self, "No themes", "No QGIS map themes found in this project.")
+            return
+        name, ok = QInputDialog.getItem(
+            self, "Link to theme", "Select a QGIS map theme:", theme_names, 0, False
+        )
+        if not ok or not name:
+            return
+        self._map_views[idx]["theme"] = name
         self._map_views[idx].pop("layerIds", None)
-        self._update_mv_layers_label(None, theme=theme_name)
+        self._update_mv_layers_label(None, theme=name)
         self._update_required_layers()
 
     def _map_view_add(self):
-        mv = {"name": "New map view", "notes": "", "extent": None, "layerIds": []}
+        ext = self._capture_canvas_extent()
+        mv = {"name": "New map view", "notes": "", "extent": ext, "layerIds": []}
         self._map_views.append(mv)
         self._map_views_list_refresh()
         new_row = len(self._map_views)  # +1 for Default at 0, but count = len+1, last = len
@@ -1841,6 +1858,18 @@ class WebMapExportDialog(QDockWidget):
         self._map_views_list_refresh()
         new_row = self.map_views_list_widget.count() - 1
         self.map_views_list_widget.setCurrentRow(new_row)
+        self._update_required_layers()
+
+    def _map_view_duplicate(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            return
+        import copy
+        dupe = copy.deepcopy(self._map_views[idx])
+        dupe["name"] = dupe.get("name", "Map view") + " (copy)"
+        self._map_views.insert(idx + 1, dupe)
+        self._map_views_list_refresh()
+        self.map_views_list_widget.setCurrentRow(idx + 2)  # +1 Default, +1 insert
         self._update_required_layers()
 
     def _map_view_delete(self):
