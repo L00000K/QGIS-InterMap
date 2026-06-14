@@ -352,6 +352,32 @@ def _extract_label_config(layer) -> dict | None:
             bc = buf.color()
             cfg["bufferSize"]  = max(1, round(_size_to_px(buf.size(), buf.sizeUnit())))
             cfg["bufferColor"] = _color_to_hex(bc)
+        # Scale-based label visibility
+        if getattr(settings, 'scaleBasedVisibility', False):
+            min_sc = getattr(settings, 'minimumScale', 0.0)
+            max_sc = getattr(settings, 'maximumScale', 0.0)
+            if min_sc > 0:
+                cfg["labelScaleMin"] = float(min_sc)  # most-zoomed-in denominator
+            if max_sc > 0:
+                cfg["labelScaleMax"] = float(max_sc)  # most-zoomed-out denominator
+        # Line placement (above / on / below)
+        try:
+            flags = 0
+            if hasattr(settings, 'lineSettings'):
+                ls = settings.lineSettings()
+                if callable(getattr(ls, 'placementFlags', None)):
+                    flags = int(ls.placementFlags())
+            if not flags and hasattr(settings, 'placementFlags'):
+                flags = int(settings.placementFlags)
+            # QgsPalLayerSettings.LinePlacementFlags: OnLine=1, AboveLine=2, BelowLine=4
+            if flags & 2:
+                cfg["linePlacement"] = "above"
+            elif flags & 4:
+                cfg["linePlacement"] = "below"
+            elif flags & 1:
+                cfg["linePlacement"] = "on"
+        except Exception:
+            pass
         return cfg
     except Exception:
         return None
@@ -4190,6 +4216,31 @@ class WebMapExporter:
     }}
   }}
 
+  // Return the LatLng at the midpoint of a Leaflet Polyline by arc length
+  function _lineMidpoint(fl) {{
+    var latLngs = fl.getLatLngs();
+    var pts = (latLngs.length && Array.isArray(latLngs[0])) ? latLngs[0] : latLngs;
+    if (!pts.length) return null;
+    if (pts.length === 1) return pts[0];
+    var segs = [], total = 0;
+    for (var i = 0; i < pts.length - 1; i++) {{
+      var d = map.distance(pts[i], pts[i + 1]);
+      segs.push({{ d: d, a: pts[i], b: pts[i + 1] }});
+      total += d;
+    }}
+    var half = total / 2, cum = 0;
+    for (var i = 0; i < segs.length; i++) {{
+      var seg = segs[i];
+      if (cum + seg.d >= half) {{
+        var t = seg.d > 0 ? (half - cum) / seg.d : 0;
+        return L.latLng(seg.a.lat + t * (seg.b.lat - seg.a.lat),
+                        seg.a.lng + t * (seg.b.lng - seg.a.lng));
+      }}
+      cum += seg.d;
+    }}
+    return pts[pts.length - 1];
+  }}
+
   // ── Icon de-overlap / spread system ──────────────────────────────────────
   // Replaces marker clustering: overlapping point icons are stacked to the
   // right of their geographic centroid with thin leader lines back to their
@@ -4314,26 +4365,47 @@ class WebMapExporter:
       if (!item.visible || !item.labelsVisible || !item.labelData) return;
       var cfg = item.labelCfg;
       var fsz = cfg.fontSize || 11;
+      // Scale-based label visibility: convert QGIS scale denominators to zoom levels
+      if (cfg.labelScaleMin || cfg.labelScaleMax) {{
+        var zoom = map.getZoom();
+        var LOG2 = Math.log(2);
+        // labelScaleMin = most-zoomed-in denominator → cap at high zoom
+        var maxAllowedZoom = cfg.labelScaleMin ?
+            Math.log(559082264 / cfg.labelScaleMin) / LOG2 : 24;
+        // labelScaleMax = most-zoomed-out denominator → floor at low zoom
+        var minAllowedZoom = cfg.labelScaleMax ?
+            Math.log(559082264 / cfg.labelScaleMax) / LOG2 : 0;
+        if (zoom < minAllowedZoom || zoom > maxAllowedZoom) return;
+      }}
       // Spread mode forces labels to the right and uses static placement
       var rightForced = item.groupEnabled && item.groupMode === 'spread';
       var useStatic = rightForced || _labelPlacementMode === 'static';
+      var isLine = item.ld.geomType === 'line';
+      // Line labels: vertical offset per QGIS above/on/below setting; no right-side static shift
+      var lineOffsetY = 0;
+      if (isLine && cfg.linePlacement) {{
+        var lineOffsetPx = Math.round(fsz * 0.7 + 2);
+        if (cfg.linePlacement === 'above') lineOffsetY = -lineOffsetPx;
+        else if (cfg.linePlacement === 'below') lineOffsetY = lineOffsetPx;
+      }}
 
       item.labelData.forEach(function(ld) {{
         var curLatLng = (ld.lyr && ld.lyr.getLatLng) ? ld.lyr.getLatLng() : ld.latlng;
         var pt = map.latLngToContainerPoint(curLatLng);
         var dims = _lblDims(ld.text, fsz);
-        var initX = useStatic ? pt.x + dims.w * 0.5 + 8 : pt.x;
+        var initX = (useStatic && !isLine) ? pt.x + dims.w * 0.5 + 8 : pt.x;
+        var initY = pt.y + lineOffsetY;
         var lblObj = {{
           text: ld.text, cfg: cfg,
           ax: pt.x, ay: pt.y,
-          x: initX, y: pt.y,
+          x: initX, y: initY,
           w: dims.w, h: dims.h,
           vx: 0, vy: 0,
           rightForced: rightForced,
-          suppressCallout: useStatic && !rightForced,
+          suppressCallout: (useStatic && !rightForced) || isLine,
           group: item.labelGroup
         }};
-        if (useStatic) {{
+        if (useStatic || isLine) {{
           staticLabels.push(lblObj);
         }} else {{
           solverLabels.push(lblObj);
@@ -4412,8 +4484,14 @@ class WebMapExporter:
       if (!props) return;
       var val = props[cfg.field];
       if (val == null || val === '') return;
-      var initLatLng = fl.getLatLng ? fl.getLatLng()
-                     : (fl.getBounds ? fl.getBounds().getCenter() : null);
+      var initLatLng;
+      if (ld.geomType === 'line' && fl.getLatLngs) {{
+        initLatLng = _lineMidpoint(fl);
+      }} else if (fl.getLatLng) {{
+        initLatLng = fl.getLatLng();
+      }} else if (fl.getBounds) {{
+        initLatLng = fl.getBounds().getCenter();
+      }}
       if (initLatLng) labelData.push({{ text: String(val), lyr: fl.getLatLng ? fl : null, latlng: initLatLng }});
     }});
     item.labelData = labelData;
