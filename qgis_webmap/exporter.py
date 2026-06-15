@@ -31,9 +31,9 @@ def _richtext_body(html):
     m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
     if m:
         body = m.group(1).strip()
-        # Strip Qt's default paragraph style attrs (keep bold/italic/underline inline)
-        body = re.sub(r'<p\s+style="[^"]*-qt-[^"]*"', "<p", body)
-        body = re.sub(r'<p\s+style="\s*margin[^"]*"\s*>', "<p>", body)
+        # Strip all style attributes from <p> tags — Qt embeds margin/spacing rules
+        # that cause excessive vertical gaps in browsers. Bold/italic live on <span>s.
+        body = re.sub(r'<p\s+style="[^"]*"', '<p', body)
         return body
     return _h.escape(html)
 
@@ -1925,9 +1925,10 @@ class WebMapExporter:
     font-size: 11px;
     color: #333;
     line-height: 1.55;
-    white-space: pre-line;
     margin-bottom: 4px;
   }}
+  .left-panel-desc p, .mv-item-notes p {{ margin: 0 0 0.5em 0; }}
+  .left-panel-desc p:last-child, .mv-item-notes p:last-child {{ margin-bottom: 0; }}
   #left-panel-footer {{
     padding: 6px 14px;
     border-top: 1px solid #e5e5e5;
@@ -2046,6 +2047,15 @@ class WebMapExporter:
     pointer-events: none; z-index: 850; overflow: hidden;
   }}
   #map-views-section {{ flex-shrink: 0; }}
+  .mv-section-header {{
+    padding: 8px 14px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #999;
+    border-bottom: 1px solid #eee;
+  }}
   .mv-item {{
     padding: 9px 14px 9px 12px;
     border-left: 3px solid transparent;
@@ -3872,10 +3882,17 @@ class WebMapExporter:
           grpDiv.appendChild(grpHdr);
           grpDiv.appendChild(grpBody);
           container.appendChild(grpDiv);
+          // Store DOM refs so applyTheme can sync group state
+          node._grpCb = grpCb;
+          node._grpBody = grpBody;
+          node._grpExp = grpExp;
           buildLegendNodes(node.children, grpBody);
         }} else {{
           var item = displayItems[node.index];
-          if (item) buildLayerRow(item, container);
+          if (item) {{
+            buildLayerRow(item, container);
+            node._item = item; // ref for applyTheme sync
+          }}
         }}
       }});
     }}
@@ -4411,7 +4428,8 @@ class WebMapExporter:
       var rightForced = item.groupEnabled && item.groupMode === 'spread';
       var useStatic = rightForced || _labelPlacementMode === 'static';
       var isLine = item.ld.geomType === 'line';
-      // Line labels: vertical offset per QGIS above/on/below setting; no right-side static shift
+      var isPolygon = item.ld.geomType === 'polygon';
+      // Line/polygon labels: vertical offset; centered on anchor; no right-side shift; always static
       var lineOffsetY = 0;
       if (isLine && cfg.linePlacement) {{
         var lineOffsetPx = Math.round(fsz * 0.7 + 2);
@@ -4424,7 +4442,7 @@ class WebMapExporter:
         if (!_vpBounds.contains(curLatLng)) return; // skip labels outside current viewport
         var pt = map.latLngToContainerPoint(curLatLng);
         var dims = _lblDims(ld.text, fsz);
-        var initX = (useStatic && !isLine) ? pt.x + dims.w * 0.5 + 8 : pt.x;
+        var initX = (useStatic && !isLine && !isPolygon) ? pt.x + dims.w * 0.5 + 8 : pt.x;
         var initY = pt.y + lineOffsetY;
         var lblObj = {{
           text: ld.text, cfg: cfg,
@@ -4433,10 +4451,10 @@ class WebMapExporter:
           w: dims.w, h: dims.h,
           vx: 0, vy: 0,
           rightForced: rightForced,
-          suppressCallout: (useStatic && !rightForced) || isLine,
+          suppressCallout: (useStatic && !rightForced) || isLine || isPolygon,
           group: item.labelGroup
         }};
-        if (useStatic || isLine) {{
+        if (useStatic || isLine || isPolygon) {{
           staticLabels.push(lblObj);
         }} else {{
           solverLabels.push(lblObj);
@@ -4829,6 +4847,27 @@ class WebMapExporter:
   }})();
 
   // ── Map Views ────────────────────────────────────────────────────────────────
+
+  // Sync legend group checkboxes and expand/collapse after a theme is applied.
+  // Nodes have _grpCb/_grpBody/_grpExp/_item set by buildLegendNodes.
+  function _syncLegendGroups(nodes) {{
+    var hasVisible = false;
+    nodes.forEach(function(node) {{
+      if (node.type === 'group') {{
+        var childVis = _syncLegendGroups(node.children);
+        if (node._grpCb) node._grpCb.checked = childVis;
+        if (node._grpBody) {{
+          node._grpBody.classList.toggle('open', childVis);
+          if (node._grpExp) node._grpExp.textContent = childVis ? '▼' : '▶';
+        }}
+        hasVisible = hasVisible || childVis;
+      }} else if (node.type === 'layer' && node._item) {{
+        hasVisible = hasVisible || node._item.visible;
+      }}
+    }});
+    return hasVisible;
+  }}
+
   function applyTheme(idx) {{
     var theme = THEMES[idx];
     if (!theme) return;
@@ -4837,6 +4876,7 @@ class WebMapExporter:
         var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
         setLayerVisible(it, vis);
       }});
+      if (LAYER_TREE.length) _syncLegendGroups(LAYER_TREE);
     }}
     if (theme.extent) {{
       try {{ map.fitBounds(theme.extent, {{padding: [20, 20]}}); }} catch(e) {{}}
@@ -4847,6 +4887,10 @@ class WebMapExporter:
   if (THEMES.length > 0) {{
     var mvSection = document.getElementById('map-views-section');
     if (mvSection) {{
+      var mvHeader = document.createElement('div');
+      mvHeader.className = 'mv-section-header';
+      mvHeader.textContent = 'Map Views';
+      mvSection.appendChild(mvHeader);
       THEMES.forEach(function(th, i) {{
         var mvItem = document.createElement('div');
         mvItem.className = 'mv-item';

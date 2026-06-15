@@ -2137,6 +2137,7 @@ class WebMapExportDialog(QDockWidget):
 
     def _set_checked_layers_by_name(self, names):
         nameset = set(names)
+        root = self.layer_tree_widget.invisibleRootItem()
         self.layer_tree_widget.blockSignals(True)
 
         def walk(parent_item):
@@ -2150,12 +2151,31 @@ class WebMapExportDialog(QDockWidget):
                 else:
                     walk(item)
 
-        walk(self.layer_tree_widget.invisibleRootItem())
-        root = self.layer_tree_widget.invisibleRootItem()
-        for i in range(root.childCount()):
-            child = root.child(i)
-            if child.childCount() > 0:
-                self._update_parent_check_state(child)
+        def sync_groups(item):
+            """Post-order: update group check state and expansion from leaves up."""
+            has_checked = False
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child.childCount() > 0:
+                    child_has = sync_groups(child)
+                else:
+                    child_has = child.checkState(0) == Qt.Checked
+                has_checked = has_checked or child_has
+            if item is not root and item.childCount() > 0:
+                total = item.childCount()
+                n_checked = sum(1 for j in range(total) if item.child(j).checkState(0) == Qt.Checked)
+                n_partial = sum(1 for j in range(total) if item.child(j).checkState(0) == Qt.PartiallyChecked)
+                if n_checked == total:
+                    item.setCheckState(0, Qt.Checked)
+                elif n_checked == 0 and n_partial == 0:
+                    item.setCheckState(0, Qt.Unchecked)
+                else:
+                    item.setCheckState(0, Qt.PartiallyChecked)
+                item.setExpanded(has_checked)
+            return has_checked
+
+        walk(root)
+        sync_groups(root)
         self.layer_tree_widget.blockSignals(False)
 
     def _update_initial_extent_label(self):
