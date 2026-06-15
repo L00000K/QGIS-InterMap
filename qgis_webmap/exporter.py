@@ -2481,7 +2481,7 @@ class WebMapExporter:
     <span>Feature Info</span>
     <button id="info-panel-close" title="Close">&#10005;</button>
   </div>
-  <div id="info-panel-body">Activate the identify tool, then click a map feature to see its attributes.</div>
+  <div id="info-panel-body">Click a map feature to see its attributes.</div>
   <div id="info-panel-resize-h"></div>
 </div>
 {_attr_table_panel_html}
@@ -4216,7 +4216,7 @@ class WebMapExporter:
 
   // ── Click identify ────────────────────────────────────────────────────────
   map.on('click', function(e) {{
-    if (_selectMode || !_identifyMode) return;
+    if (_selectMode) return;  // select mode takes priority; identify always passive
     var clickPt = map.latLngToContainerPoint(e.latlng);
     var found = [];
     legendItems.forEach(function(it) {{
@@ -5126,7 +5126,7 @@ class WebMapExporter:
     {{ sel: '.legend-cog-btn',                    name: 'Layer Settings',    text: 'Open layer settings: adjust opacity, symbol colours, and attribute filters for this layer.', side:'right' }},
     {{ sel: '#legend-tools-btn',                  name: 'Legend Options',    text: 'Toggle the label column and other legend display options.', side:'right' }},
     // ── Map controls
-    {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Activate identify mode, then click a feature or drag a box to view attributes. Also queries WMS layers via GetFeatureInfo. Close the panel using the × button or click this button again.' }},
+    {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Click any feature to view its attributes. Use this button to enable crosshair mode for drag-to-identify across multiple features. Also queries WMS layers via GetFeatureInfo.' }},
     {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and CSV export.' }},
     {{ sel: '[title="Drag to select features"]',  name: 'Select &amp; Highlight', text: 'Click and drag a rectangle to select features. Selected rows are highlighted in the attribute table.' }},
     {{ sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' }},
