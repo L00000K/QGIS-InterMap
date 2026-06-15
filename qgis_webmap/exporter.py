@@ -418,9 +418,9 @@ def _render_marker_symbol_to_svg(symbol, dpi: float = 96.0):
     Render a QGIS marker symbol to an inline SVG fragment, capturing the full
     symbol exactly as QGIS draws it (multi-layer, SVG/font markers, effects).
 
-    Returns {w, h, ax, ay, inner} in CSS pixels (ax/ay = anchor = the point
-    location within the box), or None if rendering is unavailable/fails — in
-    which case the caller's primitive marker style is used as a fallback.
+    Returns {w, h, ax, ay, vw, vh, inner} where w/h/ax/ay are CSS pixels and
+    vw/vh are the SVG viewBox dimensions (2× for HiDPI clarity). Returns None
+    on failure — in which case the caller's primitive marker style is used.
     """
     if symbol is None:
         return None
@@ -438,20 +438,25 @@ def _render_marker_symbol_to_svg(symbol, dpi: float = 96.0):
     except Exception:
         return None
 
+    # Render at 2× DPI so any rasterized effects look crisp on HiDPI screens.
+    # The CSS display size is halved so the visual marker size stays the same.
+    OVER = 2
+    render_dpi = dpi * OVER
+
     def _ctx(painter):
         ctx = QgsRenderContext()
         ctx.setPainter(painter)
         try:
-            ctx.setScaleFactor(dpi / 25.4)
+            ctx.setScaleFactor(render_dpi / 25.4)
         except Exception:
             pass
         return ctx
 
-    # 1) Measure the symbol's pixel bounds on a throwaway painter
+    # 1) Measure the symbol's bounds at 2× DPI
     rect = None
     probe_painter = None
     try:
-        probe = QImage(16, 16, QImage.Format_ARGB32)
+        probe = QImage(32, 32, QImage.Format_ARGB32)
         probe_painter = QPainter(probe)
         rect = symbol.bounds(QPointF(0.0, 0.0), _ctx(probe_painter))
     except Exception:
@@ -463,21 +468,27 @@ def _render_marker_symbol_to_svg(symbol, dpi: float = 96.0):
             except Exception:
                 pass
 
-    pad = 2.0
+    pad_css = 2.0
+    pad_svg = pad_css * OVER
     if rect is not None and rect.width() > 0 and rect.height() > 0:
-        w = rect.width() + 2 * pad
-        h = rect.height() + 2 * pad
-        ax = -rect.left() + pad
-        ay = -rect.top() + pad
+        w_svg = rect.width() + 2 * pad_svg
+        h_svg = rect.height() + 2 * pad_svg
+        ax_svg = -rect.left() + pad_svg
+        ay_svg = -rect.top() + pad_svg
     else:
         try:
             s = _size_to_px(symbol.size(), symbol.sizeUnit())
         except Exception:
             s = 12.0
-        w = h = max(6.0, s) + 2 * pad
-        ax = ay = w / 2.0
+        w_svg = h_svg = (max(6.0, s) + 2 * pad_css) * OVER
+        ax_svg = ay_svg = w_svg / 2.0
 
-    # 2) Paint the symbol onto a QSvgGenerator
+    w_css = w_svg / OVER
+    h_css = h_svg / OVER
+    ax_css = ax_svg / OVER
+    ay_css = ay_svg / OVER
+
+    # 2) Paint the symbol onto a QSvgGenerator at 2× DPI
     painter = None
     try:
         buf = QByteArray()
@@ -485,14 +496,14 @@ def _render_marker_symbol_to_svg(symbol, dpi: float = 96.0):
         dev.open(QBuffer.WriteOnly)
         gen = QSvgGenerator()
         gen.setOutputDevice(dev)
-        gen.setResolution(int(dpi))
-        gen.setSize(QSize(int(_math.ceil(w)), int(_math.ceil(h))))
-        gen.setViewBox(QRectF(0.0, 0.0, w, h))
+        gen.setResolution(int(render_dpi))
+        gen.setSize(QSize(int(_math.ceil(w_svg)), int(_math.ceil(h_svg))))
+        gen.setViewBox(QRectF(0.0, 0.0, w_svg, h_svg))
         painter = QPainter()
         if not painter.begin(gen):
             return None
         ctx = _ctx(painter)
-        painter.translate(ax, ay)
+        painter.translate(ax_svg, ay_svg)
         symbol.startRender(ctx)
         symbol.renderPoint(QPointF(0.0, 0.0), None, ctx)
         symbol.stopRender(ctx)
@@ -512,8 +523,9 @@ def _render_marker_symbol_to_svg(symbol, dpi: float = 96.0):
     if not inner:
         return None
     return {
-        "w": round(w, 1), "h": round(h, 1),
-        "ax": round(ax, 1), "ay": round(ay, 1),
+        "w": round(w_css, 1), "h": round(h_css, 1),
+        "ax": round(ax_css, 1), "ay": round(ay_css, 1),
+        "vw": round(w_svg, 1), "vh": round(h_svg, 1),
         "inner": inner,
     }
 
@@ -2628,7 +2640,11 @@ class WebMapExporter:
     // Hybrid: use the QGIS-rendered SVG when available (exact symbology)
     if (style.markerSvg) {{
       var m = style.markerSvg;
-      var html = '<svg width="' + m.w + '" height="' + m.h + '" viewBox="0 0 ' + m.w + ' ' + m.h + '"'
+      // vw/vh are the 2× SVG coordinate space; w/h are the 1× CSS display size.
+      // This gives crisp rendering on HiDPI screens for any rasterized effects.
+      var vw = m.vw !== undefined ? m.vw : m.w;
+      var vh = m.vh !== undefined ? m.vh : m.h;
+      var html = '<svg width="' + m.w + '" height="' + m.h + '" viewBox="0 0 ' + vw + ' ' + vh + '"'
                + ' xmlns="http://www.w3.org/2000/svg" style="overflow:visible">' + m.inner + '</svg>';
       var svgIcon = L.divIcon({{ html: html, className: 'qgis-marker',
                                  iconSize: [m.w, m.h], iconAnchor: [m.ax, m.ay] }});
