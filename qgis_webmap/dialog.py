@@ -230,6 +230,15 @@ class WebMapExportDialog(QDockWidget):
             ("include_project_info",  "include_project_info_cb"),
             ("include_doc_metadata",  "include_doc_metadata_cb"),
             ("include_doc_control",   "include_doc_control_cb"),
+            ("feat_identify",         "feat_identify_cb"),
+            ("feat_attr_table",       "feat_attr_table_cb"),
+            ("feat_attr_csv",         "feat_attr_csv_cb"),
+            ("feat_attr_geojson",     "feat_attr_geojson_cb"),
+            ("feat_measure",          "feat_measure_cb"),
+            ("feat_filter",           "feat_filter_cb"),
+            ("feat_search",           "feat_search_cb"),
+            ("feat_minimap",          "feat_minimap_cb"),
+            ("feat_fancy_labels",     "feat_fancy_labels_cb"),
         ):
             key = f"{_SETTINGS_KEY}/{flag}"
             if s.contains(key):
@@ -289,6 +298,18 @@ class WebMapExportDialog(QDockWidget):
                            getattr(self, f"info_{role}_{part}_edit").text().strip())
         s.setValue(f"{_SETTINGS_KEY}/export_theme", self.export_theme_combo.currentData())
         s.setValue(f"{_SETTINGS_KEY}/save_config_on_export", self.save_config_on_export_cb.isChecked())
+        for flag, attr in (
+            ("feat_identify",         "feat_identify_cb"),
+            ("feat_attr_table",       "feat_attr_table_cb"),
+            ("feat_attr_csv",         "feat_attr_csv_cb"),
+            ("feat_attr_geojson",     "feat_attr_geojson_cb"),
+            ("feat_measure",          "feat_measure_cb"),
+            ("feat_filter",           "feat_filter_cb"),
+            ("feat_search",           "feat_search_cb"),
+            ("feat_minimap",          "feat_minimap_cb"),
+            ("feat_fancy_labels",     "feat_fancy_labels_cb"),
+        ):
+            s.setValue(f"{_SETTINGS_KEY}/{flag}", getattr(self, attr).isChecked())
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -1690,11 +1711,56 @@ class WebMapExportDialog(QDockWidget):
         theme_form.addRow("Theme:", self.export_theme_combo)
         layout.addWidget(theme_group)
 
-        tools_group = QGroupBox("Tools")
+        tools_group = QGroupBox("Features")
         tools_layout = QVBoxLayout(tools_group)
-        self.layer_control_cb = QCheckBox("Include legend / layer control (toggles + transparency)")
-        self.layer_control_cb.setChecked(True)
-        tools_layout.addWidget(self.layer_control_cb)
+        tools_layout.setSpacing(4)
+
+        self.feat_layers_cb = QCheckBox("Layers panel")
+        self.feat_layers_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_layers_cb)
+        # alias kept for legacy _export reference
+        self.layer_control_cb = self.feat_layers_cb
+
+        self.feat_identify_cb = QCheckBox("Identify features")
+        self.feat_identify_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_identify_cb)
+
+        self.feat_attr_table_cb = QCheckBox("Attribute table")
+        self.feat_attr_table_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_attr_table_cb)
+
+        _sub = QWidget()
+        _sub_vl = QVBoxLayout(_sub)
+        _sub_vl.setContentsMargins(20, 0, 0, 0)
+        _sub_vl.setSpacing(2)
+        self.feat_attr_csv_cb = QCheckBox("↳ Export CSV")
+        self.feat_attr_csv_cb.setChecked(True)
+        _sub_vl.addWidget(self.feat_attr_csv_cb)
+        self.feat_attr_geojson_cb = QCheckBox("↳ Export GeoJSON")
+        self.feat_attr_geojson_cb.setChecked(True)
+        _sub_vl.addWidget(self.feat_attr_geojson_cb)
+        tools_layout.addWidget(_sub)
+
+        self.feat_measure_cb = QCheckBox("Measure tool")
+        self.feat_measure_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_measure_cb)
+
+        self.feat_filter_cb = QCheckBox("Filter toolbar + layer filters")
+        self.feat_filter_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_filter_cb)
+
+        self.feat_search_cb = QCheckBox("Smart search")
+        self.feat_search_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_search_cb)
+
+        self.feat_minimap_cb = QCheckBox("Minimap")
+        self.feat_minimap_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_minimap_cb)
+
+        self.feat_fancy_labels_cb = QCheckBox("Label & symbology controls (cluster, spread…)")
+        self.feat_fancy_labels_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_fancy_labels_cb)
+
         layout.addWidget(tools_group)
 
         self.save_config_on_export_cb = QCheckBox("Save configuration on export")
@@ -2648,6 +2714,15 @@ class WebMapExportDialog(QDockWidget):
                 map_views=self._map_views,
                 info_panel=info_panel,
                 theme=self.export_theme_combo.currentData(),
+                feat_identify=self.feat_identify_cb.isChecked(),
+                feat_attr_table=self.feat_attr_table_cb.isChecked(),
+                feat_attr_csv=self.feat_attr_csv_cb.isChecked(),
+                feat_attr_geojson=self.feat_attr_geojson_cb.isChecked(),
+                feat_measure=self.feat_measure_cb.isChecked(),
+                feat_filter=self.feat_filter_cb.isChecked(),
+                feat_search=self.feat_search_cb.isChecked(),
+                feat_minimap=self.feat_minimap_cb.isChecked(),
+                feat_fancy_labels=self.feat_fancy_labels_cb.isChecked(),
             )
             exporter.export()
             self._save_settings()
