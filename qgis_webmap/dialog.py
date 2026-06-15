@@ -2409,25 +2409,39 @@ class WebMapExportDialog(QDockWidget):
             return None
 
     def _layers_from_layout(self, layout):
-        """Return list of layer names from the layout's reference map, or None if following project."""
+        """
+        Inspect the layout's reference map and return one of:
+          {"mode": "theme",   "theme": str}       — map item follows a visibility preset
+          {"mode": "layers",  "layerIds": [str]}  — map item has a fixed layer override
+          {"mode": "project"}                     — map item follows project visibility
+        """
         try:
             ref = layout.referenceMap()
             if ref is None:
-                return None
+                return {"mode": "project"}
+            # Check whether the map item is linked to a visibility preset (theme)
+            if (getattr(ref, "followVisibilityPreset", lambda: False)() and
+                    getattr(ref, "followVisibilityPresetName", lambda: "")().strip()):
+                return {"mode": "theme", "theme": ref.followVisibilityPresetName()}
+            # Check for an explicit layer override
             layers = ref.layers()
             if layers:
-                return [l.name() for l in layers if l is not None]
+                return {"mode": "layers", "layerIds": [l.name() for l in layers if l]}
         except Exception:
             pass
-        return None
+        return {"mode": "project"}
 
     def _map_view_add_from_layout(self):
         layout, name = self._pick_layout()
         if layout is None:
             return
         ext = self._extent_from_layout(layout)
-        layer_names = self._layers_from_layout(layout) or []
-        mv = {"name": name, "notes": "", "extent": ext, "layerIds": layer_names}
+        layer_info = self._layers_from_layout(layout)
+        mv = {"name": name, "notes": "", "extent": ext, "layerIds": []}
+        if layer_info["mode"] == "theme":
+            mv["theme"] = layer_info["theme"]
+        elif layer_info["mode"] == "layers":
+            mv["layerIds"] = layer_info["layerIds"]
         self._map_views.append(mv)
         self._map_views_list_refresh()
         new_row = self.map_views_list_widget.count() - 1
@@ -2459,18 +2473,24 @@ class WebMapExportDialog(QDockWidget):
         layout, _name = self._pick_layout()
         if layout is None:
             return
-        layer_names = self._layers_from_layout(layout)
-        if layer_names is None:
+        layer_info = self._layers_from_layout(layout)
+        if layer_info["mode"] == "theme":
+            theme = layer_info["theme"]
+            self._map_views[idx]["layerIds"] = []
+            self._map_views[idx]["theme"] = theme
+            self._update_mv_layers_label(None, theme=theme)
+            self._update_required_layers()
+        elif layer_info["mode"] == "layers":
+            self._map_views[idx]["layerIds"] = layer_info["layerIds"]
+            self._map_views[idx].pop("theme", None)
+            self._update_mv_layers_label(layer_info["layerIds"], theme=None)
+            self._update_required_layers()
+        else:
             QMessageBox.information(
                 self, "No layer override",
                 "This layout's map item follows the project's layer visibility.\n"
                 "Use 'from canvas' to snapshot the current canvas layers instead."
             )
-            return
-        self._map_views[idx]["layerIds"] = layer_names
-        self._map_views[idx].pop("theme", None)
-        self._update_mv_layers_label(layer_names, theme=None)
-        self._update_required_layers()
 
     def _map_view_duplicate(self):
         idx = self._editing_map_view_idx
