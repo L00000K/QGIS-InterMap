@@ -4232,54 +4232,53 @@ class WebMapExporter:
       }});
     }});
 
-    // Also query visible WMS layers via GetFeatureInfo
-    var wmsItems = legendItems.filter(function(it) {{
-      return it.visible && it.ld.kind === 'wms' && it.ld.wmsUrl
-          && it.ld.tileType !== 'xyz' && it.ld.tileType !== 'wmts';
-    }});
-    if (wmsItems.length > 0) {{
-      var pending = wmsItems.length;
-      var wmsFound = [];
-      wmsItems.forEach(function(it) {{
-        wmsIdentify(it, e.latlng, function(err, text) {{
-          pending--;
-          if (!err && text) {{
-            var t = text.trim();
-            // Ignore empty/no-feature WMS responses
-            if (t && t !== '' && !/no\s*feature/i.test(t) && !/<body>\s*<\/body>/i.test(t)
-                && !/<body>\s*no features/i.test(t)) {{
-              wmsFound.push({{layerName: it.ld.name, text: t, legendItem: it}});
-            }}
-          }}
-          if (pending === 0 && (found.length || wmsFound.length)) {{
-            if (wmsFound.length) {{
-              wmsFound.forEach(function(w) {{
-                var wrapper = {{
-                  layerName: w.layerName,
-                  html: '<div style="font-size:11px;color:{_th_acc};font-weight:600;margin-bottom:4px">'
-                      + escHtml(w.layerName) + ' <em style="color:#999;font-weight:400">(WMS)</em></div>'
-                      + '<iframe sandbox="allow-same-origin" srcdoc="'
-                      + w.text.replace(/"/g, '&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-                      + '" style="width:100%;min-height:80px;border:none;resize:vertical"></iframe>',
-                  lfl: {{_feature: null}},
-                  legendItem: w.legendItem
-                }};
-                found.push(wrapper);
-              }});
-            }}
-            showIdentifyResults(found);
-            infoPanel.classList.add('open');
-          }} else if (pending === 0 && !found.length && !wmsFound.length) {{
-            // nothing found
-          }}
-        }});
+    // WMS GetFeatureInfo — only when identify mode is explicitly active
+    if (_identifyMode) {{
+      var wmsItems = legendItems.filter(function(it) {{
+        return it.visible && it.ld.kind === 'wms' && it.ld.wmsUrl
+            && it.ld.tileType !== 'xyz' && it.ld.tileType !== 'wmts';
       }});
-      // Show vector-only results immediately if any, WMS will add when ready
-      if (found.length) {{
-        showIdentifyResults(found);
-        infoPanel.classList.add('open');
+      if (wmsItems.length > 0) {{
+        var pending = wmsItems.length;
+        var wmsFound = [];
+        wmsItems.forEach(function(it) {{
+          wmsIdentify(it, e.latlng, function(err, text) {{
+            pending--;
+            if (!err && text) {{
+              var t = text.trim();
+              if (t && t !== '' && !/no\s*feature/i.test(t) && !/<body>\s*<\/body>/i.test(t)
+                  && !/<body>\s*no features/i.test(t)) {{
+                wmsFound.push({{layerName: it.ld.name, text: t, legendItem: it}});
+              }}
+            }}
+            if (pending === 0 && (found.length || wmsFound.length)) {{
+              if (wmsFound.length) {{
+                wmsFound.forEach(function(w) {{
+                  var wrapper = {{
+                    layerName: w.layerName,
+                    html: '<div style="font-size:11px;color:{_th_acc};font-weight:600;margin-bottom:4px">'
+                        + escHtml(w.layerName) + ' <em style="color:#999;font-weight:400">(WMS)</em></div>'
+                        + '<iframe sandbox="allow-same-origin" srcdoc="'
+                        + w.text.replace(/"/g, '&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                        + '" style="width:100%;min-height:80px;border:none;resize:vertical"></iframe>',
+                    lfl: {{_feature: null}},
+                    legendItem: w.legendItem
+                  }};
+                  found.push(wrapper);
+                }});
+              }}
+              showIdentifyResults(found);
+              infoPanel.classList.add('open');
+            }}
+          }});
+        }});
+        // Show any vector hits immediately while WMS queries are in flight
+        if (found.length) {{
+          showIdentifyResults(found);
+          infoPanel.classList.add('open');
+        }}
+        return;
       }}
-      return;
     }}
 
     if (!found.length) return;
