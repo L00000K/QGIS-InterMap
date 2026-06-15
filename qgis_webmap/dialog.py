@@ -2229,7 +2229,7 @@ class WebMapExportDialog(QDockWidget):
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
         self._update_mv_extent_label(mv.get("extent"))
-        self._update_mv_layers_label(mv.get("layerIds"), mv.get("theme"))
+        self._update_mv_layers_label(mv.get("layerIds"), mv.get("theme"), mv.get("layout"))
         self._mv_update_rubber_bands()
 
     def _update_mv_extent_label(self, ext):
@@ -2241,20 +2241,27 @@ class WebMapExportDialog(QDockWidget):
         else:
             self.map_view_extent_label.setText("View extent: <b>(not set)</b>")
 
-    def _update_mv_layers_label(self, layer_ids, theme=None):
+    def _update_mv_layers_label(self, layer_ids, theme=None, layout=None):
+        import html as _h
+        lyt = f"layout: <b>{_h.escape(layout)}</b> → " if layout else ""
         if theme:
-            import html as _h
             self.map_view_layers_label.setText(
-                f"Layers: <b>slaved to theme — {_h.escape(theme)}</b>"
+                f"Layers: {lyt}theme: <b>{_h.escape(theme)}</b>"
+                if layout else
+                f"Layers: <b>theme: {_h.escape(theme)}</b>"
             )
         elif layer_ids:
             n = len(layer_ids)
-            import html as _h
-            preview = ", ".join(_h.escape(x) for x in layer_ids[:3])
-            suffix = f", +{n-3} more" if n > 3 else ""
-            self.map_view_layers_label.setText(
-                f"Layers: <b>set manually — {n} layer(s): {preview}{suffix}</b>"
-            )
+            if layout:
+                self.map_view_layers_label.setText(
+                    f"Layers: layout: <b>{_h.escape(layout)}</b> → <b>{n} layer(s)</b>"
+                )
+            else:
+                preview = ", ".join(_h.escape(x) for x in layer_ids[:3])
+                suffix = f", +{n-3} more" if n > 3 else ""
+                self.map_view_layers_label.setText(
+                    f"Layers: <b>set manually — {n} layer(s): {preview}{suffix}</b>"
+                )
         else:
             self.map_view_layers_label.setText("Layers: <b>(not configured)</b>")
 
@@ -2313,6 +2320,7 @@ class WebMapExportDialog(QDockWidget):
             return
         self._map_views[idx]["layerIds"] = layer_names
         self._map_views[idx].pop("theme", None)
+        self._map_views[idx].pop("layout", None)
         self._update_mv_layers_label(layer_names)
         self._update_required_layers()
 
@@ -2337,6 +2345,7 @@ class WebMapExportDialog(QDockWidget):
             return
         self._map_views[idx]["theme"] = name
         self._map_views[idx].pop("layerIds", None)
+        self._map_views[idx].pop("layout", None)
         self._update_mv_layers_label(None, theme=name)
         self._update_required_layers()
 
@@ -2437,7 +2446,7 @@ class WebMapExportDialog(QDockWidget):
             return
         ext = self._extent_from_layout(layout)
         layer_info = self._layers_from_layout(layout)
-        mv = {"name": name, "notes": "", "extent": ext, "layerIds": []}
+        mv = {"name": name, "notes": "", "extent": ext, "layerIds": [], "layout": name}
         if layer_info["mode"] == "theme":
             mv["theme"] = layer_info["theme"]
         elif layer_info["mode"] == "layers":
@@ -2470,7 +2479,7 @@ class WebMapExportDialog(QDockWidget):
         if idx is None or idx < 0 or idx >= len(self._map_views):
             QMessageBox.information(self, "No map view", "Select a map view first.")
             return
-        layout, _name = self._pick_layout()
+        layout, layout_name = self._pick_layout()
         if layout is None:
             return
         layer_info = self._layers_from_layout(layout)
@@ -2478,12 +2487,14 @@ class WebMapExportDialog(QDockWidget):
             theme = layer_info["theme"]
             self._map_views[idx]["layerIds"] = []
             self._map_views[idx]["theme"] = theme
-            self._update_mv_layers_label(None, theme=theme)
+            self._map_views[idx]["layout"] = layout_name
+            self._update_mv_layers_label(None, theme=theme, layout=layout_name)
             self._update_required_layers()
         elif layer_info["mode"] == "layers":
             self._map_views[idx]["layerIds"] = layer_info["layerIds"]
             self._map_views[idx].pop("theme", None)
-            self._update_mv_layers_label(layer_info["layerIds"], theme=None)
+            self._map_views[idx]["layout"] = layout_name
+            self._update_mv_layers_label(layer_info["layerIds"], theme=None, layout=layout_name)
             self._update_required_layers()
         else:
             QMessageBox.information(
