@@ -1379,6 +1379,11 @@ class WebMapExporter:
 
                 _cad_parts = [
                     '<div class="cad-block">',
+                    '<div class="cad-block-hdr" title="Collapse / expand title block">'
+                    '<span>Title Block</span>'
+                    '<button class="cad-collapse-btn" aria-label="Collapse title block">&#9650;</button>'
+                    '</div>',
+                    '<div class="cad-block-body">',
                     f'<div class="cad-section"><div class="cad-label">Produced By</div>'
                     f'{_cad_logo_html}</div>',
                 ]
@@ -1408,7 +1413,8 @@ class WebMapExporter:
                 if _inc_dm:
                     _cad_parts.append(_rev_poi_html)
                 _cad_parts.append(_dc_section_html)
-                _cad_parts.append('</div>')
+                _cad_parts.append('</div>')  # close cad-block-body
+                _cad_parts.append('</div>')  # close cad-block
                 _cad_block_html = "".join(_cad_parts)
 
             _footer_html = (
@@ -2052,6 +2058,35 @@ class WebMapExporter:
     border: 1.5px solid #1a1a1a;
     font-family: 'Segoe UI', 'Helvetica Neue', Arial, system-ui, sans-serif;
   }}
+  .cad-block-hdr {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: #1a1a1a;
+    cursor: pointer;
+    user-select: none;
+  }}
+  .cad-block-hdr span {{
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+  }}
+  .cad-collapse-btn {{
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0 2px;
+    line-height: 1;
+    transition: color 0.15s;
+  }}
+  .cad-collapse-btn:hover {{ color: #fff; }}
+  .cad-block-body.collapsed {{ display: none; }}
+  .cad-block-hdr:hover .cad-collapse-btn {{ color: #fff; }}
   .cad-section {{
     position: relative;
     display: flex;
@@ -2613,6 +2648,18 @@ class WebMapExporter:
         if (!_lpResizeStart) return;
         _lpResizeStart = null;
         rh.classList.remove('dragging');
+      }});
+    }}
+
+    // Title block collapse toggle
+    var cadHdr = document.querySelector('.cad-block-hdr');
+    if (cadHdr) {{
+      cadHdr.addEventListener('click', function() {{
+        var body = cadHdr.nextElementSibling;
+        var btn  = cadHdr.querySelector('.cad-collapse-btn');
+        var collapsed = body.classList.toggle('collapsed');
+        btn.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+        btn.setAttribute('aria-label', collapsed ? 'Expand title block' : 'Collapse title block');
       }});
     }}
   }})();
