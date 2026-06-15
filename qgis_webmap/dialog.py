@@ -1330,6 +1330,10 @@ class WebMapExportDialog(QDockWidget):
         add_theme_btn.setToolTip("Create a map view linked to a QGIS map theme")
         add_theme_btn.clicked.connect(self._map_view_add_from_theme)
         add_row.addWidget(add_theme_btn)
+        add_layout_btn = QPushButton("＋  Add from layout")
+        add_layout_btn.setToolTip("Create a map view from a QGIS print layout (copies name, extent and layers)")
+        add_layout_btn.clicked.connect(self._map_view_add_from_layout)
+        add_row.addWidget(add_layout_btn)
         mv_layout.addLayout(add_row)
 
         # ── Map view detail ───────────────────────────────────────────────────
@@ -1396,6 +1400,10 @@ class WebMapExportDialog(QDockWidget):
         link_theme_btn.setToolTip("Link this view to a QGIS map theme")
         link_theme_btn.clicked.connect(self._mv_pick_and_link_theme)
         layers_panel_vl.addWidget(link_theme_btn)
+        mv_layers_layout_btn = QPushButton("from layout")
+        mv_layers_layout_btn.setToolTip("Import layer list from a QGIS print layout's map item")
+        mv_layers_layout_btn.clicked.connect(self._mv_layers_from_layout)
+        layers_panel_vl.addWidget(mv_layers_layout_btn)
         self.mv_layers_panel.setVisible(False)
         box_vl.addWidget(self.mv_layers_panel)
 
@@ -1422,6 +1430,10 @@ class WebMapExportDialog(QDockWidget):
         draw_btn.setToolTip("Click and drag a rectangle on the map canvas")
         draw_btn.clicked.connect(self._mv_start_draw_extent)
         extent_panel_vl.addWidget(draw_btn)
+        mv_ext_layout_btn = QPushButton("from layout")
+        mv_ext_layout_btn.setToolTip("Import extent from a QGIS print layout's map item")
+        mv_ext_layout_btn.clicked.connect(self._mv_extent_from_layout)
+        extent_panel_vl.addWidget(mv_ext_layout_btn)
         layer_ext_row = QHBoxLayout()
         layer_ext_row.setSpacing(6)
         self.mv_layer_extent_combo = QComboBox()
@@ -2358,6 +2370,106 @@ class WebMapExportDialog(QDockWidget):
         self._map_views_list_refresh()
         new_row = self.map_views_list_widget.count() - 1
         self.map_views_list_widget.setCurrentRow(new_row)
+        self._update_required_layers()
+
+    # ── Print layout helpers ──────────────────────────────────────────────────
+
+    def _pick_layout(self):
+        """Prompt user to pick a print layout. Returns (QgsPrintLayout, name) or (None, None)."""
+        try:
+            lm = QgsProject.instance().layoutManager()
+            layouts = [l for l in lm.layouts() if hasattr(l, "referenceMap")]
+        except Exception:
+            layouts = []
+        if not layouts:
+            QMessageBox.information(self, "No layouts", "No print layouts found in this project.")
+            return None, None
+        names = [l.name() for l in layouts]
+        name, ok = QInputDialog.getItem(self, "Select layout", "Print layout:", names, 0, False)
+        if not ok or not name:
+            return None, None
+        for l in layouts:
+            if l.name() == name:
+                return l, name
+        return None, None
+
+    def _extent_from_layout(self, layout):
+        """Return [[s,w],[n,e]] geographic extent from the layout's reference map, or None."""
+        try:
+            ref = layout.referenceMap()
+            if ref is None:
+                return None
+            rect = ref.extent()
+            project_crs = QgsProject.instance().crs()
+            wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+            tr = QgsCoordinateTransform(project_crs, wgs84, QgsProject.instance())
+            e = tr.transformBoundingBox(rect)
+            return [[e.yMinimum(), e.xMinimum()], [e.yMaximum(), e.xMaximum()]]
+        except Exception:
+            return None
+
+    def _layers_from_layout(self, layout):
+        """Return list of layer names from the layout's reference map, or None if following project."""
+        try:
+            ref = layout.referenceMap()
+            if ref is None:
+                return None
+            layers = ref.layers()
+            if layers:
+                return [l.name() for l in layers if l is not None]
+        except Exception:
+            pass
+        return None
+
+    def _map_view_add_from_layout(self):
+        layout, name = self._pick_layout()
+        if layout is None:
+            return
+        ext = self._extent_from_layout(layout)
+        layer_names = self._layers_from_layout(layout) or []
+        mv = {"name": name, "notes": "", "extent": ext, "layerIds": layer_names}
+        self._map_views.append(mv)
+        self._map_views_list_refresh()
+        new_row = self.map_views_list_widget.count() - 1
+        self.map_views_list_widget.setCurrentRow(new_row)
+        self._update_required_layers()
+
+    def _mv_extent_from_layout(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select a map view first.")
+            return
+        layout, _name = self._pick_layout()
+        if layout is None:
+            return
+        ext = self._extent_from_layout(layout)
+        if ext is None:
+            QMessageBox.warning(self, "No extent", "Could not read extent from the layout's map item.")
+            return
+        self._editing_map_view_extent = ext
+        self._map_views[idx]["extent"] = ext
+        self._update_mv_extent_label(ext)
+        self._mv_update_rubber_bands()
+
+    def _mv_layers_from_layout(self):
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select a map view first.")
+            return
+        layout, _name = self._pick_layout()
+        if layout is None:
+            return
+        layer_names = self._layers_from_layout(layout)
+        if layer_names is None:
+            QMessageBox.information(
+                self, "No layer override",
+                "This layout's map item follows the project's layer visibility.\n"
+                "Use 'from canvas' to snapshot the current canvas layers instead."
+            )
+            return
+        self._map_views[idx]["layerIds"] = layer_names
+        self._map_views[idx].pop("theme", None)
+        self._update_mv_layers_label(layer_names, theme=None)
         self._update_required_layers()
 
     def _map_view_duplicate(self):
