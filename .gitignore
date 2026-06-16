@@ -4,3 +4,4 @@ __pycache__/
 
 # Runtime-downloaded Leaflet cache (fetched on first export if vendor/ missing)
 qgis_webmap/lib/
+.claude/
