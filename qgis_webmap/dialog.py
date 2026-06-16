@@ -2050,7 +2050,7 @@ class WebMapExportDialog(QDockWidget):
             self._lite_populate_layers()
             self._switch_tab(self._LITE_TAB)
         else:
-            self._switch_tab(3)  # Export tab
+            self._switch_tab(0)  # Map Info
 
     def _lite_extent_from_canvas(self):
         self._lite_extent = self._capture_canvas_extent()
