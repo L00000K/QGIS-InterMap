@@ -1424,6 +1424,26 @@ class WebMapExporter:
                 f'<div id="left-panel-footer">{"".join(_footer_parts)}</div>'
                 if _footer_parts else ""
             )
+
+            if self.feat_changelog and self.changelog:
+                _cl_items = ''.join(
+                    f'<li><span class="cl-rev">{e.get("rev","—")}</span>'
+                    f'<span class="cl-date">{e.get("date","")}</span>'
+                    f'<span class="cl-text">{e.get("text","")}</span></li>'
+                    for e in reversed(self.changelog)
+                )
+                _changelog_html = (
+                    '<div id="changelog-section">'
+                    '<div id="changelog-hdr" title="Collapse / expand changelog">'
+                    '<span>Changelog</span>'
+                    '<button class="cad-collapse-btn" aria-label="Collapse changelog">&#9650;</button>'
+                    '</div>'
+                    f'<ul id="changelog-list">{_cl_items}</ul>'
+                    '</div>'
+                )
+            else:
+                _changelog_html = ''
+
             if _info_enabled:
                 _body_html = (
                     f'<div id="left-panel-body">'
@@ -1540,25 +1560,6 @@ class WebMapExporter:
             '  <span id="search-count" class="filter-count"></span>\n'
             '</div>'
         ) if self.feat_search else ''
-
-        if self.feat_changelog and self.changelog:
-            _cl_items = ''.join(
-                f'<li><span class="cl-rev">{e.get("rev","—")}</span>'
-                f'<span class="cl-date">{e.get("date","")}</span>'
-                f'<span class="cl-text">{e.get("text","")}</span></li>'
-                for e in reversed(self.changelog)
-            )
-            _changelog_html = (
-                '<div id="changelog-section">'
-                '<div id="changelog-hdr" title="Collapse / expand changelog">'
-                '<span>Changelog</span>'
-                '<button class="cad-collapse-btn" aria-label="Collapse changelog">&#9650;</button>'
-                '</div>'
-                f'<ul id="changelog-list">{_cl_items}</ul>'
-                '</div>'
-            )
-        else:
-            _changelog_html = ''
 
         return f"""<!DOCTYPE html>
 <html lang="en">
