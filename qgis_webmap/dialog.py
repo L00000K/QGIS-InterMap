@@ -36,9 +36,9 @@ _PURPOSE_OPTIONS = [
     "P7 – As Built / Record",
 ]
 
-_AR_PURPLE       = "#3f32f1"
-_AR_PURPLE_DARK  = "#2b22c0"
-_AR_PURPLE_LIGHT = "#7066f5"
+_PURPLE       = "#3f32f1"
+_PURPLE_DARK  = "#2b22c0"
+_PURPLE_LIGHT = "#7066f5"
 
 
 # ── Drag-to-draw extent tool ──────────────────────────────────────────────────
@@ -86,7 +86,7 @@ class _RectExtentTool:
                 def __init__(self, cv):
                     super().__init__(cv)
                     self._rb = QgsRubberBand(cv, QgsWkbTypes.PolygonGeometry)
-                    self._rb.setStrokeColor(QColor(_AR_PURPLE))
+                    self._rb.setStrokeColor(QColor(_PURPLE))
                     self._rb.setFillColor(QColor(63, 50, 241, 25))
                     self._rb.setWidth(2)
                     self._start = None
@@ -384,7 +384,7 @@ class WebMapExportDialog(QDockWidget):
         top_vl.addLayout(title_row)
         outer.addWidget(top)
 
-        # ── White strip: descriptions only (no AR logo) ───────────────────────
+        # ── White strip: descriptions only (no company logo) ───────────────────────
         desc_strip = QWidget()
         desc_strip.setObjectName("icLogoStrip")
         desc_vl = QVBoxLayout(desc_strip)
@@ -401,7 +401,7 @@ class WebMapExportDialog(QDockWidget):
 
         desc2 = QLabel(
             "This plugin is in open beta — for feature requests, bugs or further info "
-            "reach out to Luke.Johnstone@Atkinsrealis.com"
+            "reach out to Luke Johnstone."
         )
         desc2.setObjectName("icDesc2")
         desc2.setWordWrap(True)
@@ -419,8 +419,8 @@ class WebMapExportDialog(QDockWidget):
 
         container.setStyleSheet(f"""
             QWidget#icTop {{
-                background: {_AR_PURPLE};
-                border-bottom: 3px solid {_AR_PURPLE_DARK};
+                background: {_PURPLE};
+                border-bottom: 3px solid {_PURPLE_DARK};
             }}
             QWidget#icLogoStrip {{
                 background: #FFFFFF;
@@ -435,14 +435,14 @@ class WebMapExportDialog(QDockWidget):
                 font-size: 11px;
             }}
             QPushButton#icConfigSave {{
-                background: {_AR_PURPLE};
+                background: {_PURPLE};
                 color: white;
                 border: none;
                 border-radius: 3px;
                 padding: 3px 10px;
                 font-size: 11px;
             }}
-            QPushButton#icConfigSave:hover {{ background: {_AR_PURPLE_DARK}; }}
+            QPushButton#icConfigSave:hover {{ background: {_PURPLE_DARK}; }}
             QPushButton#icConfigSaveRed {{
                 background: #DC2626;
                 color: white;
@@ -465,7 +465,7 @@ class WebMapExportDialog(QDockWidget):
             }}
             QWidget#icNavBar {{
                 background: #FFFFFF;
-                border-bottom: 2px solid {_AR_PURPLE};
+                border-bottom: 2px solid {_PURPLE};
             }}
             QPushButton#icNavBtn {{
                 background: transparent;
@@ -477,11 +477,11 @@ class WebMapExportDialog(QDockWidget):
                 min-width: 64px;
             }}
             QPushButton#icNavBtn:checked {{
-                color: {_AR_PURPLE};
-                border-bottom: 3px solid {_AR_PURPLE};
+                color: {_PURPLE};
+                border-bottom: 3px solid {_PURPLE};
             }}
             QPushButton#icNavBtn:hover:!checked {{
-                color: {_AR_PURPLE_LIGHT};
+                color: {_PURPLE_LIGHT};
             }}
             QLabel#icNavSep {{
                 color: #D1D5DB;
@@ -509,7 +509,7 @@ class WebMapExportDialog(QDockWidget):
                 border: 1px solid #D1D5DB;
             }}
             QPushButton#exportBtn {{
-                background: {_AR_PURPLE};
+                background: {_PURPLE};
                 color: white;
                 border: none;
                 border-radius: 4px;
@@ -517,8 +517,8 @@ class WebMapExportDialog(QDockWidget):
                 font-weight: 600;
                 min-height: 26px;
             }}
-            QPushButton#exportBtn:hover   {{ background: {_AR_PURPLE_DARK}; }}
-            QPushButton#exportBtn:pressed {{ background: {_AR_PURPLE_DARK}; }}
+            QPushButton#exportBtn:hover   {{ background: {_PURPLE_DARK}; }}
+            QPushButton#exportBtn:pressed {{ background: {_PURPLE_DARK}; }}
             QPushButton#deleteBtn {{
                 background: #DC2626;
                 color: white;
@@ -837,7 +837,7 @@ class WebMapExportDialog(QDockWidget):
         btn.setCheckable(checkable)
         css = (
             f"QPushButton {{ font-size:10px; padding:0; border:1px solid #D1D5DB; border-radius:2px; {label_style} }}"
-            f"QPushButton:checked {{ background:#ede9ff; border-color:{_AR_PURPLE}; }}"
+            f"QPushButton:checked {{ background:#ede9ff; border-color:{_PURPLE}; }}"
             f"QPushButton:hover {{ border-color:#9CA3AF; }}"
         )
         btn.setStyleSheet(css)
@@ -1031,7 +1031,7 @@ class WebMapExportDialog(QDockWidget):
             fmt = QTextCharFormat()
             fmt.setAnchor(True)
             fmt.setAnchorHref(url.strip())
-            fmt.setForeground(QColor(_AR_PURPLE))
+            fmt.setForeground(QColor(_PURPLE))
             fmt.setFontUnderline(True)
             if cursor.hasSelection():
                 cursor.mergeCharFormat(fmt)
@@ -1780,7 +1780,7 @@ class WebMapExportDialog(QDockWidget):
                 transformed = self._wgs84_to_canvas_rect(ext)
                 rb = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
                 if i == selected_idx:
-                    rb.setStrokeColor(QColor(_AR_PURPLE))
+                    rb.setStrokeColor(QColor(_PURPLE))
                     rb.setWidth(2)
                     rb.setFillColor(QColor(63, 50, 241, 20))
                 else:
@@ -1817,7 +1817,7 @@ class WebMapExportDialog(QDockWidget):
         req_lbl = QLabel("Layers selected in map views are required and cannot be deselected.")
         req_lbl.setWordWrap(True)
         req_lbl.setStyleSheet(
-            f"color: {_AR_PURPLE}; font-size: 10px; font-weight: 600; padding: 2px 0 4px 0;"
+            f"color: {_PURPLE}; font-size: 10px; font-weight: 600; padding: 2px 0 4px 0;"
         )
         layers_layout.addWidget(req_lbl)
 
@@ -2022,7 +2022,7 @@ class WebMapExportDialog(QDockWidget):
             self._mode_toggle_btn.setText("Pro")
             self._mode_toggle_btn.setToolTip("Switch back to Pro mode")
             self._mode_toggle_btn.setStyleSheet(
-                f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_AR_PURPLE}; "
+                f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_PURPLE}; "
                 "border: 1px solid rgba(255,255,255,0.5); border-radius: 10px; "
                 "font-size: 10px; font-weight: 700; padding: 2px 9px; }}"
             )
@@ -2076,7 +2076,7 @@ class WebMapExportDialog(QDockWidget):
                     super().__init__(canvas)
                     self._start = None
                     self._rb = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
-                    self._rb.setColor(QColor(_AR_PURPLE))
+                    self._rb.setColor(QColor(_PURPLE))
                     self._rb.setWidth(2)
                 def canvasPressEvent(self, e):
                     self._start = self.toMapCoordinates(e.pos())
@@ -2412,7 +2412,7 @@ class WebMapExportDialog(QDockWidget):
                 if layer and layer.name() in required:
                     item.setCheckState(0, Qt.Checked)
                     item.setToolTip(0, "Required by a map view — cannot be deselected")
-                    item.setForeground(0, QColor(_AR_PURPLE))
+                    item.setForeground(0, QColor(_PURPLE))
                     return True
                 else:
                     item.setToolTip(0, "")
@@ -2426,7 +2426,7 @@ class WebMapExportDialog(QDockWidget):
                         child_required = True
                 if child_required:
                     item.setCheckState(0, Qt.Checked)
-                    item.setForeground(0, QColor(_AR_PURPLE))
+                    item.setForeground(0, QColor(_PURPLE))
                 else:
                     item.setForeground(0, QColor())
                 return child_required
