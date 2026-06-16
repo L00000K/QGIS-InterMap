@@ -1047,7 +1047,8 @@ class WebMapExporter:
                  feat_identify=True, feat_attr_table=True,
                  feat_attr_csv=True, feat_attr_geojson=True,
                  feat_measure=True, feat_filter=True,
-                 feat_search=True, feat_minimap=True, feat_fancy_labels=True):
+                 feat_search=True, feat_minimap=True, feat_fancy_labels=True,
+                 feat_changelog=True, changelog=None):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
@@ -1067,6 +1068,8 @@ class WebMapExporter:
         self.feat_search = feat_search
         self.feat_minimap = feat_minimap
         self.feat_fancy_labels = feat_fancy_labels
+        self.feat_changelog = feat_changelog
+        self.changelog = changelog or []
 
     def export(self):
         layer_defs = []
@@ -1427,6 +1430,7 @@ class WebMapExporter:
                     f'<div class="left-panel-body-top">'
                     f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
                     f'<div id="map-views-section"></div>'
+                    f'{_changelog_html}'
                     f'</div>'
                     f'{_cad_block_html}'
                     f'</div>'
@@ -1437,6 +1441,7 @@ class WebMapExporter:
                     f'<div id="left-panel-body">'
                     f'<div class="left-panel-body-top">'
                     f'<div id="map-views-section"></div>'
+                    f'{_changelog_html}'
                     f'</div>'
                     f'</div>'
                 )
@@ -1464,6 +1469,7 @@ class WebMapExporter:
             "search":      self.feat_search,
             "minimap":     self.feat_minimap,
             "fancyLabels": self.feat_fancy_labels,
+            "changelog":   self.feat_changelog,
         })
 
         # Pre-build optional HTML panels
@@ -1534,6 +1540,25 @@ class WebMapExporter:
             '  <span id="search-count" class="filter-count"></span>\n'
             '</div>'
         ) if self.feat_search else ''
+
+        if self.feat_changelog and self.changelog:
+            _cl_items = ''.join(
+                f'<li><span class="cl-rev">{e.get("rev","—")}</span>'
+                f'<span class="cl-date">{e.get("date","")}</span>'
+                f'<span class="cl-text">{e.get("text","")}</span></li>'
+                for e in reversed(self.changelog)
+            )
+            _changelog_html = (
+                '<div id="changelog-section">'
+                '<div id="changelog-hdr" title="Collapse / expand changelog">'
+                '<span>Changelog</span>'
+                '<button class="cad-collapse-btn" aria-label="Collapse changelog">&#9650;</button>'
+                '</div>'
+                f'<ul id="changelog-list">{_cl_items}</ul>'
+                '</div>'
+            )
+        else:
+            _changelog_html = ''
 
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -2189,6 +2214,29 @@ class WebMapExporter:
     pointer-events: none; z-index: 850; overflow: hidden;
   }}
   #map-views-section {{ flex-shrink: 0; }}
+  /* ── Changelog panel ─────────────────────────────────────────────── */
+  #changelog-section {{ flex-shrink: 0; border-top: 1px solid #e4e4e4; margin-top: 4px; }}
+  #changelog-hdr {{
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 10px; background: #2a2a2a; cursor: pointer; user-select: none;
+  }}
+  #changelog-hdr span {{
+    font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: rgba(255,255,255,0.75);
+  }}
+  #changelog-list {{
+    list-style: none; margin: 0; padding: 4px 0;
+    max-height: 130px; overflow-y: auto; background: #fafafa;
+  }}
+  #changelog-list.collapsed {{ display: none; }}
+  #changelog-list li {{
+    display: flex; gap: 6px; padding: 3px 10px;
+    font-size: 9px; line-height: 1.35; border-bottom: 1px solid #f0f0f0;
+  }}
+  #changelog-list li:last-child {{ border-bottom: none; }}
+  .cl-rev {{ font-weight: 700; color: #555; white-space: nowrap; min-width: 36px; }}
+  .cl-date {{ color: #888; white-space: nowrap; min-width: 68px; }}
+  .cl-text {{ color: #333; flex: 1; }}
   .mv-section-header {{
     padding: 8px 14px 4px;
     font-size: 10px;
@@ -2660,6 +2708,19 @@ class WebMapExporter:
         var collapsed = body.classList.toggle('collapsed');
         btn.innerHTML = collapsed ? '&#9660;' : '&#9650;';
         btn.setAttribute('aria-label', collapsed ? 'Expand title block' : 'Collapse title block');
+      }});
+    }}
+
+    // Changelog collapse toggle
+    var clHdr = document.getElementById('changelog-hdr');
+    if (clHdr) {{
+      clHdr.addEventListener('click', function() {{
+        var list = document.getElementById('changelog-list');
+        var btn  = clHdr.querySelector('.cad-collapse-btn');
+        if (!list) return;
+        var collapsed = list.classList.toggle('collapsed');
+        btn.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+        btn.setAttribute('aria-label', collapsed ? 'Expand changelog' : 'Collapse changelog');
       }});
     }}
   }})();

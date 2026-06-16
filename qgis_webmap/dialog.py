@@ -151,6 +151,7 @@ class WebMapExportDialog(QDockWidget):
         self.setMinimumWidth(420)
         self._initial_extent = self._capture_canvas_extent()
         self._map_views = []
+        self._changelog = []
         self._editing_map_view_idx = None
         self._editing_map_view_extent = None
         self._loaded_instance_name = None
@@ -239,6 +240,7 @@ class WebMapExportDialog(QDockWidget):
             ("feat_search",           "feat_search_cb"),
             ("feat_minimap",          "feat_minimap_cb"),
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
+            ("feat_changelog",        "feat_changelog_cb"),
         ):
             key = f"{_SETTINGS_KEY}/{flag}"
             if s.contains(key):
@@ -276,6 +278,13 @@ class WebMapExportDialog(QDockWidget):
         key = f"{_SETTINGS_KEY}/save_config_on_export"
         if s.contains(key):
             self.save_config_on_export_cb.setChecked(s.value(key, True, type=bool))
+        import json as _json
+        try:
+            cl_raw = s.value(f"{_SETTINGS_KEY}/changelog", "[]")
+            self._changelog = _json.loads(cl_raw) if cl_raw else []
+        except Exception:
+            self._changelog = []
+        self._changelog_refresh_list()
 
     def _save_settings(self):
         s = QSettings()
@@ -308,8 +317,11 @@ class WebMapExportDialog(QDockWidget):
             ("feat_search",           "feat_search_cb"),
             ("feat_minimap",          "feat_minimap_cb"),
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
+            ("feat_changelog",        "feat_changelog_cb"),
         ):
             s.setValue(f"{_SETTINGS_KEY}/{flag}", getattr(self, attr).isChecked())
+        import json as _json
+        s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -1160,6 +1172,17 @@ class WebMapExportDialog(QDockWidget):
         self.info_revision_edit = QLineEdit()
         self.info_revision_edit.setPlaceholderText("e.g. P1.02…")
         dm_form.addRow("Revision:", self.info_revision_edit)
+        _rev_btn_row = QHBoxLayout()
+        _minor_btn = QPushButton("↑ Minor")
+        _minor_btn.setToolTip("Increment minor version (e.g. 1.2 → 1.3)")
+        _minor_btn.clicked.connect(self._rev_increment_minor)
+        _major_btn = QPushButton("↑ Major")
+        _major_btn.setToolTip("Increment major version (e.g. 1.2 → 2.0)")
+        _major_btn.clicked.connect(self._rev_increment_major)
+        _rev_btn_row.addWidget(_minor_btn)
+        _rev_btn_row.addWidget(_major_btn)
+        _rev_btn_row.addStretch()
+        dm_form.addRow("", _rev_btn_row)
         self.info_purpose_combo = QComboBox()
         self.info_purpose_combo.setEditable(True)
         for opt in _PURPOSE_OPTIONS:
@@ -1304,6 +1327,57 @@ class WebMapExportDialog(QDockWidget):
         dc_vl.addWidget(self.created_by_widget)
 
         layout.addWidget(self.doc_control_widget)
+
+        # ── Changelog ─────────────────────────────────────────────────────────
+        _cl_hdr = QWidget()
+        _cl_hdr_l = QHBoxLayout(_cl_hdr)
+        _cl_hdr_l.setContentsMargins(0, 4, 0, 0)
+        _cl_hdr_l.setSpacing(4)
+        self._cl_toggle_btn = QPushButton("▶")
+        self._cl_toggle_btn.setFixedSize(18, 18)
+        self._cl_toggle_btn.setFlat(True)
+        self._cl_toggle_btn.setCheckable(True)
+        self._cl_toggle_btn.setChecked(False)
+        _cl_hdr_l.addWidget(self._cl_toggle_btn)
+        _cl_title_lbl = QLabel("Changelog")
+        _cl_title_lbl.setStyleSheet("font-weight: 600;")
+        _cl_hdr_l.addWidget(_cl_title_lbl, 1)
+        layout.addWidget(_cl_hdr)
+
+        self.cl_widget = QWidget()
+        self.cl_widget.setVisible(False)
+        cl_vl = QVBoxLayout(self.cl_widget)
+        cl_vl.setContentsMargins(6, 4, 6, 4)
+        cl_vl.setSpacing(4)
+
+        self.changelog_list = QListWidget()
+        self.changelog_list.setMaximumHeight(120)
+        self.changelog_list.setFont(QFont("Segoe UI", 8))
+        cl_vl.addWidget(self.changelog_list)
+
+        _add_row = QHBoxLayout()
+        self.changelog_text_edit = QLineEdit()
+        self.changelog_text_edit.setPlaceholderText("Entry description…")
+        self.changelog_text_edit.returnPressed.connect(self._changelog_add_entry)
+        _add_btn = QPushButton("+ Add")
+        _add_btn.setFixedWidth(55)
+        _add_btn.clicked.connect(self._changelog_add_entry)
+        _add_row.addWidget(self.changelog_text_edit, 1)
+        _add_row.addWidget(_add_btn)
+        cl_vl.addLayout(_add_row)
+
+        _rm_btn = QPushButton("Remove selected")
+        _rm_btn.clicked.connect(self._changelog_remove_entry)
+        cl_vl.addWidget(_rm_btn)
+
+        layout.addWidget(self.cl_widget)
+        self._cl_toggle_btn.toggled.connect(
+            lambda checked: (
+                self._cl_toggle_btn.setText("▼" if checked else "▶"),
+                self.cl_widget.setVisible(checked),
+            )
+        )
+
         layout.addStretch()
 
         self._dc_toggle_btn.toggled.connect(
@@ -1322,6 +1396,60 @@ class WebMapExportDialog(QDockWidget):
     def _on_doc_control_toggled(self, checked):
         self.dc_grid_widget.setVisible(checked)
         self.created_by_widget.setVisible(not checked)
+
+    # ── Revision helpers ──────────────────────────────────────────────────────
+
+    def _rev_increment_minor(self):
+        import re
+        txt = self.info_revision_edit.text().strip()
+        m = re.search(r'(\d+)\.(\d+)', txt)
+        if m:
+            new_rev = txt[:m.start()] + f"{m.group(1)}.{int(m.group(2))+1}" + txt[m.end():]
+        elif re.search(r'\d+', txt):
+            new_rev = txt + ".1"
+        else:
+            new_rev = "1.1"
+        self.info_revision_edit.setText(new_rev)
+
+    def _rev_increment_major(self):
+        import re
+        txt = self.info_revision_edit.text().strip()
+        m = re.search(r'(\d+)\.(\d+)', txt)
+        if m:
+            new_rev = txt[:m.start()] + f"{int(m.group(1))+1}.0" + txt[m.end():]
+        else:
+            digits = re.findall(r'\d+', txt)
+            new_rev = f"{int(digits[0])+1}.0" if digits else "2.0"
+        self.info_revision_edit.setText(new_rev)
+
+    # ── Changelog helpers ─────────────────────────────────────────────────────
+
+    def _changelog_add_entry(self):
+        text = self.changelog_text_edit.text().strip()
+        if not text:
+            return
+        rev = self.info_revision_edit.text().strip() or "—"
+        date = datetime.datetime.now().strftime("%d/%m/%Y")
+        self._changelog.append({"rev": rev, "date": date, "text": text})
+        self.changelog_text_edit.clear()
+        self._changelog_refresh_list()
+
+    def _changelog_remove_entry(self):
+        row = self.changelog_list.currentRow()
+        if row < 0:
+            return
+        # list is shown in reverse order
+        real_idx = len(self._changelog) - 1 - row
+        if 0 <= real_idx < len(self._changelog):
+            self._changelog.pop(real_idx)
+        self._changelog_refresh_list()
+
+    def _changelog_refresh_list(self):
+        self.changelog_list.clear()
+        for e in reversed(self._changelog):
+            self.changelog_list.addItem(
+                f"[{e.get('rev','—')} – {e.get('date','')}]  {e.get('text','')}"
+            )
 
     # ── Map Views tab ─────────────────────────────────────────────────────────
 
@@ -1760,6 +1888,10 @@ class WebMapExportDialog(QDockWidget):
         self.feat_fancy_labels_cb = QCheckBox("Label & symbology controls (cluster, spread…)")
         self.feat_fancy_labels_cb.setChecked(True)
         tools_layout.addWidget(self.feat_fancy_labels_cb)
+
+        self.feat_changelog_cb = QCheckBox("Changelog (collapsible panel under map views)")
+        self.feat_changelog_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_changelog_cb)
 
         layout.addWidget(tools_group)
 
@@ -2441,59 +2573,109 @@ class WebMapExportDialog(QDockWidget):
     # ── Print layout helpers ──────────────────────────────────────────────────
 
     def _pick_layout(self):
-        """Prompt user to pick a print layout. Returns (QgsPrintLayout, name) or (None, None)."""
+        """Prompt user to pick a print layout and map frame.
+        Returns (QgsPrintLayout, QgsLayoutItemMap, name) or (None, None, None)."""
         try:
+            from qgis.core import QgsLayoutItemMap
             lm = QgsProject.instance().layoutManager()
             layouts = [l for l in lm.layouts() if hasattr(l, "referenceMap")]
         except Exception:
             layouts = []
         if not layouts:
             QMessageBox.information(self, "No layouts", "No print layouts found in this project.")
-            return None, None
+            return None, None, None
         names = [l.name() for l in layouts]
         name, ok = QInputDialog.getItem(self, "Select layout", "Print layout:", names, 0, False)
         if not ok or not name:
-            return None, None
-        for l in layouts:
-            if l.name() == name:
-                return l, name
-        return None, None
+            return None, None, None
+        layout = next((l for l in layouts if l.name() == name), None)
+        if layout is None:
+            return None, None, None
 
-    def _extent_from_layout(self, layout):
-        """Return [[s,w],[n,e]] geographic extent from the layout's reference map, or None."""
         try:
-            ref = layout.referenceMap()
-            if ref is None:
-                return None
-            rect = ref.extent()
-            project_crs = QgsProject.instance().crs()
+            from qgis.core import QgsLayoutItemMap
+            map_items = [item for item in layout.items()
+                         if isinstance(item, QgsLayoutItemMap)]
+        except Exception:
+            map_items = []
+
+        if not map_items:
+            QMessageBox.warning(self, "No map frames",
+                                f"Layout '{name}' has no map frames.")
+            return None, None, None
+
+        if len(map_items) == 1:
+            return layout, map_items[0], name
+
+        # Multiple map frames — let the user pick
+        frame_labels = []
+        for i, item in enumerate(map_items):
+            label = item.id() or f"Map {i + 1}"
+            ref_marker = " (reference)" if item == layout.referenceMap() else ""
+            frame_labels.append(f"{label}{ref_marker}")
+        frame_choice, ok2 = QInputDialog.getItem(
+            self, "Select map frame", "Map frame:", frame_labels, 0, False
+        )
+        if not ok2:
+            return None, None, None
+        chosen_idx = frame_labels.index(frame_choice)
+        return layout, map_items[chosen_idx], name
+
+    def _extent_from_layout(self, map_item):
+        """Return [[s,w],[n,e]] geographic extent from a QgsLayoutItemMap, or None."""
+        try:
+            rect = map_item.extent()
+            map_crs = map_item.crs() if map_item.crs().isValid() else QgsProject.instance().crs()
             wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
-            tr = QgsCoordinateTransform(project_crs, wgs84, QgsProject.instance())
+            tr = QgsCoordinateTransform(map_crs, wgs84, QgsProject.instance())
             e = tr.transformBoundingBox(rect)
             return [[e.yMinimum(), e.xMinimum()], [e.yMaximum(), e.xMaximum()]]
         except Exception:
             return None
 
-    def _layers_from_layout(self, layout):
-        """Return list of layer names from the layout's reference map, or None if following project."""
+    def _layers_from_layout(self, layout, map_item):
+        """Return list of layer names from a QgsLayoutItemMap, or None if following project.
+        Also detects map themes and stores theme info on the result dict."""
         try:
-            ref = layout.referenceMap()
-            if ref is None:
-                return None
-            layers = ref.layers()
+            # Check for a map theme override
+            theme = map_item.followVisibilityPresetName() if map_item.followVisibilityPreset() else None
+            layers = map_item.layers()
             if layers:
-                return [l.name() for l in layers if l is not None]
+                layer_names = [l.name() for l in layers if l is not None]
+                return {"mode": "layers", "theme": theme, "layerIds": layer_names}
+            if theme:
+                # Follows a theme but no explicit layer list — resolve from theme
+                try:
+                    root = QgsProject.instance().layerTreeRoot()
+                    theme_rec = QgsProject.instance().mapThemeCollection().mapThemeState(theme)
+                    theme_layers = [l.name() for l in theme_rec.layerRecords()
+                                    if l is not None] if theme_rec else []
+                    return {"mode": "theme", "theme": theme, "layerIds": theme_layers}
+                except Exception:
+                    return {"mode": "theme", "theme": theme, "layerIds": []}
         except Exception:
             pass
         return None
 
     def _map_view_add_from_layout(self):
-        layout, name = self._pick_layout()
+        layout, map_item, name = self._pick_layout()
         if layout is None:
             return
-        ext = self._extent_from_layout(layout)
-        layer_names = self._layers_from_layout(layout) or []
+        ext = self._extent_from_layout(map_item)
+        layers_info = self._layers_from_layout(layout, map_item)
+        if layers_info and layers_info.get("theme"):
+            from qgis.PyQt.QtWidgets import QMessageBox as _QMB
+            theme_name = layers_info["theme"]
+            _QMB.information(
+                self, "Map theme detected",
+                f"This map frame uses the theme \"{theme_name}\".\n"
+                "Layer visibility will reflect that theme in the web map."
+            )
+        layer_names = (layers_info or {}).get("layerIds") or []
+        theme = (layers_info or {}).get("theme")
         mv = {"name": name, "notes": "", "extent": ext, "layerIds": layer_names}
+        if theme:
+            mv["theme"] = theme
         self._map_views.append(mv)
         self._map_views_list_refresh()
         new_row = self.map_views_list_widget.count() - 1
@@ -2505,10 +2687,10 @@ class WebMapExportDialog(QDockWidget):
         if idx is None or idx < 0 or idx >= len(self._map_views):
             QMessageBox.information(self, "No map view", "Select a map view first.")
             return
-        layout, _name = self._pick_layout()
+        layout, map_item, _name = self._pick_layout()
         if layout is None:
             return
-        ext = self._extent_from_layout(layout)
+        ext = self._extent_from_layout(map_item)
         if ext is None:
             QMessageBox.warning(self, "No extent", "Could not read extent from the layout's map item.")
             return
@@ -2522,20 +2704,32 @@ class WebMapExportDialog(QDockWidget):
         if idx is None or idx < 0 or idx >= len(self._map_views):
             QMessageBox.information(self, "No map view", "Select a map view first.")
             return
-        layout, _name = self._pick_layout()
+        layout, map_item, _name = self._pick_layout()
         if layout is None:
             return
-        layer_names = self._layers_from_layout(layout)
-        if layer_names is None:
+        layers_info = self._layers_from_layout(layout, map_item)
+        if layers_info is None:
             QMessageBox.information(
                 self, "No layer override",
                 "This layout's map item follows the project's layer visibility.\n"
                 "Use 'from canvas' to snapshot the current canvas layers instead."
             )
             return
+        layer_names = layers_info.get("layerIds") or []
+        theme = layers_info.get("theme")
+        if theme:
+            from qgis.PyQt.QtWidgets import QMessageBox as _QMB
+            _QMB.information(
+                self, "Map theme detected",
+                f"This map frame uses the theme \"{theme}\".\n"
+                "Layer visibility will reflect that theme in the web map."
+            )
         self._map_views[idx]["layerIds"] = layer_names
-        self._map_views[idx].pop("theme", None)
-        self._update_mv_layers_label(layer_names, theme=None)
+        if theme:
+            self._map_views[idx]["theme"] = theme
+        else:
+            self._map_views[idx].pop("theme", None)
+        self._update_mv_layers_label(layer_names, theme=theme)
         self._update_required_layers()
 
     def _map_view_duplicate(self):
@@ -2723,6 +2917,8 @@ class WebMapExportDialog(QDockWidget):
                 feat_search=self.feat_search_cb.isChecked(),
                 feat_minimap=self.feat_minimap_cb.isChecked(),
                 feat_fancy_labels=self.feat_fancy_labels_cb.isChecked(),
+                feat_changelog=self.feat_changelog_cb.isChecked(),
+                changelog=list(self._changelog),
             )
             exporter.export()
             self._save_settings()
