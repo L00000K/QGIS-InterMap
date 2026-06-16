@@ -2254,12 +2254,12 @@ class WebMapExporter:
     transition: background 0.12s;
   }}
   .mv-item:last-child {{ border-bottom: none; }}
-  .mv-item:hover {{ background: {_th_acc_ft}; border-left-color: {_th_acc_md}; }}
-  .mv-item.active {{ background: {_th_acc_lt}; border-left-color: {_th_acc}; }}
+  .mv-item:hover {{ background: #f5f5f5; border-left-color: #ccc; }}
+  .mv-item.active {{ background: #f0f0f0; border-left-color: #999; }}
   .mv-item-name {{
-    font-size: 12px; font-weight: 600; color: {_th_acc}; line-height: 1.3;
+    font-size: 11px; font-weight: 600; color: #333; line-height: 1.3;
   }}
-  .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid {_th_acc_md}; }}
+  .mv-item-notes {{ display: none; font-size: 9px; color: #777; margin-top: 4px; line-height: 1.4; padding-top: 4px; border-top: 1px solid #e0e0e0; }}
   .mv-item.active .mv-item-notes {{ display: block; }}
   /* ── Help overlay ───────────────────────────────────────────────── */
   #help-overlay {{
