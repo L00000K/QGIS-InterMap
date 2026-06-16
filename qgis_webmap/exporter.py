@@ -1043,7 +1043,12 @@ class WebMapExporter:
                  include_layer_control=True, include_basemap=True,
                  progress_callback=None,
                  layer_tree=None, initial_extent=None, map_views=None,
-                 info_panel=None, theme=None):
+                 info_panel=None, theme=None,
+                 feat_identify=True, feat_attr_table=True,
+                 feat_attr_csv=True, feat_attr_geojson=True,
+                 feat_measure=True, feat_filter=True,
+                 feat_search=True, feat_minimap=True, feat_fancy_labels=True,
+                 feat_changelog=True, changelog=None):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
@@ -1054,6 +1059,17 @@ class WebMapExporter:
         self.map_views = map_views or []
         self.info_panel = info_panel or {}
         self.theme = theme or "corporate"
+        self.feat_identify = feat_identify
+        self.feat_attr_table = feat_attr_table
+        self.feat_attr_csv = feat_attr_csv
+        self.feat_attr_geojson = feat_attr_geojson
+        self.feat_measure = feat_measure
+        self.feat_filter = feat_filter
+        self.feat_search = feat_search
+        self.feat_minimap = feat_minimap
+        self.feat_fancy_labels = feat_fancy_labels
+        self.feat_changelog = feat_changelog
+        self.changelog = changelog or []
 
     def export(self):
         layer_defs = []
@@ -1366,6 +1382,11 @@ class WebMapExporter:
 
                 _cad_parts = [
                     '<div class="cad-block">',
+                    '<div class="cad-block-hdr" title="Collapse / expand title block">'
+                    '<span>Title Block</span>'
+                    '<button class="cad-collapse-btn" aria-label="Collapse title block">&#9650;</button>'
+                    '</div>',
+                    '<div class="cad-block-body">',
                     f'<div class="cad-section"><div class="cad-label">Produced By</div>'
                     f'{_cad_logo_html}</div>',
                 ]
@@ -1395,7 +1416,8 @@ class WebMapExporter:
                 if _inc_dm:
                     _cad_parts.append(_rev_poi_html)
                 _cad_parts.append(_dc_section_html)
-                _cad_parts.append('</div>')
+                _cad_parts.append('</div>')  # close cad-block-body
+                _cad_parts.append('</div>')  # close cad-block
                 _cad_block_html = "".join(_cad_parts)
 
             _footer_html = (
@@ -1408,6 +1430,7 @@ class WebMapExporter:
                     f'<div class="left-panel-body-top">'
                     f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
                     f'<div id="map-views-section"></div>'
+                    f'{_changelog_html}'
                     f'</div>'
                     f'{_cad_block_html}'
                     f'</div>'
@@ -1418,6 +1441,7 @@ class WebMapExporter:
                     f'<div id="left-panel-body">'
                     f'<div class="left-panel-body-top">'
                     f'<div id="map-views-section"></div>'
+                    f'{_changelog_html}'
                     f'</div>'
                     f'</div>'
                 )
@@ -1433,6 +1457,108 @@ class WebMapExporter:
             )
         else:
             left_panel_html = ""
+
+        # ── Feature flags ─────────────────────────────────────────────────────
+        _feat_js = json.dumps({
+            "identify":    self.feat_identify,
+            "attrTable":   self.feat_attr_table,
+            "attrCsv":     self.feat_attr_csv,
+            "attrGeojson": self.feat_attr_geojson,
+            "measure":     self.feat_measure,
+            "filter":      self.feat_filter,
+            "search":      self.feat_search,
+            "minimap":     self.feat_minimap,
+            "fancyLabels": self.feat_fancy_labels,
+            "changelog":   self.feat_changelog,
+        })
+
+        # Pre-build optional HTML panels
+        _select_btn_html = (
+            '<button id="attr-select-btn" title="Drag to select features"'
+            ' style="background:none;border:none;cursor:pointer;padding:2px 4px;'
+            'color:rgba(255,255,255,0.75);display:flex;align-items:center;">'
+            '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg">'
+            '<rect x="9" y="1" width="9" height="6.5" rx="0.6" fill="none"'
+            ' stroke="currentColor" stroke-width="1.3"/>'
+            '<line x1="9" y1="3.8" x2="18" y2="3.8" stroke="currentColor" stroke-width="1"/>'
+            '<line x1="13.5" y1="3.8" x2="13.5" y2="7.5" stroke="currentColor" stroke-width="1"/>'
+            '<path d="M2 9L2 19L5.5 15.5L8.5 20.5L10.5 19.5L7.5 14.5L12 14.5Z" fill="currentColor"/>'
+            '</svg></button>'
+        ) if self.feat_attr_table else ''
+
+        _attr_csv_btn_html = (
+            '<button id="attr-table-csv" title="Export CSV">'
+            '&#8595;&nbsp;CSV</button>'
+        ) if self.feat_attr_csv else ''
+
+        _attr_geojson_btn_html = (
+            '<button id="attr-table-geojson" title="Export GeoJSON">'
+            '&#8595;&nbsp;GeoJSON</button>'
+        ) if self.feat_attr_geojson else ''
+
+        _attr_table_panel_html = (
+            '<div id="attr-table-panel">\n'
+            '  <div id="attr-table-hdr">\n'
+            '    <span>Attribute Table</span>\n'
+            '    <select id="attr-table-layer"></select>\n'
+            '    <span id="attr-select-badge"></span>\n'
+            '    <button id="attr-select-clear" title="Clear selection">&#10005; Clear</button>\n'
+            f'    {_select_btn_html}\n'
+            '    <input id="attr-table-search" type="text" placeholder="Search…" autocomplete="off">\n'
+            f'    {_attr_csv_btn_html}\n'
+            f'    {_attr_geojson_btn_html}\n'
+            '    <button id="attr-table-close" title="Close">&#10005;</button>\n'
+            '  </div>\n'
+            '  <div id="attr-table-body"></div>\n'
+            '</div>'
+        ) if self.feat_attr_table else ''
+
+        _filterbar_html = (
+            '<div id="filterbar" style="display:none">\n'
+            '  <label>Filter</label>\n'
+            '  <select id="filter-layer" title="Layer"></select>\n'
+            '  <select id="filter-attr" title="Attribute"></select>\n'
+            '  <span id="filter-values-wrap">\n'
+            '    <button id="filter-values-btn" type="button">All values</button>\n'
+            '    <div id="filter-values-panel">\n'
+            '      <input id="filter-values-search" type="text"'
+            ' placeholder="Type to search / filter…" autocomplete="off">\n'
+            '      <div id="filter-values-list"></div>\n'
+            '    </div>\n'
+            '  </span>\n'
+            '  <button id="filter-clear" type="button">Clear</button>\n'
+            '  <span id="filter-count" class="filter-count"></span>\n'
+            '</div>'
+        ) if self.feat_filter else ''
+
+        _searchbar_html = (
+            '<div id="searchbar" style="display:none">\n'
+            '  <label>Search</label>\n'
+            '  <input id="search-input" type="text"'
+            ' placeholder="Highlight features containing… (press Enter)" autocomplete="off">\n'
+            '  <button id="search-clear" type="button">Clear</button>\n'
+            '  <span id="search-count" class="filter-count"></span>\n'
+            '</div>'
+        ) if self.feat_search else ''
+
+        if self.feat_changelog and self.changelog:
+            _cl_items = ''.join(
+                f'<li><span class="cl-rev">{e.get("rev","—")}</span>'
+                f'<span class="cl-date">{e.get("date","")}</span>'
+                f'<span class="cl-text">{e.get("text","")}</span></li>'
+                for e in reversed(self.changelog)
+            )
+            _changelog_html = (
+                '<div id="changelog-section">'
+                '<div id="changelog-hdr" title="Collapse / expand changelog">'
+                '<span>Changelog</span>'
+                '<button class="cad-collapse-btn" aria-label="Collapse changelog">&#9650;</button>'
+                '</div>'
+                f'<ul id="changelog-list">{_cl_items}</ul>'
+                '</div>'
+            )
+        else:
+            _changelog_html = ''
 
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1957,6 +2083,35 @@ class WebMapExporter:
     border: 1.5px solid #1a1a1a;
     font-family: 'Segoe UI', 'Helvetica Neue', Arial, system-ui, sans-serif;
   }}
+  .cad-block-hdr {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: #1a1a1a;
+    cursor: pointer;
+    user-select: none;
+  }}
+  .cad-block-hdr span {{
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+  }}
+  .cad-collapse-btn {{
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    font-size: 10px;
+    padding: 0 2px;
+    line-height: 1;
+    transition: color 0.15s;
+  }}
+  .cad-collapse-btn:hover {{ color: #fff; }}
+  .cad-block-body.collapsed {{ display: none; }}
+  .cad-block-hdr:hover .cad-collapse-btn {{ color: #fff; }}
   .cad-section {{
     position: relative;
     display: flex;
@@ -2059,6 +2214,29 @@ class WebMapExporter:
     pointer-events: none; z-index: 850; overflow: hidden;
   }}
   #map-views-section {{ flex-shrink: 0; }}
+  /* ── Changelog panel ─────────────────────────────────────────────── */
+  #changelog-section {{ flex-shrink: 0; border-top: 1px solid #e4e4e4; margin-top: 4px; }}
+  #changelog-hdr {{
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 10px; background: #2a2a2a; cursor: pointer; user-select: none;
+  }}
+  #changelog-hdr span {{
+    font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: rgba(255,255,255,0.75);
+  }}
+  #changelog-list {{
+    list-style: none; margin: 0; padding: 4px 0;
+    max-height: 130px; overflow-y: auto; background: #fafafa;
+  }}
+  #changelog-list.collapsed {{ display: none; }}
+  #changelog-list li {{
+    display: flex; gap: 6px; padding: 3px 10px;
+    font-size: 9px; line-height: 1.35; border-bottom: 1px solid #f0f0f0;
+  }}
+  #changelog-list li:last-child {{ border-bottom: none; }}
+  .cl-rev {{ font-weight: 700; color: #555; white-space: nowrap; min-width: 36px; }}
+  .cl-date {{ color: #888; white-space: nowrap; min-width: 68px; }}
+  .cl-text {{ color: #333; flex: 1; }}
   .mv-section-header {{
     padding: 8px 14px 4px;
     font-size: 10px;
@@ -2254,8 +2432,18 @@ class WebMapExporter:
     position: absolute; pointer-events: none; display: none;
     border: 2px dashed #3388ff; background: rgba(51,136,255,0.08); z-index: 999;
   }}
-  /* ── Drag-select toolbar button active state */
-  .select-btn-active {{ background: {_th_acc} !important; color: #fff !important; }}
+  /* ── Drag-select / measure button active states */
+  .select-btn-active {{ background: rgba(255,255,255,0.25) !important; color: #fff !important; outline: 2px solid rgba(255,255,255,0.7); }}
+  .measure-active {{ background: {_th_acc} !important; color: #fff !important; }}
+  /* ── Measure distance label */
+  .measure-label {{
+    background: rgba(0,0,0,0.72); color: #fff;
+    font-size: 11px; padding: 2px 6px; border-radius: 3px;
+    white-space: nowrap; pointer-events: none;
+  }}
+  /* ── Select button in attr-table header */
+  #attr-select-btn:hover {{ color: #fff !important; }}
+  #attr-select-btn.select-btn-active {{ color: #ff0 !important; }}
   /* ── Attr table selection badge */
   #attr-select-badge {{
     display: none; font-size: 11px; padding: 2px 7px;
@@ -2326,23 +2514,27 @@ class WebMapExporter:
   #attr-table-search {{
     font-size: 12px;
     padding: 2px 6px;
-    border: 1px solid #ccc;
+    border: 1px solid rgba(255,255,255,0.35);
     border-radius: 3px;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
     width: 130px;
     flex-shrink: 0;
     outline: none;
   }}
-  #attr-table-csv {{
+  #attr-table-search::placeholder {{ color: rgba(255,255,255,0.55); }}
+  #attr-table-csv, #attr-table-geojson {{
     font-size: 11px;
     padding: 2px 7px;
-    border: 1px solid #ccc;
+    border: 1px solid rgba(255,255,255,0.4);
     border-radius: 3px;
-    background: #fff;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
     cursor: pointer;
     flex-shrink: 0;
     white-space: nowrap;
   }}
-  #attr-table-csv:hover {{ background: #eee; }}
+  #attr-table-csv:hover, #attr-table-geojson:hover {{ background: rgba(255,255,255,0.28); }}
 
 
 </style>
@@ -2361,26 +2553,8 @@ class WebMapExporter:
 <div id="map"></div>
 <div id="select-rect"></div>
 <div id="label-overlay"><svg id="label-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;"></svg></div>
-<div id="filterbar" style="display:none">
-  <label>Filter</label>
-  <select id="filter-layer" title="Layer"></select>
-  <select id="filter-attr" title="Attribute"></select>
-  <span id="filter-values-wrap">
-    <button id="filter-values-btn" type="button">All values</button>
-    <div id="filter-values-panel">
-      <input id="filter-values-search" type="text" placeholder="Type to search / filter…" autocomplete="off">
-      <div id="filter-values-list"></div>
-    </div>
-  </span>
-  <button id="filter-clear" type="button">Clear</button>
-  <span id="filter-count" class="filter-count"></span>
-</div>
-<div id="searchbar" style="display:none">
-  <label>Search</label>
-  <input id="search-input" type="text" placeholder="Highlight features containing… (press Enter)" autocomplete="off">
-  <button id="search-clear" type="button">Clear</button>
-  <span id="search-count" class="filter-count"></span>
-</div>
+{_filterbar_html}
+{_searchbar_html}
 <div id="legend" style="display:none"></div>
 <div id="spread-leader-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:450;overflow:hidden;">
   <svg id="spread-leader-svg" style="width:100%;height:100%;overflow:visible;"></svg>
@@ -2390,25 +2564,16 @@ class WebMapExporter:
     <span>Feature Info</span>
     <button id="info-panel-close" title="Close">&#10005;</button>
   </div>
-  <div id="info-panel-body">Activate the identify tool, then click a map feature to see its attributes.</div>
+  <div id="info-panel-body">Click a map feature to see its attributes.</div>
   <div id="info-panel-resize-h"></div>
 </div>
-<div id="attr-table-panel">
-  <div id="attr-table-hdr">
-    <span>Attribute Table</span>
-    <select id="attr-table-layer"></select>
-    <span id="attr-select-badge"></span>
-    <button id="attr-select-clear" title="Clear selection">&#10005; Clear</button>
-    <input id="attr-table-search" type="text" placeholder="Search…" autocomplete="off">
-    <button id="attr-table-csv" title="Export CSV">&#8595; CSV</button>
-    <button id="attr-table-close" title="Close">&#10005;</button>
-  </div>
-  <div id="attr-table-body"></div>
-</div>
+{_attr_table_panel_html}
 </div>
 <script>
 (function() {{
   "use strict";
+
+  var FEAT = {_feat_js};
 
   var map = L.map('map', {{
     center: [0, 0], zoom: 2,
@@ -2533,6 +2698,31 @@ class WebMapExporter:
         rh.classList.remove('dragging');
       }});
     }}
+
+    // Title block collapse toggle
+    var cadHdr = document.querySelector('.cad-block-hdr');
+    if (cadHdr) {{
+      cadHdr.addEventListener('click', function() {{
+        var body = cadHdr.nextElementSibling;
+        var btn  = cadHdr.querySelector('.cad-collapse-btn');
+        var collapsed = body.classList.toggle('collapsed');
+        btn.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+        btn.setAttribute('aria-label', collapsed ? 'Expand title block' : 'Collapse title block');
+      }});
+    }}
+
+    // Changelog collapse toggle
+    var clHdr = document.getElementById('changelog-hdr');
+    if (clHdr) {{
+      clHdr.addEventListener('click', function() {{
+        var list = document.getElementById('changelog-list');
+        var btn  = clHdr.querySelector('.cad-collapse-btn');
+        if (!list) return;
+        var collapsed = list.classList.toggle('collapsed');
+        btn.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+        btn.setAttribute('aria-label', collapsed ? 'Expand changelog' : 'Collapse changelog');
+      }});
+    }}
   }})();
 
   var LAYERS = {layers_json};
@@ -2564,17 +2754,19 @@ class WebMapExporter:
     }}
   }} catch(e) {{ console.warn('Fullscreen plugin error:', e); }}
 
-  // ── Mini-map overview (always shown as geographic context) ──────────────
-  try {{
-    if (typeof L.Control.MiniMap !== 'undefined') {{
-      var miniTile = L.tileLayer(
-        'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{maxZoom: 19}});
-      new L.Control.MiniMap(miniTile, {{
-        position: 'bottomright', toggleDisplay: true, minimized: true,
-        width: 160, height: 160
-      }}).addTo(map);
-    }}
-  }} catch(e) {{ console.warn('MiniMap plugin error:', e); }}
+  // ── Mini-map overview ────────────────────────────────────────────────────
+  if (FEAT.minimap) {{
+    try {{
+      if (typeof L.Control.MiniMap !== 'undefined') {{
+        var miniTile = L.tileLayer(
+          'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{maxZoom: 19}});
+        new L.Control.MiniMap(miniTile, {{
+          position: 'bottomright', toggleDisplay: true, minimized: true,
+          width: 160, height: 160
+        }}).addTo(map);
+      }}
+    }} catch(e) {{ console.warn('MiniMap plugin error:', e); }}
+  }}
 
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -2810,9 +3002,12 @@ class WebMapExporter:
     if (geomType === 'point') {{
       if (style.markerSvg) {{
         var m = style.markerSvg;
+        // Use the 2× SVG coordinate space (vw/vh) so the content fills the viewBox correctly.
+        var vw = m.vw !== undefined ? m.vw : m.w;
+        var vh = m.vh !== undefined ? m.vh : m.h;
         return '<svg width="' + W + '" height="' + H + '" xmlns="http://www.w3.org/2000/svg">'
              + '<svg x="2" y="1" width="' + (W - 4) + '" height="' + (H - 2) + '"'
-             + ' viewBox="0 0 ' + m.w + ' ' + m.h + '" preserveAspectRatio="xMidYMid meet">'
+             + ' viewBox="0 0 ' + vw + ' ' + vh + '" preserveAspectRatio="xMidYMid meet">'
              + m.inner + '</svg></svg>';
       }}
       var r = Math.min(6, Math.max(3, (style.markerSize || 8) / 2));
@@ -3092,68 +3287,58 @@ class WebMapExporter:
 
   // ── Identify mode button ─────────────────────────────────────────────────
   var _identifyMode = false;
-  var IdentifyBtn = L.Control.extend({{
-    onAdd: function() {{
-      var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
-      btn.id = 'identify-btn';
-      btn.title = 'Identify features';
-      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
-      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><path d="M3 1L3 15L6.5 11.5L9.5 17.5L11.5 16.5L8.5 10.5L13.5 10.5Z" fill="currentColor"/><circle cx="14.5" cy="5" r="4" fill="{_th_acc}"/><text x="14.5" y="8" font-family="Georgia,serif" font-weight="bold" font-size="7" fill="#fff" text-anchor="middle">i</text></svg>';
-      L.DomEvent.disableClickPropagation(btn);
-      L.DomEvent.on(btn, 'click', function() {{
-        _identifyMode = !_identifyMode;
-        btn.classList.toggle('ident-active', _identifyMode);
-        map.getContainer().classList.toggle('identify-mode', _identifyMode);
-        if (!_identifyMode) {{ selectRect.style.display = 'none'; }}
-      }});
-      return btn;
-    }}
-  }});
-  new IdentifyBtn({{position: 'topleft'}}).addTo(map);
+  if (FEAT.identify) {{
+    var IdentifyBtn = L.Control.extend({{
+      onAdd: function() {{
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+        btn.id = 'identify-btn';
+        btn.title = 'Identify features';
+        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><path d="M3 1L3 15L6.5 11.5L9.5 17.5L11.5 16.5L8.5 10.5L13.5 10.5Z" fill="currentColor"/><circle cx="14.5" cy="5" r="4" fill="{_th_acc}"/><text x="14.5" y="8" font-family="Georgia,serif" font-weight="bold" font-size="7" fill="#fff" text-anchor="middle">i</text></svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.on(btn, 'click', function() {{
+          _identifyMode = !_identifyMode;
+          btn.classList.toggle('ident-active', _identifyMode);
+          map.getContainer().classList.toggle('identify-mode', _identifyMode);
+          if (!_identifyMode) {{ selectRect.style.display = 'none'; }}
+        }});
+        return btn;
+      }}
+    }});
+    new IdentifyBtn({{position: 'topleft'}}).addTo(map);
+  }}
 
   // ── Attribute table button ────────────────────────────────────────────────
-  var AttrTableBtn = L.Control.extend({{
-    onAdd: function() {{
-      var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
-      btn.title = 'Attribute table';
-      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
-      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"/><line x1="2" y1="7.5" x2="18" y2="7.5" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="13" x2="18" y2="13" stroke="currentColor" stroke-width="1"/><line x1="9" y1="7.5" x2="9" y2="18" stroke="currentColor" stroke-width="1"/></svg>';
-      L.DomEvent.disableClickPropagation(btn);
-      L.DomEvent.on(btn, 'click', function() {{
-        var panel = document.getElementById('attr-table-panel');
-        panel.classList.toggle('open');
-        if (panel.classList.contains('open')) populateAttrTable();
-      }});
-      return btn;
-    }}
-  }});
-  new AttrTableBtn({{position: 'topleft'}}).addTo(map);
-
-  // ── Drag-select button ────────────────────────────────────────────────────
   var _selectMode = false;
-  var SelectBtn = L.Control.extend({{
-    onAdd: function() {{
-      var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
-      btn.title = 'Drag to select features';
-      btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
-      btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="1" width="9" height="6.5" rx="0.6" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="9" y1="3.8" x2="18" y2="3.8" stroke="currentColor" stroke-width="1"/><line x1="13.5" y1="3.8" x2="13.5" y2="7.5" stroke="currentColor" stroke-width="1"/><path d="M2 9L2 19L5.5 15.5L8.5 20.5L10.5 19.5L7.5 14.5L12 14.5Z" fill="currentColor"/></svg>';
-      L.DomEvent.disableClickPropagation(btn);
-      L.DomEvent.on(btn, 'click', function() {{
+  if (FEAT.attrTable) {{
+    var AttrTableBtn = L.Control.extend({{
+      onAdd: function() {{
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+        btn.title = 'Attribute table';
+        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"/><line x1="2" y1="7.5" x2="18" y2="7.5" stroke="currentColor" stroke-width="1.5"/><line x1="2" y1="13" x2="18" y2="13" stroke="currentColor" stroke-width="1"/><line x1="9" y1="7.5" x2="9" y2="18" stroke="currentColor" stroke-width="1"/></svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.on(btn, 'click', function() {{
+          var panel = document.getElementById('attr-table-panel');
+          panel.classList.toggle('open');
+          if (panel.classList.contains('open')) populateAttrTable();
+        }});
+        return btn;
+      }}
+    }});
+    new AttrTableBtn({{position: 'topleft'}}).addTo(map);
+
+    // ── Drag-select button (in attr-table header) ─────────────────────────
+    var _attrSelectBtn = document.getElementById('attr-select-btn');
+    if (_attrSelectBtn) {{
+      _attrSelectBtn.addEventListener('click', function() {{
         _selectMode = !_selectMode;
-        btn.classList.toggle('select-btn-active', _selectMode);
+        _attrSelectBtn.classList.toggle('select-btn-active', _selectMode);
         map.getContainer().style.cursor = _selectMode ? 'crosshair' : '';
         if (!_selectMode) selectRect.style.display = 'none';
       }});
-      return btn;
     }}
-  }});
-  new SelectBtn({{position: 'topleft'}}).addTo(map);
-
-  var attrTablePanel = document.getElementById('attr-table-panel');
-  var attrTableLayer = document.getElementById('attr-table-layer');
-  var attrTableBody  = document.getElementById('attr-table-body');
-  var attrTableSearch = document.getElementById('attr-table-search');
-  var _attrSelectSet = null;
+  }}
 
   var _highlightLayer = null;
   function highlightFeatureOnMap(feat) {{
@@ -3169,54 +3354,85 @@ class WebMapExporter:
     }} catch(e) {{}}
   }}
 
-  document.getElementById('attr-table-close').addEventListener('click', function() {{
-    attrTablePanel.classList.remove('open');
-    if (_highlightLayer) {{ map.removeLayer(_highlightLayer); _highlightLayer = null; }}
-  }});
+  var attrTablePanel = null, attrTableLayer = null, attrTableBody = null,
+      attrTableSearch = null, _attrSelectSet = null;
+  function populateAttrTable() {{}}  // stub; real impl assigned below if feature enabled
 
-  document.getElementById('attr-select-clear').addEventListener('click', function() {{
-    _attrSelectSet = null;
-    populateAttrTable();
-  }});
+  if (FEAT.attrTable) {{
+    attrTablePanel = document.getElementById('attr-table-panel');
+    attrTableLayer = document.getElementById('attr-table-layer');
+    attrTableBody  = document.getElementById('attr-table-body');
+    attrTableSearch = document.getElementById('attr-table-search');
 
-  document.getElementById('attr-table-csv').addEventListener('click', function() {{
-    var idx = parseInt(attrTableLayer.value, 10);
-    var item = legendItems[idx];
-    if (!item || item.ld.kind !== 'vector') return;
-    var feats = item.ld.geojson.features;
-    if (!feats || !feats.length) return;
-    var cols = [], seen = {{}};
-    for (var i = 0; i < feats.length; i++) {{
-      var p = feats[i].properties || {{}};
-      Object.keys(p).forEach(function(k) {{ if (!(k in seen)) {{ seen[k]=1; cols.push(k); }} }});
+    document.getElementById('attr-table-close').addEventListener('click', function() {{
+      attrTablePanel.classList.remove('open');
+      if (_highlightLayer) {{ map.removeLayer(_highlightLayer); _highlightLayer = null; }}
+    }});
+
+    document.getElementById('attr-select-clear').addEventListener('click', function() {{
+      _attrSelectSet = null;
+      populateAttrTable();
+    }});
+
+    if (FEAT.attrCsv) {{
+      document.getElementById('attr-table-csv').addEventListener('click', function() {{
+        var idx = parseInt(attrTableLayer.value, 10);
+        var item = legendItems[idx];
+        if (!item || item.ld.kind !== 'vector') return;
+        var feats = item.ld.geojson.features;
+        if (!feats || !feats.length) return;
+        var cols = [], seen = {{}};
+        for (var i = 0; i < feats.length; i++) {{
+          var p = feats[i].properties || {{}};
+          Object.keys(p).forEach(function(k) {{ if (!(k in seen)) {{ seen[k]=1; cols.push(k); }} }});
+        }}
+        var lines = [cols.map(function(c) {{ return '"' + c.replace(/"/g,'""') + '"'; }}).join(',')];
+        feats.forEach(function(f) {{
+          var p = f.properties || {{}};
+          lines.push(cols.map(function(c) {{
+            var v = p[c]; if (v == null) return '';
+            return '"' + String(v).replace(/"/g,'""') + '"';
+          }}).join(','));
+        }});
+        var blob = new Blob([lines.join('\\n')], {{type:'text/csv'}});
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = (item.ld.name || 'attributes') + '.csv';
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+      }});
     }}
-    var lines = [cols.map(function(c) {{ return '"' + c.replace(/"/g,'""') + '"'; }}).join(',')];
-    feats.forEach(function(f) {{
-      var p = f.properties || {{}};
-      lines.push(cols.map(function(c) {{
-        var v = p[c]; if (v == null) return '';
-        return '"' + String(v).replace(/"/g,'""') + '"';
-      }}).join(','));
-    }});
-    var blob = new Blob([lines.join('\\n')], {{type:'text/csv'}});
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url; a.download = (item.ld.name || 'attributes') + '.csv';
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
-  }});
 
-  function filterAttrTable() {{
-    var q = attrTableSearch ? attrTableSearch.value.trim().toLowerCase() : '';
-    attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {{
-      tr.style.display = (!q || tr.textContent.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
-    }});
-  }}
-  if (attrTableSearch) attrTableSearch.addEventListener('input', filterAttrTable);
+    if (FEAT.attrGeojson) {{
+      var _gjBtn = document.getElementById('attr-table-geojson');
+      if (_gjBtn) {{
+        _gjBtn.addEventListener('click', function() {{
+          var idx = parseInt(attrTableLayer.value, 10);
+          var item = legendItems[idx];
+          if (!item || item.ld.kind !== 'vector') return;
+          var gj = item.ld.geojson;
+          if (!gj || !gj.features) return;
+          var blob = new Blob([JSON.stringify(gj, null, 2)], {{type:'application/json'}});
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url; a.download = (item.ld.name || 'features') + '.geojson';
+          document.body.appendChild(a); a.click();
+          document.body.removeChild(a); URL.revokeObjectURL(url);
+        }});
+      }}
+    }}
 
-  var _attrSortCol = null, _attrSortAsc = true;
+    function filterAttrTable() {{
+      var q = attrTableSearch ? attrTableSearch.value.trim().toLowerCase() : '';
+      attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {{
+        tr.style.display = (!q || tr.textContent.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+      }});
+    }}
+    if (attrTableSearch) attrTableSearch.addEventListener('input', filterAttrTable);
 
-  function populateAttrTable() {{
+    var _attrSortCol = null, _attrSortAsc = true;
+
+    populateAttrTable = function() {{
     var idx = parseInt(attrTableLayer.value, 10);
     var item = legendItems[idx];
     if (!item || item.ld.kind !== 'vector') return;
@@ -3303,8 +3519,9 @@ class WebMapExporter:
         }}
       }});
     }});
-    filterAttrTable();
-  }}
+      filterAttrTable();
+    }}
+  }}  // end if (FEAT.attrTable)
 
   // ── Legend panel ─────────────────────────────────────────────────────────
   try {{ if (INCLUDE_LEGEND && legendItems.length > 0) {{
@@ -3537,38 +3754,42 @@ class WebMapExporter:
       }}
 
       // Attribute table
-      var tBtn = mkBtn('Open attribute table',
-        '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
-        + '<rect x="1" y="1" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"/>'
-        + '<line x1="1" y1="5.5" x2="15" y2="5.5" stroke="currentColor" stroke-width="1.4"/>'
-        + '<line x1="1" y1="10" x2="15" y2="10" stroke="currentColor" stroke-width="1"/>'
-        + '<line x1="6" y1="5.5" x2="6" y2="15" stroke="currentColor" stroke-width="1"/>'
-        + '<line x1="10.5" y1="5.5" x2="10.5" y2="15" stroke="currentColor" stroke-width="1"/></svg>');
-      tBtn.addEventListener('click', function(e) {{
-        e.stopPropagation();
-        var panel = document.getElementById('attr-table-panel');
-        var sel = document.getElementById('attr-table-layer');
-        sel.value = item.index;
-        panel.classList.add('open');
-        populateAttrTable();
-      }});
-      acts.appendChild(tBtn);
+      if (FEAT.attrTable) {{
+        var tBtn = mkBtn('Open attribute table',
+          '<svg width="11" height="11" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+          + '<rect x="1" y="1" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<line x1="1" y1="5.5" x2="15" y2="5.5" stroke="currentColor" stroke-width="1.4"/>'
+          + '<line x1="1" y1="10" x2="15" y2="10" stroke="currentColor" stroke-width="1"/>'
+          + '<line x1="6" y1="5.5" x2="6" y2="15" stroke="currentColor" stroke-width="1"/>'
+          + '<line x1="10.5" y1="5.5" x2="10.5" y2="15" stroke="currentColor" stroke-width="1"/></svg>');
+        tBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          var panel = document.getElementById('attr-table-panel');
+          var sel = document.getElementById('attr-table-layer');
+          if (sel) sel.value = item.index;
+          if (panel) panel.classList.add('open');
+          populateAttrTable();
+        }});
+        acts.appendChild(tBtn);
+      }}
 
       // Layer filter
-      var fBtn = mkBtn('Filter this layer',
-        '<svg width="11" height="11" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">'
-        + '<path d="M2 3h14l-5 5.5V15l-4-2V8.5z" fill="currentColor"/></svg>');
-      item._actFilterBtn = fBtn;
-      fBtn.addEventListener('click', function(e) {{
-        e.stopPropagation();
-        if (!layerFilterDiv) {{
-          layerFilterDiv = buildLayerFilterPanel(item);
-          layerDiv.appendChild(layerFilterDiv);
-        }}
-        var open = layerFilterDiv.classList.toggle('open');
-        fBtn.classList.toggle('active', open);
-      }});
-      acts.appendChild(fBtn);
+      if (FEAT.filter) {{
+        var fBtn = mkBtn('Filter this layer',
+          '<svg width="11" height="11" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">'
+          + '<path d="M2 3h14l-5 5.5V15l-4-2V8.5z" fill="currentColor"/></svg>');
+        item._actFilterBtn = fBtn;
+        fBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          if (!layerFilterDiv) {{
+            layerFilterDiv = buildLayerFilterPanel(item);
+            layerDiv.appendChild(layerFilterDiv);
+          }}
+          var open = layerFilterDiv.classList.toggle('open');
+          fBtn.classList.toggle('active', open);
+        }});
+        acts.appendChild(fBtn);
+      }}
 
       // Labels on/off
       if (cfg) {{
@@ -3588,7 +3809,7 @@ class WebMapExporter:
       }}
 
       // Explode / group toggle (point layers only) — on/off only
-      if (ld.kind === 'vector' && ld.geomType === 'point') {{
+      if (FEAT.fancyLabels && ld.kind === 'vector' && ld.geomType === 'point') {{
         var _spreadSvg = '<svg width="13" height="13" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
           + '<circle cx="8" cy="8" r="1.5" fill="currentColor"/>'
           + '<line x1="8" y1="8" x2="3" y2="3.5" stroke="currentColor" stroke-width="0.8"/>'
@@ -3644,11 +3865,20 @@ class WebMapExporter:
       var geomType = (ld.kind === 'raster' || ld.kind === 'wms') ? 'raster' : ld.geomType;
       var cfg = ld.labelConfig || null;
 
-      var primaryStyle = {{}};
-      if (sm.type === 'single') primaryStyle = sm.style || {{}};
-      else if (sm.entries && sm.entries.length) primaryStyle = sm.entries[0].style || {{}};
-
       var hasEntries = sm.entries && sm.entries.length > 1;
+
+      var primaryStyle = {{}};
+      if (sm.type === 'single') {{
+        primaryStyle = sm.style || {{}};
+      }} else if (!hasEntries && sm.entries && sm.entries.length) {{
+        primaryStyle = sm.entries[0].style || {{}};
+      }} else if (hasEntries && geomType !== 'point') {{
+        // Show the first entry style for lines/polygons (colour/pattern gives useful context).
+        var _e0 = sm.entries[0].style || {{}};
+        primaryStyle = {{ color: _e0.color, weight: _e0.weight,
+                          fillColor: _e0.fillColor, fillOpacity: _e0.fillOpacity }};
+      }}
+      // For multi-symbol point layers: leave primaryStyle empty → generic circle swatch.
 
       var layerDiv = document.createElement('div');
       layerDiv.className = 'legend-layer';
@@ -3841,7 +4071,7 @@ class WebMapExporter:
       }}
 
       if (ld.kind === 'vector') row.appendChild(buildLayerActions(item, layerDiv));
-      row.appendChild(makeCogBtn(settingsDiv));
+      if (FEAT.fancyLabels) row.appendChild(makeCogBtn(settingsDiv));
 
       layerDiv.appendChild(row);
       if (entriesDiv) layerDiv.appendChild(entriesDiv);
@@ -3961,7 +4191,7 @@ class WebMapExporter:
 
       bRow.appendChild(bSwatch);
       bRow.appendChild(bName);
-      bRow.appendChild(makeCogBtn(bSettingsDiv));
+      if (FEAT.fancyLabels) bRow.appendChild(makeCogBtn(bSettingsDiv));
       bDiv.appendChild(bRow);
       bDiv.appendChild(bSettingsDiv);
       body.appendChild(bDiv);
@@ -4021,35 +4251,36 @@ class WebMapExporter:
         showIdentifyResults(dragFound);
         infoPanel.classList.add('open');
       }}
-    }} else {{
+    }} else if (FEAT.attrTable && attrTableLayer) {{
       // Select drag: filter attribute table to one layer
       var selIdx = parseInt(attrTableLayer.value, 10);
       var targetItem = null;
       legendItems.forEach(function(it) {{ if (it.index === selIdx && it.ld.kind === 'vector') targetItem = it; }});
       if (!targetItem) legendItems.forEach(function(it) {{ if (!targetItem && it.ld.kind === 'vector' && it.visible) targetItem = it; }});
-      if (!targetItem) return;
-
-      var selSet = [];
-      targetItem.ld.geojson.features.forEach(function(feat, fi) {{
-        if (!feat.geometry) return;
-        var coords = feat.geometry.type === 'Point' ? [feat.geometry.coordinates]
-                   : feat.geometry.type === 'MultiPoint' ? feat.geometry.coordinates : null;
-        if (coords) {{
-          for (var ci = 0; ci < coords.length; ci++) {{
-            if (dragBounds.contains(L.latLng(coords[ci][1], coords[ci][0]))) {{ selSet.push(fi); return; }}
+      if (targetItem) {{
+        var selSet = [];
+        targetItem.ld.geojson.features.forEach(function(feat, fi) {{
+          if (!feat.geometry) return;
+          var coords = feat.geometry.type === 'Point' ? [feat.geometry.coordinates]
+                     : feat.geometry.type === 'MultiPoint' ? feat.geometry.coordinates : null;
+          if (coords) {{
+            for (var ci = 0; ci < coords.length; ci++) {{
+              if (dragBounds.contains(L.latLng(coords[ci][1], coords[ci][0]))) {{ selSet.push(fi); return; }}
+            }}
+          }} else {{
+            try {{
+              var center = L.geoJSON(feat).getBounds().getCenter();
+              if (dragBounds.contains(center)) selSet.push(fi);
+            }} catch(ex) {{}}
           }}
-        }} else {{
-          try {{
-            var center = L.geoJSON(feat).getBounds().getCenter();
-            if (dragBounds.contains(center)) selSet.push(fi);
-          }} catch(ex) {{}}
+        }});
+        if (selSet.length) {{
+          attrTableLayer.value = targetItem.index;
+          _attrSelectSet = selSet;
+          populateAttrTable();
+          attrTablePanel.classList.add('open');
         }}
-      }});
-      if (!selSet.length) return;
-      attrTableLayer.value = targetItem.index;
-      _attrSelectSet = selSet;
-      populateAttrTable();
-      attrTablePanel.classList.add('open');
+      }}
     }}
   }});
 
@@ -4105,7 +4336,7 @@ class WebMapExporter:
 
   // ── Click identify ────────────────────────────────────────────────────────
   map.on('click', function(e) {{
-    if (_selectMode || !_identifyMode) return;
+    if (_selectMode) return;  // select mode takes priority; identify always passive
     var clickPt = map.latLngToContainerPoint(e.latlng);
     var found = [];
     legendItems.forEach(function(it) {{
@@ -4121,54 +4352,53 @@ class WebMapExporter:
       }});
     }});
 
-    // Also query visible WMS layers via GetFeatureInfo
-    var wmsItems = legendItems.filter(function(it) {{
-      return it.visible && it.ld.kind === 'wms' && it.ld.wmsUrl
-          && it.ld.tileType !== 'xyz' && it.ld.tileType !== 'wmts';
-    }});
-    if (wmsItems.length > 0) {{
-      var pending = wmsItems.length;
-      var wmsFound = [];
-      wmsItems.forEach(function(it) {{
-        wmsIdentify(it, e.latlng, function(err, text) {{
-          pending--;
-          if (!err && text) {{
-            var t = text.trim();
-            // Ignore empty/no-feature WMS responses
-            if (t && t !== '' && !/no\s*feature/i.test(t) && !/<body>\s*<\/body>/i.test(t)
-                && !/<body>\s*no features/i.test(t)) {{
-              wmsFound.push({{layerName: it.ld.name, text: t, legendItem: it}});
-            }}
-          }}
-          if (pending === 0 && (found.length || wmsFound.length)) {{
-            if (wmsFound.length) {{
-              wmsFound.forEach(function(w) {{
-                var wrapper = {{
-                  layerName: w.layerName,
-                  html: '<div style="font-size:11px;color:{_th_acc};font-weight:600;margin-bottom:4px">'
-                      + escHtml(w.layerName) + ' <em style="color:#999;font-weight:400">(WMS)</em></div>'
-                      + '<iframe sandbox="allow-same-origin" srcdoc="'
-                      + w.text.replace(/"/g, '&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-                      + '" style="width:100%;min-height:80px;border:none;resize:vertical"></iframe>',
-                  lfl: {{_feature: null}},
-                  legendItem: w.legendItem
-                }};
-                found.push(wrapper);
-              }});
-            }}
-            showIdentifyResults(found);
-            infoPanel.classList.add('open');
-          }} else if (pending === 0 && !found.length && !wmsFound.length) {{
-            // nothing found
-          }}
-        }});
+    // WMS GetFeatureInfo — only when identify mode is explicitly active
+    if (_identifyMode) {{
+      var wmsItems = legendItems.filter(function(it) {{
+        return it.visible && it.ld.kind === 'wms' && it.ld.wmsUrl
+            && it.ld.tileType !== 'xyz' && it.ld.tileType !== 'wmts';
       }});
-      // Show vector-only results immediately if any, WMS will add when ready
-      if (found.length) {{
-        showIdentifyResults(found);
-        infoPanel.classList.add('open');
+      if (wmsItems.length > 0) {{
+        var pending = wmsItems.length;
+        var wmsFound = [];
+        wmsItems.forEach(function(it) {{
+          wmsIdentify(it, e.latlng, function(err, text) {{
+            pending--;
+            if (!err && text) {{
+              var t = text.trim();
+              if (t && t !== '' && !/no\s*feature/i.test(t) && !/<body>\s*<\/body>/i.test(t)
+                  && !/<body>\s*no features/i.test(t)) {{
+                wmsFound.push({{layerName: it.ld.name, text: t, legendItem: it}});
+              }}
+            }}
+            if (pending === 0 && (found.length || wmsFound.length)) {{
+              if (wmsFound.length) {{
+                wmsFound.forEach(function(w) {{
+                  var wrapper = {{
+                    layerName: w.layerName,
+                    html: '<div style="font-size:11px;color:{_th_acc};font-weight:600;margin-bottom:4px">'
+                        + escHtml(w.layerName) + ' <em style="color:#999;font-weight:400">(WMS)</em></div>'
+                        + '<iframe sandbox="allow-same-origin" srcdoc="'
+                        + w.text.replace(/"/g, '&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                        + '" style="width:100%;min-height:80px;border:none;resize:vertical"></iframe>',
+                    lfl: {{_feature: null}},
+                    legendItem: w.legendItem
+                  }};
+                  found.push(wrapper);
+                }});
+              }}
+              showIdentifyResults(found);
+              infoPanel.classList.add('open');
+            }}
+          }});
+        }});
+        // Show any vector hits immediately while WMS queries are in flight
+        if (found.length) {{
+          showIdentifyResults(found);
+          infoPanel.classList.add('open');
+        }}
+        return;
       }}
-      return;
     }}
 
     if (!found.length) return;
@@ -4177,16 +4407,18 @@ class WebMapExporter:
   }});
 
   // ── Populate attribute table layer selector ───────────────────────────────
-  legendItems.forEach(function(it) {{
-    if (it.ld.kind !== 'vector') return;
-    var o = document.createElement('option');
-    o.value = it.index; o.textContent = it.ld.name;
-    attrTableLayer.appendChild(o);
-  }});
-  attrTableLayer.addEventListener('change', function() {{
-    if (attrTableSearch) attrTableSearch.value = '';
-    populateAttrTable();
-  }});
+  if (FEAT.attrTable && attrTableLayer) {{
+    legendItems.forEach(function(it) {{
+      if (it.ld.kind !== 'vector') return;
+      var o = document.createElement('option');
+      o.value = it.index; o.textContent = it.ld.name;
+      attrTableLayer.appendChild(o);
+    }});
+    attrTableLayer.addEventListener('change', function() {{
+      if (attrTableSearch) attrTableSearch.value = '';
+      populateAttrTable();
+    }});
+  }}
 
   function setLayerVisible(item, visible) {{
     item.visible = visible;
@@ -4579,7 +4811,7 @@ class WebMapExporter:
   }}
 
   // ── Filter toolbar ─────────────────────────────────────────────────────────
-  (function initFilter() {{
+  if (FEAT.filter) (function initFilter() {{
     var vectorItems = legendItems.filter(function(it) {{ return it.ld.kind === 'vector'; }});
     if (vectorItems.length === 0) return;
 
@@ -4768,7 +5000,7 @@ class WebMapExporter:
   }})();
 
   // ── Global smart search (greys out non-matching features in all layers) ────
-  (function initGlobalSearch() {{
+  if (FEAT.search) (function initGlobalSearch() {{
     var vectorItems = legendItems.filter(function(it) {{ return it.ld.kind === 'vector'; }});
     if (vectorItems.length === 0) return;
 
@@ -4862,6 +5094,80 @@ class WebMapExporter:
     }});
   }})();
 
+  // ── Measure tool ─────────────────────────────────────────────────────────────
+  if (FEAT.measure) {{
+    var _measureMode = false, _measurePoints = [], _measureLayer = null, _measureMarkers = [];
+    var MeasureBtn = L.Control.extend({{
+      onAdd: function() {{
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+        btn.id = 'measure-btn';
+        btn.title = 'Measure distance (click points, double-click to finish)';
+        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg">'
+          + '<line x1="2" y1="18" x2="18" y2="2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+          + '<line x1="2" y1="18" x2="6" y2="18" stroke="currentColor" stroke-width="1.5"/>'
+          + '<line x1="2" y1="18" x2="2" y2="14" stroke="currentColor" stroke-width="1.5"/>'
+          + '<line x1="7" y1="13" x2="9" y2="15" stroke="currentColor" stroke-width="1"/>'
+          + '<line x1="11" y1="9" x2="13" y2="11" stroke="currentColor" stroke-width="1"/>'
+          + '</svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.on(btn, 'click', function() {{
+          _measureMode = !_measureMode;
+          btn.classList.toggle('measure-active', _measureMode);
+          if (_measureMode) {{
+            map.getContainer().style.cursor = 'crosshair';
+          }} else {{
+            _clearMeasure();
+          }}
+        }});
+        return btn;
+      }}
+    }});
+    new MeasureBtn({{position: 'topleft'}}).addTo(map);
+
+    function _clearMeasure() {{
+      _measurePoints = [];
+      if (_measureLayer) {{ map.removeLayer(_measureLayer); _measureLayer = null; }}
+      _measureMarkers.forEach(function(m) {{ map.removeLayer(m); }});
+      _measureMarkers = [];
+      map.getContainer().style.cursor = '';
+    }}
+
+    function _fmtDist(m) {{
+      return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m';
+    }}
+
+    map.on('click', function(e) {{
+      if (!_measureMode) return;
+      _measurePoints.push(e.latlng);
+      if (_measureLayer) map.removeLayer(_measureLayer);
+      _measureLayer = L.polyline(_measurePoints, {{
+        color: '#e63329', weight: 2, dashArray: '6 4', interactive: false
+      }}).addTo(map);
+      var dist = 0;
+      for (var i = 1; i < _measurePoints.length; i++) {{
+        dist += _measurePoints[i - 1].distanceTo(_measurePoints[i]);
+      }}
+      var lbl = L.marker(e.latlng, {{
+        icon: L.divIcon({{
+          html: '<div class="measure-label">' + _fmtDist(dist) + '</div>',
+          className: '', iconAnchor: [0, -6]
+        }}),
+        interactive: false
+      }}).addTo(map);
+      _measureMarkers.push(lbl);
+    }});
+
+    map.on('dblclick', function(e) {{
+      if (!_measureMode) return;
+      L.DomEvent.stop(e);
+      _measureMode = false;
+      var btn = document.getElementById('measure-btn');
+      if (btn) btn.classList.remove('measure-active');
+      map.getContainer().style.cursor = '';
+    }});
+  }}
+
   // ── Map Views ────────────────────────────────────────────────────────────────
 
   // Sync legend group checkboxes and expand/collapse after a theme is applied.
@@ -4939,7 +5245,7 @@ class WebMapExporter:
     {{ sel: '.legend-cog-btn',                    name: 'Layer Settings',    text: 'Open layer settings: adjust opacity, symbol colours, and attribute filters for this layer.', side:'right' }},
     {{ sel: '#legend-tools-btn',                  name: 'Legend Options',    text: 'Toggle the label column and other legend display options.', side:'right' }},
     // ── Map controls
-    {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Activate identify mode, then click a feature or drag a box to view attributes. Also queries WMS layers via GetFeatureInfo. Close the panel using the × button or click this button again.' }},
+    {{ sel: '[title="Identify features"]',        name: 'Identify Features', text: 'Click any feature to view its attributes. Use this button to enable crosshair mode for drag-to-identify across multiple features. Also queries WMS layers via GetFeatureInfo.' }},
     {{ sel: '[title="Attribute table"]',          name: 'Attribute Table',   text: 'Open the full attribute table for the selected layer. Supports sorting, searching and CSV export.' }},
     {{ sel: '[title="Drag to select features"]',  name: 'Select &amp; Highlight', text: 'Click and drag a rectangle to select features. Selected rows are highlighted in the attribute table.' }},
     {{ sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' }},
