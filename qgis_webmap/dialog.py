@@ -3,7 +3,7 @@ import json
 import datetime
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QFileDialog, QLineEdit,
+    QListWidget, QListWidgetItem, QFileDialog, QLineEdit,
     QMessageBox, QProgressBar, QCheckBox, QGroupBox,
     QTabWidget, QTextEdit, QFormLayout, QWidget,
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
@@ -152,6 +152,8 @@ class WebMapExportDialog(QDockWidget):
         self._initial_extent = self._capture_canvas_extent()
         self._map_views = []
         self._changelog = []
+        self._is_lite = False
+        self._lite_extent = None
         self._editing_map_view_idx = None
         self._editing_map_view_extent = None
         self._loaded_instance_name = None
@@ -285,6 +287,8 @@ class WebMapExportDialog(QDockWidget):
         except Exception:
             self._changelog = []
         self._changelog_refresh_list()
+        lite_val = s.value(f"{_SETTINGS_KEY}/lite_mode", False, type=bool)
+        self._set_lite_mode(lite_val)
 
     def _save_settings(self):
         s = QSettings()
@@ -322,6 +326,7 @@ class WebMapExportDialog(QDockWidget):
             s.setValue(f"{_SETTINGS_KEY}/{flag}", getattr(self, attr).isChecked())
         import json as _json
         s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
+        s.setValue(f"{_SETTINGS_KEY}/lite_mode", self._is_lite)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -371,6 +376,11 @@ class WebMapExportDialog(QDockWidget):
         name_lbl.setObjectName("icName")
         title_row.addWidget(name_lbl)
         title_row.addStretch()
+        self._mode_toggle_btn = QPushButton("Lite")
+        self._mode_toggle_btn.setObjectName("icModeBtn")
+        self._mode_toggle_btn.setToolTip("Switch to Lite mode (simplified single-layer map)")
+        self._mode_toggle_btn.clicked.connect(self._toggle_mode)
+        title_row.addWidget(self._mode_toggle_btn)
         top_vl.addLayout(title_row)
         outer.addWidget(top)
 
@@ -387,6 +397,7 @@ class WebMapExportDialog(QDockWidget):
         desc1.setObjectName("icDesc1")
         desc1.setWordWrap(True)
         desc_vl.addWidget(desc1)
+        self._header_desc1 = desc1
 
         desc2 = QLabel(
             "This plugin is in open beta — for feature requests, bugs or further info "
@@ -519,6 +530,23 @@ class WebMapExportDialog(QDockWidget):
             }}
             QPushButton#deleteBtn:hover   {{ background: #B91C1C; }}
             QPushButton#deleteBtn:pressed {{ background: #991B1B; }}
+            QPushButton#icModeBtn {{
+                background: rgba(255,255,255,0.15);
+                border: 1px solid rgba(255,255,255,0.35);
+                color: rgba(255,255,255,0.9);
+                border-radius: 10px;
+                font-size: 10px;
+                font-weight: 600;
+                padding: 2px 9px;
+                letter-spacing: 0.04em;
+            }}
+            QPushButton#icModeBtn:hover {{
+                background: rgba(255,255,255,0.28);
+            }}
+            QPushButton#icNavBtn:disabled {{
+                color: #C0C0C0;
+                text-decoration: line-through;
+            }}
         """)
 
         layout.addWidget(self._build_header())
@@ -538,18 +566,21 @@ class WebMapExportDialog(QDockWidget):
 
         self._tab_stack = QStackedWidget()
         self._nav_btns = []
+        self._nav_seps = []
 
         _tab_defs = [
-            ("Map Info",  self._build_map_info_tab()),
-            ("Map Views", self._build_map_views_tab()),
-            ("Layers",    self._build_layers_tab()),
-            ("Export",    self._build_export_tab()),
+            ("Map Info",     self._build_map_info_tab()),
+            ("Map Views",    self._build_map_views_tab()),
+            ("Layers",       self._build_layers_tab()),
+            ("Export",       self._build_export_tab()),
+            ("Layers Lite",  self._build_lite_layers_tab()),
         ]
         for i, (label, page_widget) in enumerate(_tab_defs):
             if i > 0:
                 sep = QLabel("›")
                 sep.setObjectName("icNavSep")
                 nav_hl.addWidget(sep)
+                self._nav_seps.append(sep)
             btn = QPushButton(label)
             btn.setObjectName("icNavBtn")
             btn.setCheckable(True)
@@ -560,6 +591,9 @@ class WebMapExportDialog(QDockWidget):
             self._tab_stack.addWidget(page_widget)
 
         nav_hl.addStretch()
+        # Hide Lite button and its separator initially (Pro mode default)
+        self._nav_btns[4].setVisible(False)
+        self._nav_seps[3].setVisible(False)
         inner_layout.addWidget(nav_bar)
 
         # _content_stack: page 0 = tabs, page 1 = expanded rich-text editor
@@ -605,6 +639,7 @@ class WebMapExportDialog(QDockWidget):
             _sig.connect(self._mark_unsaved)
 
     _MAP_VIEWS_TAB = 1
+    _LITE_TAB = 4
 
     def _switch_tab(self, idx):
         prev = self._tab_stack.currentIndex()
@@ -1921,6 +1956,234 @@ class WebMapExportDialog(QDockWidget):
         layout.addStretch()
         return widget
 
+    def _build_lite_layers_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        name_form = QFormLayout()
+        self.lite_map_name_edit = QLineEdit()
+        self.lite_map_name_edit.setPlaceholderText("My web map")
+        name_form.addRow("Map name:", self.lite_map_name_edit)
+        layout.addLayout(name_form)
+
+        extent_group = QGroupBox("Initial map extent")
+        extent_vl = QVBoxLayout(extent_group)
+        self.lite_extent_label = QLabel("(not set — will use current canvas on export)")
+        self.lite_extent_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.lite_extent_label.setWordWrap(True)
+        extent_vl.addWidget(self.lite_extent_label)
+        extent_btn_row = QHBoxLayout()
+        _canvas_ext_btn = QPushButton("From current canvas")
+        _canvas_ext_btn.clicked.connect(self._lite_extent_from_canvas)
+        _draw_ext_btn = QPushButton("Draw on canvas")
+        _draw_ext_btn.clicked.connect(self._lite_extent_draw)
+        extent_btn_row.addWidget(_canvas_ext_btn)
+        extent_btn_row.addWidget(_draw_ext_btn)
+        extent_vl.addLayout(extent_btn_row)
+        layout.addWidget(extent_group)
+
+        layers_group = QGroupBox("Layers")
+        layers_vl = QVBoxLayout(layers_group)
+
+        mode_row = QHBoxLayout()
+        _copy_btn = QPushButton("Copy from canvas")
+        _copy_btn.setToolTip("Populate list from current canvas layer visibility")
+        _copy_btn.clicked.connect(self._lite_copy_from_canvas)
+        mode_row.addWidget(_copy_btn)
+        self.lite_theme_btn = QPushButton("Set to theme")
+        self.lite_theme_btn.setCheckable(True)
+        self.lite_theme_btn.setToolTip("Apply a QGIS map theme (layer checkboxes will be greyed out)")
+        self.lite_theme_btn.toggled.connect(self._lite_toggle_theme_mode)
+        mode_row.addWidget(self.lite_theme_btn)
+        mode_row.addStretch()
+        layers_vl.addLayout(mode_row)
+
+        self.lite_theme_combo = QComboBox()
+        self.lite_theme_combo.setVisible(False)
+        self.lite_theme_combo.currentIndexChanged.connect(self._lite_apply_theme)
+        layers_vl.addWidget(self.lite_theme_combo)
+
+        self.lite_layers_list = QListWidget()
+        self.lite_layers_list.setMinimumHeight(160)
+        layers_vl.addWidget(self.lite_layers_list)
+
+        layout.addWidget(layers_group)
+        layout.addStretch()
+        return widget
+
+    def _toggle_mode(self):
+        self._set_lite_mode(not self._is_lite)
+
+    def _set_lite_mode(self, lite: bool):
+        self._is_lite = lite
+        if lite:
+            self._mode_toggle_btn.setText("Pro")
+            self._mode_toggle_btn.setToolTip("Switch back to Pro mode")
+            self._mode_toggle_btn.setStyleSheet(
+                f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_AR_PURPLE}; "
+                "border: 1px solid rgba(255,255,255,0.5); border-radius: 10px; "
+                "font-size: 10px; font-weight: 700; padding: 2px 9px; }}"
+            )
+            self._header_desc1.setText(
+                "Lite: this plugin creates a lite interactive web map with no project "
+                "information tab and a single set of layers."
+            )
+        else:
+            self._mode_toggle_btn.setText("Lite")
+            self._mode_toggle_btn.setToolTip("Switch to Lite mode")
+            self._mode_toggle_btn.setStyleSheet(
+                "QPushButton { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.9); "
+                "border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; "
+                "font-size: 10px; font-weight: 600; padding: 2px 9px; }"
+            )
+            self._header_desc1.setText(
+                "Pro: this plugin creates interactive map packages with a project information tab, "
+                "multiple preset views and document control metadata."
+            )
+        for i in range(3):
+            self._nav_btns[i].setEnabled(not lite)
+        self._nav_btns[self._LITE_TAB].setVisible(lite)
+        self._nav_seps[self._LITE_TAB - 1].setVisible(lite)
+        if lite:
+            self._lite_populate_layers()
+            self._switch_tab(self._LITE_TAB)
+        else:
+            self._switch_tab(3)  # Export tab
+
+    def _lite_extent_from_canvas(self):
+        self._lite_extent = self._capture_canvas_extent()
+        self._lite_update_extent_label()
+
+    def _lite_extent_draw(self):
+        canvas = self.iface.mapCanvas()
+        def _on_rect(rect):
+            try:
+                project_crs = QgsProject.instance().crs()
+                wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+                tr = QgsCoordinateTransform(project_crs, wgs84, QgsProject.instance())
+                e = tr.transformBoundingBox(rect)
+                self._lite_extent = [[e.yMinimum(), e.xMinimum()], [e.yMaximum(), e.xMaximum()]]
+                self._lite_update_extent_label()
+            except Exception:
+                pass
+        try:
+            from qgis.gui import QgsMapTool, QgsRubberBand
+            class _DrawTool(QgsMapTool):
+                rectDrawn = pyqtSignal(object)
+                def __init__(self, canvas):
+                    super().__init__(canvas)
+                    self._start = None
+                    self._rb = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
+                    self._rb.setColor(QColor(_AR_PURPLE))
+                    self._rb.setWidth(2)
+                def canvasPressEvent(self, e):
+                    self._start = self.toMapCoordinates(e.pos())
+                def canvasMoveEvent(self, e):
+                    if not self._start:
+                        return
+                    end = self.toMapCoordinates(e.pos())
+                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    for pt in [
+                        QgsPointXY(self._start.x(), self._start.y()),
+                        QgsPointXY(self._start.x(), end.y()),
+                        QgsPointXY(end.x(), end.y()),
+                        QgsPointXY(end.x(), self._start.y()),
+                        QgsPointXY(self._start.x(), self._start.y()),
+                    ]:
+                        self._rb.addPoint(pt)
+                def canvasReleaseEvent(self, e):
+                    if not self._start:
+                        return
+                    end = self.toMapCoordinates(e.pos())
+                    rect = QgsRectangle(self._start, end)
+                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    self._start = None
+                    if not rect.isEmpty():
+                        self.rectDrawn.emit(rect)
+                def deactivate(self):
+                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    super().deactivate()
+            prev = canvas.mapTool()
+            tool = _DrawTool(canvas)
+            def _done(rect):
+                _on_rect(rect)
+                canvas.setMapTool(prev)
+            tool.rectDrawn.connect(_done)
+            canvas.setMapTool(tool)
+        except Exception:
+            pass
+
+    def _lite_update_extent_label(self):
+        ext = self._lite_extent
+        if ext:
+            [[s, w], [n, e]] = ext
+            self.lite_extent_label.setText(
+                f"N {n:.4f}  S {s:.4f}  W {w:.4f}  E {e:.4f}"
+            )
+        else:
+            self.lite_extent_label.setText("(not set — will use current canvas on export)")
+
+    def _lite_populate_layers(self):
+        self.lite_layers_list.blockSignals(True)
+        self.lite_layers_list.clear()
+        root = QgsProject.instance().layerTreeRoot()
+        def _add(node):
+            for child in node.children():
+                if isinstance(child, QgsLayerTreeGroup):
+                    _add(child)
+                elif isinstance(child, QgsLayerTreeLayer):
+                    layer = child.layer()
+                    if layer is None:
+                        continue
+                    if layer.type() not in (QgsMapLayer.VectorLayer, QgsMapLayer.RasterLayer):
+                        continue
+                    item = QListWidgetItem(layer.name())
+                    item.setData(Qt.UserRole, layer.id())
+                    item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
+                    item.setCheckState(Qt.Checked if child.isVisible() else Qt.Unchecked)
+                    self.lite_layers_list.addItem(item)
+        _add(root)
+        self.lite_layers_list.blockSignals(False)
+        self.lite_theme_combo.blockSignals(True)
+        self.lite_theme_combo.clear()
+        self.lite_theme_combo.addItem("— Select theme —", "")
+        try:
+            for name in QgsProject.instance().mapThemeCollection().mapThemes():
+                self.lite_theme_combo.addItem(name, name)
+        except Exception:
+            pass
+        self.lite_theme_combo.blockSignals(False)
+
+    def _lite_copy_from_canvas(self):
+        self._lite_populate_layers()
+
+    def _lite_toggle_theme_mode(self, checked):
+        self.lite_theme_combo.setVisible(checked)
+        self.lite_layers_list.setEnabled(not checked)
+        if checked and self.lite_theme_combo.currentData():
+            self._lite_apply_theme(self.lite_theme_combo.currentIndex())
+
+    def _lite_apply_theme(self, index):
+        if not self.lite_theme_btn.isChecked():
+            return
+        theme_name = self.lite_theme_combo.itemData(index)
+        if not theme_name:
+            return
+        try:
+            visible_ids = {
+                l.id() for l in
+                QgsProject.instance().mapThemeCollection().mapThemeVisibleLayers(theme_name)
+            }
+        except Exception:
+            return
+        self.lite_layers_list.blockSignals(True)
+        for i in range(self.lite_layers_list.count()):
+            item = self.lite_layers_list.item(i)
+            item.setCheckState(Qt.Checked if item.data(Qt.UserRole) in visible_ids else Qt.Unchecked)
+        self.lite_layers_list.blockSignals(False)
+
     # ── Instance manager ──────────────────────────────────────────────────────
 
     def _project_instances_key(self):
@@ -2793,6 +3056,10 @@ class WebMapExportDialog(QDockWidget):
             QMessageBox.warning(self, "No output file", "Please select an output file path.")
             return
 
+        if self._is_lite:
+            self._export_lite(output_path)
+            return
+
         selected_ids = []
 
         def collect_checked(parent_item):
@@ -2924,6 +3191,92 @@ class WebMapExportDialog(QDockWidget):
             self._save_settings()
             if self.save_config_on_export_cb.isChecked():
                 self._instance_save()
+            self._show_success(output_path)
+        except Exception as e:
+            QMessageBox.critical(self, "Export failed", str(e))
+        finally:
+            self.export_btn.setEnabled(True)
+            self.progress.setVisible(False)
+
+    def _export_lite(self, output_path):
+        selected_ids = [
+            self.lite_layers_list.item(i).data(Qt.UserRole)
+            for i in range(self.lite_layers_list.count())
+            if self.lite_layers_list.item(i).checkState() == Qt.Checked
+        ]
+        if not selected_ids:
+            QMessageBox.warning(self, "No layers", "Please select at least one layer to export.")
+            return
+
+        selected_id_set = set(selected_ids)
+        panel_layers = []
+        tree_nodes = []
+
+        def walk(node, out):
+            for child in node.children():
+                if isinstance(child, QgsLayerTreeGroup):
+                    grp_children = []
+                    walk(child, grp_children)
+                    if grp_children:
+                        out.append({"type": "group", "name": child.name(), "children": grp_children})
+                elif isinstance(child, QgsLayerTreeLayer):
+                    layer = child.layer()
+                    if layer and layer.id() in selected_id_set:
+                        out.append({"type": "layer", "index": len(panel_layers)})
+                        panel_layers.append(layer)
+
+        walk(QgsProject.instance().layerTreeRoot(), tree_nodes)
+        layers = list(reversed(panel_layers))
+
+        map_name = self.lite_map_name_edit.text().strip() or QgsProject.instance().baseName() or "Web Map"
+        extent = self._lite_extent or self._capture_canvas_extent()
+
+        self.export_btn.setEnabled(False)
+        self.progress.setVisible(True)
+        self.progress.setRange(0, len(layers) + 1)
+        self.progress.setValue(0)
+        try:
+            from .exporter import WebMapExporter
+            info_panel = {
+                "enabled": True,
+                "title": map_name,
+                "text": "",
+                "doc_number": "", "revision": "", "purpose": "",
+                "client": "", "client_img": "", "project_number": "",
+                "project": "", "project_img": "",
+                "include_doc_control": False,
+                "include_project_info": False,
+                "include_doc_metadata": False,
+                "created_by": "", "date": "",
+                "originated_name": "", "originated_date": "",
+                "checked_name": "", "checked_date": "",
+                "reviewed_name": "", "reviewed_date": "",
+                "approved_name": "", "approved_date": "",
+            }
+            exporter = WebMapExporter(
+                layers=layers,
+                output_path=output_path,
+                include_layer_control=True,
+                include_basemap=self.basemap_cb.isChecked(),
+                progress_callback=lambda v: self.progress.setValue(v),
+                layer_tree=tree_nodes,
+                initial_extent=extent,
+                map_views=[],
+                info_panel=info_panel,
+                theme=self.export_theme_combo.currentData(),
+                feat_identify=True,
+                feat_attr_table=True,
+                feat_attr_csv=True,
+                feat_attr_geojson=True,
+                feat_measure=True,
+                feat_filter=True,
+                feat_search=True,
+                feat_minimap=True,
+                feat_fancy_labels=True,
+                feat_changelog=False,
+                changelog=[],
+            )
+            exporter.export()
             self._show_success(output_path)
         except Exception as e:
             QMessageBox.critical(self, "Export failed", str(e))
