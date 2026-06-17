@@ -8,7 +8,7 @@ from qgis.PyQt.QtWidgets import (
     QTabWidget, QTextEdit, QFormLayout, QWidget, QFrame,
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
     QScrollArea, QMenu, QGridLayout, QAbstractItemView, QSizePolicy,
-    QStackedWidget,
+    QStackedWidget, QDoubleSpinBox,
 )
 from qgis.PyQt.QtGui import (
     QDesktopServices, QPixmap, QColor, QFont, QTextCharFormat,
@@ -243,10 +243,24 @@ class WebMapExportDialog(QDockWidget):
             ("feat_minimap",          "feat_minimap_cb"),
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
             ("feat_changelog",        "feat_changelog_cb"),
+            ("feat_3d",               "feat_3d_cb"),
         ):
             key = f"{_SETTINGS_KEY}/{flag}"
             if s.contains(key):
                 getattr(self, attr).setChecked(s.value(key, True, type=bool))
+
+        for _3d_key, _3d_attr in (
+            ("cesium_ion_token", "cesium_ion_token_edit"),
+            ("google_maps_key",  "google_maps_key_edit"),
+            ("extrude_field",    "extrude_field_edit"),
+        ):
+            val = s.value(f"{_SETTINGS_KEY}/{_3d_key}", "")
+            if val:
+                getattr(self, _3d_attr).setText(val)
+        _es = s.value(f"{_SETTINGS_KEY}/extrude_scale", None)
+        if _es is not None:
+            try: self.extrude_scale_spin.setValue(float(_es))
+            except Exception: pass
 
         for fld in ("info_title", "info_client", "info_client_img",
                     "info_project_number", "info_project", "info_project_img",
@@ -322,8 +336,13 @@ class WebMapExportDialog(QDockWidget):
             ("feat_minimap",          "feat_minimap_cb"),
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
             ("feat_changelog",        "feat_changelog_cb"),
+            ("feat_3d",               "feat_3d_cb"),
         ):
             s.setValue(f"{_SETTINGS_KEY}/{flag}", getattr(self, attr).isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/cesium_ion_token", self.cesium_ion_token_edit.text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/google_maps_key",  self.google_maps_key_edit.text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/extrude_field",    self.extrude_field_edit.text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/extrude_scale",    self.extrude_scale_spin.value())
         import json as _json
         s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
         s.setValue(f"{_SETTINGS_KEY}/lite_mode", self._is_lite)
@@ -392,7 +411,7 @@ class WebMapExportDialog(QDockWidget):
             "QPushButton:hover { color: rgba(255,255,255,0.9); }"
         )
         _btn_active = (
-            f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_AR_PURPLE}; "
+            f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_PURPLE}; "
             "border: none; border-radius: 9px; font-size: 10px; font-weight: 700; padding: 2px 9px; }"
         )
         _btn_disabled = (
@@ -1978,7 +1997,54 @@ class WebMapExportDialog(QDockWidget):
         self.feat_changelog_cb.setChecked(True)
         tools_layout.addWidget(self.feat_changelog_cb)
 
+        self.feat_3d_cb = QCheckBox("3D view toggle (Cesium.js — loads from CDN on demand)")
+        self.feat_3d_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_3d_cb)
+
         layout.addWidget(tools_group)
+
+        # ── 3D settings ───────────────────────────────────────────────────
+        d3_group = QGroupBox("3D View Settings (optional)")
+        d3_form  = QFormLayout(d3_group)
+        d3_form.setContentsMargins(8, 6, 8, 8)
+        d3_form.setSpacing(6)
+
+        self.cesium_ion_token_edit = QLineEdit()
+        self.cesium_ion_token_edit.setPlaceholderText("Paste Cesium Ion token for terrain + OSM Buildings")
+        self.cesium_ion_token_edit.setToolTip(
+            "Optional free Cesium Ion access token (cesium.com). "
+            "Enables real-world terrain and global 3D building footprints."
+        )
+        d3_form.addRow("Cesium Ion token:", self.cesium_ion_token_edit)
+
+        self.google_maps_key_edit = QLineEdit()
+        self.google_maps_key_edit.setPlaceholderText("Paste Google Maps API key for Photorealistic 3D Tiles")
+        self.google_maps_key_edit.setToolTip(
+            "Optional Google Maps Platform API key. "
+            "Enables Google Photorealistic 3D Tiles (photorealistic buildings + imagery)."
+        )
+        d3_form.addRow("Google Maps key:", self.google_maps_key_edit)
+
+        extrude_row = QHBoxLayout()
+        self.extrude_field_edit = QLineEdit()
+        self.extrude_field_edit.setPlaceholderText("e.g. height_m or floor_count")
+        self.extrude_field_edit.setToolTip(
+            "Optional attribute field name used to extrude polygon layers into 3D. "
+            "Leave blank for flat polygons."
+        )
+        self.extrude_scale_spin = QDoubleSpinBox()
+        self.extrude_scale_spin.setRange(0.01, 10000.0)
+        self.extrude_scale_spin.setValue(1.0)
+        self.extrude_scale_spin.setDecimals(2)
+        self.extrude_scale_spin.setSuffix(" m/unit")
+        self.extrude_scale_spin.setToolTip("Multiply field value by this to get height in metres")
+        extrude_row.addWidget(self.extrude_field_edit)
+        extrude_row.addWidget(self.extrude_scale_spin)
+        d3_form.addRow("Extrude field:", extrude_row)
+
+        layout.addWidget(d3_group)
+        self.feat_3d_cb.toggled.connect(d3_group.setEnabled)
+        d3_group.setEnabled(self.feat_3d_cb.isChecked())
 
         self.save_config_on_export_cb = QCheckBox("Save configuration on export")
         self.save_config_on_export_cb.setChecked(True)
@@ -3318,6 +3384,11 @@ class WebMapExportDialog(QDockWidget):
                 feat_fancy_labels=self.feat_fancy_labels_cb.isChecked(),
                 feat_changelog=self.feat_changelog_cb.isChecked(),
                 changelog=list(self._changelog),
+                feat_3d=self.feat_3d_cb.isChecked(),
+                cesium_ion_token=self.cesium_ion_token_edit.text().strip(),
+                google_maps_key=self.google_maps_key_edit.text().strip(),
+                feat_3d_extrude_field=self.extrude_field_edit.text().strip(),
+                feat_3d_extrude_scale=self.extrude_scale_spin.value(),
             )
             exporter.export()
             self._save_settings()

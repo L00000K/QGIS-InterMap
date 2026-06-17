@@ -1142,7 +1142,10 @@ class WebMapExporter:
                  feat_attr_csv=True, feat_attr_geojson=True,
                  feat_measure=True, feat_filter=True,
                  feat_search=True, feat_minimap=True, feat_fancy_labels=True,
-                 feat_changelog=True, changelog=None):
+                 feat_changelog=True, changelog=None,
+                 feat_3d=True,
+                 cesium_ion_token='', google_maps_key='',
+                 feat_3d_extrude_field='', feat_3d_extrude_scale=1.0):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
@@ -1164,6 +1167,11 @@ class WebMapExporter:
         self.feat_fancy_labels = feat_fancy_labels
         self.feat_changelog = feat_changelog
         self.changelog = changelog or []
+        self.feat_3d = feat_3d
+        self.cesium_ion_token = cesium_ion_token or ''
+        self.google_maps_key = google_maps_key or ''
+        self.feat_3d_extrude_field = feat_3d_extrude_field or ''
+        self.feat_3d_extrude_scale = float(feat_3d_extrude_scale or 1.0)
 
     def export(self):
         layer_defs = []
@@ -1264,6 +1272,10 @@ class WebMapExporter:
         include_legend = "true" if self.include_layer_control else "false"
         include_basemap_json = "true" if self.include_basemap else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
+        _cesium_ion_token    = str(self.cesium_ion_token or '').replace('"', '').replace('\\', '')
+        _google_maps_key     = str(self.google_maps_key  or '').replace('"', '').replace('\\', '')
+        _extrude_field       = str(self.feat_3d_extrude_field or '').replace('"', '').replace('\\', '')
+        _extrude_scale       = self.feat_3d_extrude_scale
 
         # Resolve QGIS theme references to layer name lists at export time so the
         # web map JavaScript can toggle layers without needing the QGIS theme API.
@@ -1366,6 +1378,7 @@ class WebMapExporter:
             _plugin_block("fullscreen"),
             _plugin_block("minimap"),
             _plugin_block("contextmenu"),
+            _plugin_block("geoman"),
         ]))
 
         # Brand watermark — prefer logo.svg (case-insensitive), fall back to logo.png, then built-in SVG
@@ -1589,6 +1602,7 @@ class WebMapExporter:
             "minimap":     self.feat_minimap,
             "fancyLabels": self.feat_fancy_labels,
             "changelog":   self.feat_changelog,
+            "cesium3d":    self.feat_3d,
         })
 
         # Pre-build optional HTML panels
@@ -2636,6 +2650,89 @@ class WebMapExporter:
   }}
   #attr-table-csv:hover, #attr-table-geojson:hover {{ background: rgba(255,255,255,0.28); }}
 
+  /* ── Print layout ─────────────────────────────────────────────────── */
+  #print-btn {{
+    position: absolute;
+    bottom: 28px; right: 10px;
+    z-index: 500;
+    background: rgba(40,40,40,0.82);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: none;
+  }}
+  #print-btn:hover {{ background: rgba(60,60,60,0.92); }}
+  #permalink-btn {{
+    position: absolute;
+    bottom: 56px; right: 10px;
+    z-index: 500;
+    background: rgba(40,40,40,0.82);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+  }}
+  #permalink-btn:hover {{ background: rgba(60,60,60,0.92); }}
+  @media print {{
+    #left-panel, #legend, #filterbar, #searchbar,
+    #info-panel, #attr-table-panel, #help-overlay,
+    #print-btn, #permalink-btn, #view-toggle-btn,
+    .leaflet-control-container {{ display: none !important; }}
+    body {{ display: block; overflow: visible; }}
+    #map-wrap {{ width: 100vw !important; height: 100vh !important; position: relative; }}
+    #map {{ width: 100% !important; height: 100% !important; }}
+    #label-overlay {{ display: block !important; }}
+  }}
+
+  /* ── Cesium 3D viewer ─────────────────────────────────────────────── */
+  #cesium-container {{
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 200;
+  }}
+  #view-toggle-btn {{
+    position: absolute;
+    top: 10px; right: 10px;
+    z-index: 500;
+    background: rgba(40,40,40,0.82);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    backdrop-filter: blur(4px);
+    transition: background 0.15s;
+    display: none;
+  }}
+  #view-toggle-btn:hover {{ background: rgba(60,60,60,0.92); }}
+  #cesium-loading {{
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 14px;
+    background: rgba(0,0,0,0.55);
+    padding: 10px 20px;
+    border-radius: 8px;
+    pointer-events: none;
+    display: none;
+    z-index: 600;
+  }}
+
 
 </style>
 </head>
@@ -2651,6 +2748,11 @@ class WebMapExporter:
   <button id="map-title-chip-btn" title="Open project info">&#9660;</button>
 </div>
 <div id="map"></div>
+<div id="cesium-container"></div>
+<div id="cesium-loading">Loading 3D view…</div>
+<button id="view-toggle-btn" title="Toggle 2D / 3D view">3D</button>
+<button id="permalink-btn" title="Copy link to current view">&#128279; Link</button>
+<button id="print-btn" title="Print map">&#128438; Print</button>
 <div id="select-rect"></div>
 <div id="label-overlay"><svg id="label-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;"></svg></div>
 {_filterbar_html}
@@ -5552,6 +5654,561 @@ class WebMapExporter:
   }});
   new BrandControl({{position: 'bottomleft'}}).addTo(map);
 
+  // ── Expose for cross-block hooks (Cesium, extensions) ───────────────────
+  window.setLayerVisible  = setLayerVisible;
+  window.setLayerOpacity  = setLayerOpacity;
+  window.applyTheme       = applyTheme;
+  window._legendItems     = legendItems;
+
+  // ── Opacity persistence via localStorage ────────────────────────────────
+  (function() {{
+    var LS_KEY = 'intermap_opacity';
+    try {{
+      var saved = JSON.parse(localStorage.getItem(LS_KEY) || '{{}}');
+      legendItems.forEach(function(item) {{
+        var key = item.ld.name;
+        if (saved[key] !== undefined) {{
+          var pane = map.getPane(item.paneName);
+          if (pane) pane.style.opacity = saved[key];
+        }}
+      }});
+    }} catch(e) {{}}
+
+    // Patch setLayerOpacity to also persist
+    var _baseSetLayerOpacity = window.setLayerOpacity;
+    window.setLayerOpacity = function(item, factor) {{
+      _baseSetLayerOpacity(item, factor);
+      try {{
+        var saved = JSON.parse(localStorage.getItem(LS_KEY) || '{{}}');
+        saved[item.ld.name] = factor;
+        localStorage.setItem(LS_KEY, JSON.stringify(saved));
+      }} catch(e) {{}}
+    }};
+  }})();
+
+  // ── Permalink ─────────────────────────────────────────────────────────────
+  (function() {{
+    // Restore state from hash on load
+    function _parseHash() {{
+      try {{
+        var h = location.hash.replace('#', '');
+        if (!h) return;
+        var parts = h.split(';');
+        var geo = parts[0] ? parts[0].split(',') : [];
+        if (geo.length === 3) {{
+          map.setView([parseFloat(geo[0]), parseFloat(geo[1])], parseInt(geo[2], 10));
+        }}
+        if (parts[1]) {{
+          var vis = parts[1].split(',');
+          legendItems.forEach(function(item, i) {{
+            if (vis[i] !== undefined) setLayerVisible(item, vis[i] === '1');
+          }});
+        }}
+        if (parts[2] !== undefined) {{
+          var ti = parseInt(parts[2], 10);
+          if (!isNaN(ti) && THEMES[ti]) applyTheme(ti);
+        }}
+      }} catch(e) {{}}
+    }}
+    _parseHash();
+
+    var plBtn = document.getElementById('permalink-btn');
+    if (plBtn) {{
+      plBtn.addEventListener('click', function() {{
+        var c = map.getCenter(), z = map.getZoom();
+        var vis = legendItems.map(function(it) {{ return it.visible ? '1' : '0'; }}).join(',');
+        var thIdx = '';
+        var mvSection = document.getElementById('map-views-section');
+        if (mvSection) {{
+          var active = mvSection.querySelector('.mv-item.active');
+          if (active) thIdx = active.dataset.mvIdx || '';
+        }}
+        var hash = '#' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5) + ',' + z
+          + ';' + vis + ';' + thIdx;
+        var url = location.href.split('#')[0] + hash;
+        try {{ navigator.clipboard.writeText(url); }} catch(x) {{}}
+        plBtn.textContent = '✓ Copied!';
+        setTimeout(function() {{ plBtn.innerHTML = '&#128279; Link'; }}, 1800);
+      }});
+    }}
+  }})();
+
+  // ── Print button ─────────────────────────────────────────────────────────
+  (function() {{
+    var printBtn = document.getElementById('print-btn');
+    if (!printBtn) return;
+    printBtn.style.display = 'block';
+    printBtn.addEventListener('click', function() {{ window.print(); }});
+  }})();
+
+  // ── Geoman annotation layer ──────────────────────────────────────────────
+  (function() {{
+    if (typeof L.PM === 'undefined' && typeof map.pm === 'undefined') return;
+    try {{
+      map.pm.addControls({{
+        position:         'topleft',
+        drawCircle:       false,
+        drawCircleMarker: false,
+        drawRectangle:    false,
+        rotateMode:       false,
+        cutPolygon:       false
+      }});
+      // Style drawn features consistently
+      map.on('pm:create', function(e) {{
+        var layer = e.layer;
+        if (layer.setStyle) layer.setStyle({{color:'#e74c3c', fillColor:'#e74c3c', fillOpacity:0.2, weight:2}});
+      }});
+    }} catch(ex) {{ console.warn('Geoman init failed', ex); }}
+  }})();
+
+}})();
+
+// ── Cesium 3D viewer ───────────────────────────────────────────────────────
+(function() {{
+  if (!FEAT.cesium3d) return;
+
+  var toggleBtn = document.getElementById('view-toggle-btn');
+  var cesiumDiv = document.getElementById('cesium-container');
+  var mapDiv    = document.getElementById('map');
+  var loadingEl = document.getElementById('cesium-loading');
+  toggleBtn.style.display = 'block';
+
+  // Embedded export-time config
+  var _ionToken     = "{_cesium_ion_token}";
+  var _googleKey    = "{_google_maps_key}";
+  var _extrudeField = "{_extrude_field}";
+  var _extrudeScale = {_extrude_scale};
+
+  var _is3d      = false;
+  var _viewer    = null;
+  var _cesiumOk  = false;
+  var _loading   = false;
+  var _cesiumLayers = {{}};   // layer index → DataSource or ImageryLayer
+
+  // ── Viewport sync ─────────────────────────────────────────────────────────
+  function _leafletToCesium() {{
+    if (!_viewer) return;
+    var b = map.getBounds();
+    _viewer.camera.flyTo({{
+      destination: Cesium.Rectangle.fromDegrees(
+        b.getWest(), b.getSouth(), b.getEast(), b.getNorth()
+      ),
+      duration: 0.6
+    }});
+  }}
+
+  function _cesiumToLeaflet() {{
+    if (!_viewer) return;
+    var rect = _viewer.camera.computeViewRectangle(_viewer.scene.globe.ellipsoid);
+    if (rect) {{
+      map.fitBounds([
+        [Cesium.Math.toDegrees(rect.south), Cesium.Math.toDegrees(rect.west)],
+        [Cesium.Math.toDegrees(rect.north), Cesium.Math.toDegrees(rect.east)]
+      ], {{animate: false}});
+    }}
+  }}
+
+  // ── Style helpers ─────────────────────────────────────────────────────────
+  function _resolveStyle(styleMap, props) {{
+    if (!styleMap) return {{}};
+    var sm = styleMap, entries = sm.entries || [], def = sm['default'] || {{}};
+    if (sm.type === 'single') return sm.style || {{}};
+    if (sm.type === 'categorized') {{
+      var val = String(props[sm.field] !== undefined ? props[sm.field] : '');
+      for (var i = 0; i < entries.length; i++) {{
+        if (String(entries[i].value) === val) return entries[i].style || def;
+      }}
+      return def;
+    }}
+    if (sm.type === 'graduated') {{
+      var num = parseFloat(props[sm.field]);
+      for (var i = 0; i < entries.length; i++) {{
+        var e = entries[i];
+        if (!isNaN(num) && num >= e.min && num <= e.max) return e.style || def;
+      }}
+      return def;
+    }}
+    if (sm.type === 'rule') {{
+      // Cannot evaluate QGIS expressions in browser — use first entry as best effort
+      for (var i = 0; i < entries.length; i++) {{
+        if (entries[i].style) return entries[i].style;
+      }}
+      return def;
+    }}
+    return def;
+  }}
+
+  function _cssColor(hex, opacity) {{
+    if (!hex || hex === 'none') return Cesium.Color.TRANSPARENT;
+    try {{ return Cesium.Color.fromCssColorString(hex).withAlpha(opacity !== undefined ? opacity : 1.0); }}
+    catch(x) {{ return Cesium.Color.GRAY; }}
+  }}
+
+  function _getProps(entity) {{
+    var out = {{}};
+    if (!entity.properties) return out;
+    try {{
+      entity.properties.propertyNames.forEach(function(n) {{
+        out[n] = entity.properties[n].getValue(Cesium.JulianDate.now());
+      }});
+    }} catch(x) {{}}
+    return out;
+  }}
+
+  // ── SVG markers → billboard data URI ─────────────────────────────────────
+  function _svgDataUri(ms) {{
+    if (!ms || !ms.inner) return null;
+    var vw = ms.vw || ms.w || 32, vh = ms.vh || ms.h || 32;
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + vw + ' ' + vh + '">' + ms.inner + '</svg>';
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }}
+
+  // ── Apply style to a Cesium entity ────────────────────────────────────────
+  function _applyEntityStyle(entity, style, extrudeHeight) {{
+    if (!style) return;
+    var fill   = _cssColor(style.fillColor || style.color || '#3388ff',
+                           style.fillOpacity !== undefined ? style.fillOpacity : 0.4);
+    var stroke = _cssColor(style.color || '#3388ff',
+                           style.opacity !== undefined ? style.opacity : 1.0);
+    var weight = style.weight || 2;
+
+    if (entity.polygon) {{
+      entity.polygon.material     = new Cesium.ColorMaterialProperty(fill);
+      entity.polygon.outlineColor = new Cesium.ConstantProperty(stroke);
+      entity.polygon.outlineWidth = new Cesium.ConstantProperty(weight);
+      entity.polygon.outline      = new Cesium.ConstantProperty(true);
+      if (extrudeHeight > 0) {{
+        entity.polygon.extrudedHeight = new Cesium.ConstantProperty(extrudeHeight);
+        entity.polygon.closeTop       = new Cesium.ConstantProperty(true);
+        entity.polygon.closeBottom    = new Cesium.ConstantProperty(true);
+      }} else {{
+        entity.polygon.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+      }}
+    }}
+    if (entity.polyline) {{
+      entity.polyline.material      = new Cesium.ColorMaterialProperty(stroke);
+      entity.polyline.width         = new Cesium.ConstantProperty(weight);
+      entity.polyline.clampToGround = new Cesium.ConstantProperty(!extrudeHeight);
+    }}
+
+    // Points and billboards
+    var ms = style.markerSvg;
+    if (entity.billboard || entity.point) {{
+      if (ms && ms.inner) {{
+        var uri = _svgDataUri(ms);
+        if (uri) {{
+          entity.billboard = new Cesium.BillboardGraphics({{
+            image:          new Cesium.ConstantProperty(uri),
+            width:          new Cesium.ConstantProperty(ms.w || 24),
+            height:         new Cesium.ConstantProperty(ms.h || 24),
+            pixelOffset:    new Cesium.ConstantProperty(new Cesium.Cartesian2(
+              (ms.w || 24) / 2 - (ms.ax || 0),
+              (ms.h || 24) / 2 - (ms.ay || 0)
+            )),
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+          }});
+          entity.point = undefined;
+          return;
+        }}
+      }}
+      var mCol = _cssColor(style.markerColor || style.color || '#3388ff',
+                           style.markerOpacity !== undefined ? style.markerOpacity : 1.0);
+      entity.billboard = undefined;
+      entity.point = new Cesium.PointGraphics({{
+        color:           new Cesium.ConstantProperty(mCol),
+        pixelSize:       new Cesium.ConstantProperty(style.markerSize || 8),
+        outlineColor:    new Cesium.ConstantProperty(_cssColor(
+          style.markerStrokeColor || '#ffffff',
+          style.markerStrokeOpacity !== undefined ? style.markerStrokeOpacity : 1.0
+        )),
+        outlineWidth:    new Cesium.ConstantProperty(style.markerStrokeWidth || 1),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      }});
+    }}
+  }}
+
+  // ── Apply labels from labelConfig ─────────────────────────────────────────
+  function _applyLabels(entities, labelCfg) {{
+    if (!labelCfg || !labelCfg.enabled || !labelCfg.field) return;
+    var col = _cssColor(labelCfg.color || '#222222');
+    entities.forEach(function(entity) {{
+      var props = _getProps(entity);
+      var text  = props[labelCfg.field] !== undefined ? String(props[labelCfg.field]) : '';
+      if (!text) return;
+      entity.label = new Cesium.LabelGraphics({{
+        text:             new Cesium.ConstantProperty(text),
+        font:             new Cesium.ConstantProperty((labelCfg.fontSize || 11) + 'px sans-serif'),
+        fillColor:        new Cesium.ConstantProperty(col),
+        outlineColor:     new Cesium.ConstantProperty(Cesium.Color.WHITE),
+        outlineWidth:     new Cesium.ConstantProperty(2),
+        style:            new Cesium.ConstantProperty(Cesium.LabelStyle.FILL_AND_OUTLINE),
+        verticalOrigin:   new Cesium.ConstantProperty(Cesium.VerticalOrigin.BOTTOM),
+        pixelOffset:      new Cesium.ConstantProperty(new Cesium.Cartesian2(0, -8)),
+        heightReference:  Cesium.HeightReference.CLAMP_TO_GROUND,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      }});
+    }});
+  }}
+
+  // ── Batch style entities in rAF chunks to avoid freezing ─────────────────
+  function _batchStyle(entities, styleMap, extrudeField, extrudeScale, labelCfg, done) {{
+    var CHUNK = 200, i = 0;
+    function step() {{
+      var end = Math.min(i + CHUNK, entities.length);
+      for (; i < end; i++) {{
+        var entity = entities[i];
+        var props  = _getProps(entity);
+        var style  = _resolveStyle(styleMap, props);
+        var extH   = 0;
+        if (extrudeField) {{
+          extH = parseFloat(props[extrudeField]) * (extrudeScale || 1);
+          if (isNaN(extH)) extH = 0;
+        }}
+        _applyEntityStyle(entity, style, extH);
+      }}
+      if (i < entities.length) requestAnimationFrame(step);
+      else {{
+        _applyLabels(entities, labelCfg);
+        if (done) done();
+      }}
+    }}
+    requestAnimationFrame(step);
+  }}
+
+  // ── Load all layers ───────────────────────────────────────────────────────
+  function _loadLayers() {{
+    var items = window._legendItems || [];
+
+    // Add WMS/raster in reversed order so topmost legend layer renders on top in Cesium
+    var imgLayers = [];
+    LAYERS.forEach(function(ldef, idx) {{
+      if (ldef.kind === 'raster' || ldef.kind === 'wms') imgLayers.push({{ldef: ldef, idx: idx}});
+    }});
+    imgLayers.reverse().forEach(function(entry) {{
+      var ldef = entry.ldef, idx = entry.idx;
+      var visible = items[idx] ? items[idx].visible : true;
+      if (ldef.kind === 'raster') {{
+        var rect = Cesium.Rectangle.fromDegrees(
+          ldef.bounds[0][1], ldef.bounds[0][0],
+          ldef.bounds[1][1], ldef.bounds[1][0]
+        );
+        var url  = 'data:image/png;base64,' + ldef.data;
+        var prom = Cesium.SingleTileImageryProvider.fromUrl
+          ? Cesium.SingleTileImageryProvider.fromUrl(url, {{rectangle: rect}})
+          : Promise.resolve(new Cesium.SingleTileImageryProvider({{url: url, rectangle: rect}}));
+        prom.then(function(provider) {{
+          var il = _viewer.imageryLayers.addImageryProvider(provider);
+          il.alpha = ldef.opacity != null ? ldef.opacity : 1.0;
+          il.show  = visible;
+          _cesiumLayers[idx] = il;
+        }}).catch(function(e) {{ console.warn('Cesium raster:', ldef.name, e); }});
+      }} else if (ldef.kind === 'wms') {{
+        try {{
+          var il = _viewer.imageryLayers.addImageryProvider(
+            new Cesium.WebMapServiceImageryProvider({{
+              url: ldef.wmsUrl, layers: ldef.wmsLayers,
+              parameters: {{
+                transparent: true,
+                format:  ldef.wmsFormat  || 'image/png',
+                styles:  ldef.wmsStyles  || '',
+                version: ldef.wmsVersion || '1.1.1'
+              }}
+            }})
+          );
+          il.alpha = ldef.opacity != null ? ldef.opacity : 1.0;
+          il.show  = visible;
+          _cesiumLayers[idx] = il;
+        }} catch(e) {{ console.warn('Cesium WMS:', ldef.name, e); }}
+      }}
+    }});
+
+    // Vector layers
+    LAYERS.forEach(function(ldef, idx) {{
+      if (ldef.kind !== 'vector') return;
+      var visible = items[idx] ? items[idx].visible : true;
+      Cesium.GeoJsonDataSource.load(ldef.geojson, {{
+        clampToGround: !_extrudeField,
+        stroke: Cesium.Color.fromCssColorString('#3388ff'),
+        fill:   Cesium.Color.fromCssColorString('#3388ff').withAlpha(0.4),
+        strokeWidth: 2, markerSize: 16
+      }}).then(function(ds) {{
+        ds.show = visible;
+        _batchStyle(ds.entities.values, ldef.styleMap, _extrudeField, _extrudeScale, ldef.labelConfig, null);
+        _viewer.dataSources.add(ds);
+        _cesiumLayers[idx] = ds;
+      }}).otherwise(function(err) {{
+        console.warn('Cesium vector:', ldef.name, err);
+      }});
+    }});
+  }}
+
+  // ── 3D feature identify ───────────────────────────────────────────────────
+  function _initIdentify() {{
+    var handler = new Cesium.ScreenSpaceEventHandler(_viewer.scene.canvas);
+    handler.setInputAction(function(click) {{
+      var picked = _viewer.scene.pick(click.position);
+      if (!Cesium.defined(picked) || !Cesium.defined(picked.id)) return;
+      var props = _getProps(picked.id);
+      var rows  = Object.keys(props).map(function(k) {{
+        return '<tr><th style="text-align:left;padding:2px 8px 2px 0;opacity:0.6;white-space:nowrap">'
+          + escHtml(k) + '</th><td>' + escHtml(String(props[k] != null ? props[k] : '')) + '</td></tr>';
+      }}).join('');
+      var panel = document.getElementById('info-panel');
+      var body  = document.getElementById('info-panel-body');
+      if (panel && body) {{
+        body.innerHTML = rows
+          ? '<table style="font-size:12px;border-collapse:collapse;width:100%">' + rows + '</table>'
+          : '<em>No attributes</em>';
+        panel.classList.add('open');
+      }}
+    }}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  }}
+
+  // ── Viewer init ───────────────────────────────────────────────────────────
+  function _initViewer() {{
+    // Ion token: set a harmless string when absent (suppresses 401 noise)
+    Cesium.Ion.defaultAccessToken = _ionToken || 'none';
+
+    var terrainProvider = _ionToken
+      ? new Cesium.CesiumTerrainProvider({{url: Cesium.IonResource.fromAssetId(1)}})
+      : new Cesium.EllipsoidTerrainProvider();
+
+    _viewer = new Cesium.Viewer('cesium-container', {{
+      baseLayerPicker: false, geocoder: false, homeButton: false,
+      sceneModePicker: false, navigationHelpButton: false,
+      animation: false, timeline: false, fullscreenButton: false,
+      infoBox: false, selectionIndicator: false,
+      terrainProvider: terrainProvider
+    }});
+
+    _viewer.imageryLayers.removeAll();
+
+    if (_googleKey) {{
+      // Google Photorealistic 3D Tiles — includes imagery, skip OSM
+      Cesium.Cesium3DTileset.fromUrl(
+        'https://tile.googleapis.com/v1/3dtiles/root.json?key=' + _googleKey
+      ).then(function(ts) {{
+        _viewer.scene.primitives.add(ts);
+      }}).catch(function(e) {{
+        console.warn('Google 3D Tiles unavailable, falling back to OSM', e);
+        _addOsmImagery();
+      }});
+    }} else {{
+      _addOsmImagery();
+    }}
+
+    if (_ionToken) {{
+      // OSM Buildings (global 3D footprints) from Cesium Ion
+      Cesium.Cesium3DTileset.fromIonAssetId(96188).then(function(ts) {{
+        _viewer.scene.primitives.add(ts);
+      }}).catch(function(e) {{
+        console.warn('Cesium Ion Buildings unavailable:', e);
+      }});
+    }}
+
+    _viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a2e');
+    _viewer.scene.globe.enableLighting = false;
+
+    _loadLayers();
+    _leafletToCesium();
+    _initIdentify();
+    _cesiumOk = true;
+  }}
+
+  function _addOsmImagery() {{
+    if (!{include_basemap_json}) return;
+    _viewer.imageryLayers.addImageryProvider(
+      new Cesium.UrlTemplateImageryProvider({{
+        url:         'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+        credit:      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        subdomains:  ['a', 'b', 'c'],
+        maximumLevel: 19
+      }})
+    );
+  }}
+
+  // ── Lazy-load CesiumJS from CDN ───────────────────────────────────────────
+  function _loadCesium(cb) {{
+    if (window.Cesium) {{ cb(); return; }}
+    var BASE = 'https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/';
+    window.CESIUM_BASE_URL = BASE;
+    var link = document.createElement('link');
+    link.rel = 'stylesheet'; link.href = BASE + 'Widgets/widgets.css';
+    document.head.appendChild(link);
+    var script = document.createElement('script');
+    script.src = BASE + 'Cesium.js';
+    script.onload = cb;
+    script.onerror = function() {{
+      loadingEl.style.display = 'none';
+      toggleBtn.disabled  = true;
+      toggleBtn.title     = '3D unavailable — Cesium could not be loaded (no internet?)';
+      toggleBtn.style.cssText += ';opacity:0.4;cursor:not-allowed';
+    }};
+    document.head.appendChild(script);
+  }}
+
+  // ── Toggle ────────────────────────────────────────────────────────────────
+  toggleBtn.addEventListener('click', function() {{
+    if (_loading) return;
+    if (!_is3d) {{
+      _loading = true;
+      loadingEl.style.display = 'block';
+      _loadCesium(function() {{
+        if (!_cesiumOk) _initViewer(); else _leafletToCesium();
+        cesiumDiv.style.display = 'block';
+        mapDiv.style.display    = 'none';
+        document.getElementById('label-overlay').style.display = 'none';
+        var fr = document.getElementById('filterbar');
+        if (fr) fr.style.display = 'none';
+        loadingEl.style.display = 'none';
+        toggleBtn.textContent = '2D';
+        _is3d = true; _loading = false;
+      }});
+    }} else {{
+      _cesiumToLeaflet();
+      cesiumDiv.style.display = 'none';
+      mapDiv.style.display    = 'block';
+      document.getElementById('label-overlay').style.display = 'block';
+      var fr = document.getElementById('filterbar');
+      if (fr) fr.style.display = '';
+      toggleBtn.textContent = '3D';
+      _is3d = false;
+    }}
+  }});
+
+  // ── Hook window-exposed functions (populated at end of main IIFE) ─────────
+  var _origVisible = window.setLayerVisible;
+  window.setLayerVisible = function(item, visible) {{
+    if (_origVisible) _origVisible(item, visible);
+    if (_cesiumOk && item != null) {{
+      var cl = _cesiumLayers[item.index !== undefined ? item.index : item];
+      if (cl && cl.show !== undefined) cl.show = visible;
+    }}
+  }};
+
+  var _origOpacity = window.setLayerOpacity;
+  window.setLayerOpacity = function(item, factor) {{
+    if (_origOpacity) _origOpacity(item, factor);
+    if (_cesiumOk && item != null) {{
+      var cl = _cesiumLayers[item.index !== undefined ? item.index : item];
+      if (cl && cl.alpha !== undefined) cl.alpha = factor;
+    }}
+  }};
+
+  var _origApplyTheme = window.applyTheme;
+  window.applyTheme = function(idx) {{
+    if (_origApplyTheme) _origApplyTheme(idx);
+    if (_cesiumOk && _is3d && THEMES[idx] && THEMES[idx].extent) {{
+      var ext = THEMES[idx].extent;
+      _viewer.camera.flyTo({{
+        destination: Cesium.Rectangle.fromDegrees(
+          ext[0][1], ext[0][0], ext[1][1], ext[1][0]
+        ),
+        duration: 0.8
+      }});
+    }}
+  }};
 }})();
 </script>
 </body>
