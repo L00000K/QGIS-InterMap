@@ -989,6 +989,100 @@ def _layer_to_geojson(layer) -> dict:
     return {"type": "FeatureCollection", "features": features}
 
 
+def _raster_legend_data(layer) -> dict:
+    """Extract legend symbology from a raster layer renderer for use in the web legend."""
+    try:
+        from qgis.core import (
+            QgsSingleBandPseudoColorRenderer, QgsPalettedRasterRenderer,
+            QgsSingleBandGrayRenderer, QgsMultiBandColorRenderer,
+        )
+        renderer = layer.renderer()
+        if renderer is None:
+            return {"type": "unknown"}
+
+        if isinstance(renderer, QgsPalettedRasterRenderer):
+            classes = []
+            for cls in renderer.classes():
+                classes.append({
+                    "value": cls.value,
+                    "label": cls.label or str(cls.value),
+                    "color": _color_to_hex(cls.color),
+                    "alpha": round(cls.color.alphaF(), 3),
+                })
+            return {"type": "paletted", "classes": classes}
+
+        if isinstance(renderer, QgsSingleBandPseudoColorRenderer):
+            shader = renderer.shader()
+            if shader:
+                fn = shader.rasterShaderFunction()
+                if fn and hasattr(fn, "colorRampItemList"):
+                    raw = fn.colorRampItemList()
+                    # Thin to ≤30 stops to keep JSON compact
+                    if len(raw) > 30:
+                        step = len(raw) / 28
+                        raw = [raw[int(i * step)] for i in range(28)] + [raw[-1]]
+                    stops = [
+                        {"value": round(it.value, 6),
+                         "label": it.label or "",
+                         "color": _color_to_hex(it.color)}
+                        for it in raw
+                    ]
+                    return {
+                        "type": "pseudocolor",
+                        "stops": stops,
+                        "min": stops[0]["value"] if stops else 0,
+                        "max": stops[-1]["value"] if stops else 1,
+                    }
+
+        if isinstance(renderer, QgsSingleBandGrayRenderer):
+            ce = renderer.contrastEnhancement()
+            mn = ce.minimumValue() if ce else 0
+            mx = ce.maximumValue() if ce else 255
+            try:
+                from qgis.core import QgsSingleBandGrayRenderer as _GR
+                black_first = renderer.gradient() == _GR.BlackToWhite
+            except Exception:
+                black_first = True
+            return {
+                "type": "gray",
+                "min": round(mn, 4),
+                "max": round(mx, 4),
+                "blackFirst": black_first,
+            }
+
+        if isinstance(renderer, QgsMultiBandColorRenderer):
+            return {
+                "type": "multiband",
+                "redBand":   renderer.redBand(),
+                "greenBand": renderer.greenBand(),
+                "blueBand":  renderer.blueBand(),
+            }
+
+    except Exception:
+        pass
+    return {"type": "unknown"}
+
+
+def _wms_legend_url(wms: dict) -> str:
+    """Build a GetLegendGraphic URL from a WMS params dict, or '' if not possible."""
+    base = wms.get("wmsUrl", "")
+    if not base or wms.get("tileType", "wms") != "wms":
+        return ""
+    from urllib.parse import urlencode
+    params = {
+        "SERVICE": "WMS",
+        "REQUEST": "GetLegendGraphic",
+        "VERSION": wms.get("wmsVersion", "1.1.1"),
+        "LAYER": wms.get("wmsLayers", ""),
+        "FORMAT": "image/png",
+    }
+    style = wms.get("wmsStyles", "")
+    if style:
+        params["STYLE"] = style
+    sep = "&" if "?" in base else "?"
+    return base + sep + urlencode(params)
+
+
 def _raster_to_base64(layer) -> tuple:
     """Render raster layer to PNG, return (base64_str, bounds_list [[s,w],[n,e]])."""
     extent = layer.extent()
@@ -1102,7 +1196,7 @@ class WebMapExporter:
                     ext = layer.extent()
                     tr  = QgsCoordinateTransform(layer.crs(), _WGS84, QgsProject.instance())
                     wgs = tr.transformBoundingBox(ext)
-                    layer_defs.append({
+                    wms_def = {
                         "kind":    "wms",
                         "name":    layer.name(),
                         "opacity": round(layer.opacity(), 3),
@@ -1111,14 +1205,19 @@ class WebMapExporter:
                             [wgs.yMaximum(), wgs.xMaximum()],
                         ],
                         **wms,
-                    })
+                    }
+                    legend_url = _wms_legend_url(wms)
+                    if legend_url:
+                        wms_def["legendUrl"] = legend_url
+                    layer_defs.append(wms_def)
                 else:
                     b64, bounds = _raster_to_base64(layer)
                     layer_defs.append({
-                        "kind":   "raster",
-                        "name":   layer.name(),
-                        "data":   b64,
-                        "bounds": bounds,
+                        "kind":         "raster",
+                        "name":         layer.name(),
+                        "data":         b64,
+                        "bounds":       bounds,
+                        "rasterLegend": _raster_legend_data(layer),
                     })
 
         self.progress(step + 1)
@@ -2997,7 +3096,7 @@ class WebMapExporter:
 
   // ── Swatch SVG ───────────────────────────────────────────────────────────
   var _swatchPatternId = 0;
-  function swatchSvg(geomType, style) {{
+  function swatchSvg(geomType, style, rasterLegend) {{
     var W = 20, H = 16;
     var svg = '<svg width="' + W + '" height="' + H + '" xmlns="http://www.w3.org/2000/svg">';
     if (geomType === 'point') {{
@@ -3028,10 +3127,34 @@ class WebMapExporter:
           + ' stroke-opacity="' + (style.opacity != null ? style.opacity : 1) + '"'
           + ' stroke-width="' + w + '"/>';
     }} else if (geomType === 'raster') {{
-      svg += '<defs><pattern id="hatch" patternUnits="userSpaceOnUse" width="4" height="4">'
-          + '<path d="M0,4 L4,0" stroke="#777" stroke-width="1"/></pattern></defs>'
-          + '<rect x="1" y="1" width="' + (W-2) + '" height="' + (H-2) + '"'
-          + ' fill="url(#hatch)" stroke="#999" stroke-width="1"/>';
+      var rl = rasterLegend || {{}};
+      if (rl.type === 'paletted' && rl.classes && rl.classes.length) {{
+        var c0 = rl.classes[0].color || '#aaa';
+        svg += '<rect x="1" y="1" width="' + (W-2) + '" height="' + (H-2) + '"'
+            + ' fill="' + escHtml(c0) + '" stroke="#999" stroke-width="0.5"/>';
+      }} else if ((rl.type === 'pseudocolor' || rl.type === 'gray') && rl.stops && rl.stops.length) {{
+        var gid = 'rsw' + Math.random().toString(36).slice(2, 7);
+        var stSvg = rl.stops.map(function(s, i) {{
+          var pct = rl.stops.length > 1 ? Math.round(100 * i / (rl.stops.length - 1)) : 100;
+          return '<stop offset="' + pct + '%" stop-color="' + escHtml(s.color) + '"/>';
+        }}).join('');
+        svg += '<defs><linearGradient id="' + gid + '">' + stSvg + '</linearGradient></defs>'
+            + '<rect x="1" y="1" width="' + (W-2) + '" height="' + (H-2) + '"'
+            + ' fill="url(#' + gid + ')" stroke="#999" stroke-width="0.5"/>';
+      }} else if (rl.type === 'gray') {{
+        var gid2 = 'rsw' + Math.random().toString(36).slice(2, 7);
+        var g1 = rl.blackFirst ? '#000' : '#fff', g2 = rl.blackFirst ? '#fff' : '#000';
+        svg += '<defs><linearGradient id="' + gid2 + '"><stop offset="0%" stop-color="' + g1 + '"/>'
+            + '<stop offset="100%" stop-color="' + g2 + '"/></linearGradient></defs>'
+            + '<rect x="1" y="1" width="' + (W-2) + '" height="' + (H-2) + '"'
+            + ' fill="url(#' + gid2 + ')" stroke="#999" stroke-width="0.5"/>';
+      }} else {{
+        var hid = 'rsh' + Math.random().toString(36).slice(2, 7);
+        svg += '<defs><pattern id="' + hid + '" patternUnits="userSpaceOnUse" width="4" height="4">'
+            + '<path d="M0,4 L4,0" stroke="#777" stroke-width="1"/></pattern></defs>'
+            + '<rect x="1" y="1" width="' + (W-2) + '" height="' + (H-2) + '"'
+            + ' fill="url(#' + hid + ')" stroke="#999" stroke-width="1"/>';
+      }}
     }} else {{
       var fillAttr = escHtml(style.fillColor || '#3388ff');
       var fillOpAttr = (style.fillOpacity != null ? style.fillOpacity : 0.4);
@@ -3860,6 +3983,95 @@ class WebMapExporter:
       return acts;
     }}
 
+    function buildRasterLegend(rleg, legendUrl) {{
+      var div = document.createElement('div');
+      div.className = 'legend-entries raster-legend';
+
+      if (legendUrl) {{
+        var img = document.createElement('img');
+        img.src = legendUrl;
+        img.style.cssText = 'max-width:100%;padding:4px 8px 6px;display:block;';
+        img.onerror = function() {{ this.style.display = 'none'; }};
+        div.appendChild(img);
+        return div;
+      }}
+
+      if (!rleg) return null;
+      var type = rleg.type;
+
+      if (type === 'paletted' && rleg.classes && rleg.classes.length) {{
+        rleg.classes.forEach(function(cls) {{
+          var eRow = document.createElement('div');
+          eRow.className = 'legend-entry';
+          var sw = document.createElement('span');
+          sw.className = 'legend-swatch';
+          sw.innerHTML = '<svg width="16" height="14" xmlns="http://www.w3.org/2000/svg">'
+              + '<rect x="1" y="1" width="14" height="12" rx="1"'
+              + ' fill="' + escHtml(cls.color || '#aaa') + '"'
+              + ' fill-opacity="' + (cls.alpha != null ? cls.alpha : 1) + '"'
+              + ' stroke="#888" stroke-width="0.5"/></svg>';
+          var lbl = document.createElement('span');
+          lbl.className = 'legend-entry-label';
+          lbl.textContent = cls.label || String(cls.value);
+          eRow.appendChild(sw);
+          eRow.appendChild(lbl);
+          div.appendChild(eRow);
+        }});
+        return div;
+      }}
+
+      if ((type === 'pseudocolor' || type === 'gray') && rleg.stops && rleg.stops.length) {{
+        var gradParts = rleg.stops.map(function(s, i) {{
+          var pct = rleg.stops.length > 1 ? Math.round(100 * i / (rleg.stops.length - 1)) : 100;
+          return s.color + ' ' + pct + '%';
+        }});
+        var gradBar = document.createElement('div');
+        gradBar.style.cssText = 'margin:4px 10px 2px;height:14px;border-radius:2px;'
+            + 'border:1px solid #ddd;background:linear-gradient(to right,' + gradParts.join(',') + ');';
+        var labRow = document.createElement('div');
+        labRow.style.cssText = 'display:flex;justify-content:space-between;padding:0 10px 5px;font-size:9px;color:#666;';
+        var minL = document.createElement('span');
+        minL.textContent = rleg.stops[0].label || (rleg.min != null ? String(rleg.min) : '');
+        var maxL = document.createElement('span');
+        maxL.textContent = rleg.stops[rleg.stops.length-1].label
+            || (rleg.max != null ? String(rleg.max) : '');
+        labRow.appendChild(minL);
+        labRow.appendChild(maxL);
+        div.appendChild(gradBar);
+        div.appendChild(labRow);
+        return div;
+      }}
+
+      if (type === 'gray') {{
+        var g1 = rleg.blackFirst ? '#000' : '#fff';
+        var g2 = rleg.blackFirst ? '#fff' : '#000';
+        var gradBar2 = document.createElement('div');
+        gradBar2.style.cssText = 'margin:4px 10px 2px;height:14px;border-radius:2px;'
+            + 'border:1px solid #ddd;background:linear-gradient(to right,' + g1 + ',' + g2 + ');';
+        var labRow2 = document.createElement('div');
+        labRow2.style.cssText = 'display:flex;justify-content:space-between;padding:0 10px 5px;font-size:9px;color:#666;';
+        var minL2 = document.createElement('span');
+        minL2.textContent = rleg.min != null ? String(rleg.min) : '';
+        var maxL2 = document.createElement('span');
+        maxL2.textContent = rleg.max != null ? String(rleg.max) : '';
+        labRow2.appendChild(minL2);
+        labRow2.appendChild(maxL2);
+        div.appendChild(gradBar2);
+        div.appendChild(labRow2);
+        return div;
+      }}
+
+      if (type === 'multiband') {{
+        var lbl = document.createElement('div');
+        lbl.style.cssText = 'padding:4px 10px 5px;font-size:9px;color:#666;';
+        lbl.textContent = 'RGB — Band ' + (rleg.redBand||'?') + ' / ' + (rleg.greenBand||'?') + ' / ' + (rleg.blueBand||'?');
+        div.appendChild(lbl);
+        return div;
+      }}
+
+      return null;
+    }}
+
     function buildLayerRow(item, container) {{
       var ld = item.ld;
       var sm = ld.styleMap || {{}};
@@ -3898,7 +4110,7 @@ class WebMapExporter:
 
       var swatch = document.createElement('span');
       swatch.className = 'legend-swatch';
-      swatch.innerHTML = swatchSvg(geomType, primaryStyle);
+      swatch.innerHTML = swatchSvg(geomType, primaryStyle, ld.rasterLegend);
 
       var nameEl = document.createElement('span');
       nameEl.className = 'legend-layer-name';
@@ -4074,8 +4286,27 @@ class WebMapExporter:
       if (ld.kind === 'vector') row.appendChild(buildLayerActions(item, layerDiv));
       if (FEAT.fancyLabels) row.appendChild(makeCogBtn(settingsDiv));
 
+      // ── Raster legend (gradient bar / palette / WMS image) ───────────
+      var rasterLegDiv = null;
+      if (ld.kind === 'raster' || ld.kind === 'wms') {{
+        rasterLegDiv = buildRasterLegend(ld.rasterLegend, ld.legendUrl);
+        if (rasterLegDiv) {{
+          var rExpBtn = document.createElement('span');
+          rExpBtn.className = 'legend-expand';
+          rExpBtn.textContent = '▶';
+          rExpBtn.title = 'Expand / collapse legend';
+          rExpBtn.addEventListener('click', function(e) {{
+            e.stopPropagation();
+            var open = rasterLegDiv.classList.toggle('open');
+            rExpBtn.style.transform = open ? 'rotate(90deg)' : '';
+          }});
+          row.appendChild(rExpBtn);
+        }}
+      }}
+
       layerDiv.appendChild(row);
       if (entriesDiv) layerDiv.appendChild(entriesDiv);
+      if (rasterLegDiv) layerDiv.appendChild(rasterLegDiv);
       layerDiv.appendChild(settingsDiv);
       container.appendChild(layerDiv);
       item.checkbox = cb;
