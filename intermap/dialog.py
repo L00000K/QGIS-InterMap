@@ -243,6 +243,7 @@ class WebMapExportDialog(QDockWidget):
             ("feat_minimap",          "feat_minimap_cb"),
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
             ("feat_changelog",        "feat_changelog_cb"),
+            ("feat_3d",               "feat_3d_cb"),
         ):
             key = f"{_SETTINGS_KEY}/{flag}"
             if s.contains(key):
@@ -322,6 +323,7 @@ class WebMapExportDialog(QDockWidget):
             ("feat_minimap",          "feat_minimap_cb"),
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
             ("feat_changelog",        "feat_changelog_cb"),
+            ("feat_3d",               "feat_3d_cb"),
         ):
             s.setValue(f"{_SETTINGS_KEY}/{flag}", getattr(self, attr).isChecked())
         import json as _json
@@ -1971,6 +1973,10 @@ class WebMapExportDialog(QDockWidget):
         self.feat_changelog_cb.setChecked(True)
         tools_layout.addWidget(self.feat_changelog_cb)
 
+        self.feat_3d_cb = QCheckBox("3D view toggle (Cesium.js — loads from CDN on demand)")
+        self.feat_3d_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_3d_cb)
+
         layout.addWidget(tools_group)
 
         self.save_config_on_export_cb = QCheckBox("Save configuration on export")
@@ -3226,6 +3232,7 @@ class WebMapExportDialog(QDockWidget):
                 feat_fancy_labels=self.feat_fancy_labels_cb.isChecked(),
                 feat_changelog=self.feat_changelog_cb.isChecked(),
                 changelog=list(self._changelog),
+                feat_3d=self.feat_3d_cb.isChecked(),
             )
             exporter.export()
             self._save_settings()

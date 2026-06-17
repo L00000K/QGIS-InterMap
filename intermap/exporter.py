@@ -1142,7 +1142,8 @@ class WebMapExporter:
                  feat_attr_csv=True, feat_attr_geojson=True,
                  feat_measure=True, feat_filter=True,
                  feat_search=True, feat_minimap=True, feat_fancy_labels=True,
-                 feat_changelog=True, changelog=None):
+                 feat_changelog=True, changelog=None,
+                 feat_3d=True):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
@@ -1164,6 +1165,7 @@ class WebMapExporter:
         self.feat_fancy_labels = feat_fancy_labels
         self.feat_changelog = feat_changelog
         self.changelog = changelog or []
+        self.feat_3d = feat_3d
 
     def export(self):
         layer_defs = []
@@ -1589,6 +1591,7 @@ class WebMapExporter:
             "minimap":     self.feat_minimap,
             "fancyLabels": self.feat_fancy_labels,
             "changelog":   self.feat_changelog,
+            "cesium3d":    self.feat_3d,
         })
 
         # Pre-build optional HTML panels
@@ -2636,6 +2639,46 @@ class WebMapExporter:
   }}
   #attr-table-csv:hover, #attr-table-geojson:hover {{ background: rgba(255,255,255,0.28); }}
 
+  /* ── Cesium 3D viewer ─────────────────────────────────────────────── */
+  #cesium-container {{
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 200;
+  }}
+  #view-toggle-btn {{
+    position: absolute;
+    top: 10px; right: 10px;
+    z-index: 500;
+    background: rgba(40,40,40,0.82);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    backdrop-filter: blur(4px);
+    transition: background 0.15s;
+    display: none;
+  }}
+  #view-toggle-btn:hover {{ background: rgba(60,60,60,0.92); }}
+  #cesium-loading {{
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 14px;
+    background: rgba(0,0,0,0.55);
+    padding: 10px 20px;
+    border-radius: 8px;
+    pointer-events: none;
+    display: none;
+    z-index: 600;
+  }}
+
 
 </style>
 </head>
@@ -2651,6 +2694,9 @@ class WebMapExporter:
   <button id="map-title-chip-btn" title="Open project info">&#9660;</button>
 </div>
 <div id="map"></div>
+<div id="cesium-container"></div>
+<div id="cesium-loading">Loading 3D view…</div>
+<button id="view-toggle-btn" title="Toggle 2D / 3D view">3D</button>
 <div id="select-rect"></div>
 <div id="label-overlay"><svg id="label-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;"></svg></div>
 {_filterbar_html}
@@ -5552,6 +5598,337 @@ class WebMapExporter:
   }});
   new BrandControl({{position: 'bottomleft'}}).addTo(map);
 
+}})();
+
+// ── Cesium 3D viewer ───────────────────────────────────────────────────────
+(function() {{
+  if (!FEAT.cesium3d) return;
+
+  var toggleBtn = document.getElementById('view-toggle-btn');
+  var cesiumDiv = document.getElementById('cesium-container');
+  var mapDiv    = document.getElementById('map');
+  var loadingEl = document.getElementById('cesium-loading');
+  toggleBtn.style.display = 'block';
+
+  var _is3d     = false;
+  var _viewer   = null;
+  var _cesiumOk = false;
+  var _loading  = false;
+  // Map layer index → Cesium DataSource or ImageryLayer (for toggling visibility)
+  var _cesiumLayers = {{}};
+
+  // ── Viewport helpers ──────────────────────────────────────────────────────
+  function _leafletToCesium() {{
+    if (!_viewer) return;
+    var b = map.getBounds();
+    _viewer.camera.flyTo({{
+      destination: Cesium.Rectangle.fromDegrees(
+        b.getWest(), b.getSouth(), b.getEast(), b.getNorth()
+      ),
+      duration: 0.6
+    }});
+  }}
+
+  function _cesiumToLeaflet() {{
+    if (!_viewer) return;
+    var rect = _viewer.camera.computeViewRectangle(
+      _viewer.scene.globe.ellipsoid
+    );
+    if (rect) {{
+      map.fitBounds([
+        [Cesium.Math.toDegrees(rect.south), Cesium.Math.toDegrees(rect.west)],
+        [Cesium.Math.toDegrees(rect.north), Cesium.Math.toDegrees(rect.east)]
+      ], {{animate: false}});
+    }}
+  }}
+
+  // ── Style helpers ─────────────────────────────────────────────────────────
+  function _resolveStyle(styleMap, props) {{
+    if (!styleMap) return {{}};
+    var sm = styleMap;
+    if (sm.type === 'single') return sm.style || {{}};
+    var entries = sm.entries || [];
+    var def = sm['default'] || {{}};
+    if (sm.type === 'categorized') {{
+      var val = String(props[sm.field] !== undefined ? props[sm.field] : '');
+      for (var i = 0; i < entries.length; i++) {{
+        if (String(entries[i].value) === val) return entries[i].style || def;
+      }}
+      return def;
+    }}
+    if (sm.type === 'graduated') {{
+      var num = parseFloat(props[sm.field]);
+      for (var i = 0; i < entries.length; i++) {{
+        var e = entries[i];
+        if (!isNaN(num) && num >= e.min && num <= e.max) return e.style || def;
+      }}
+      return def;
+    }}
+    if (sm.type === 'rule') {{
+      // Rule-based: return first entry style as fallback (full evaluation needs QgsExpression)
+      return entries.length ? entries[0].style || def : def;
+    }}
+    return def;
+  }}
+
+  function _cssColor(hex, opacity) {{
+    if (!hex || hex === 'none') return Cesium.Color.TRANSPARENT;
+    try {{ return Cesium.Color.fromCssColorString(hex).withAlpha(
+      opacity !== undefined ? opacity : 1.0
+    ); }} catch(x) {{ return Cesium.Color.GRAY; }}
+  }}
+
+  function _getProps(entity) {{
+    var out = {{}};
+    if (!entity.properties) return out;
+    var t = Cesium.JulianDate.now();
+    try {{
+      var names = entity.properties.propertyNames;
+      for (var i = 0; i < names.length; i++) {{
+        out[names[i]] = entity.properties[names[i]].getValue(t);
+      }}
+    }} catch(x) {{}}
+    return out;
+  }}
+
+  function _applyEntityStyle(entity, style, geomType) {{
+    if (!style) return;
+    var fill   = _cssColor(style.fillColor  || style.color || '#3388ff',
+                           style.fillOpacity !== undefined ? style.fillOpacity : 0.4);
+    var stroke = _cssColor(style.color || '#3388ff',
+                           style.opacity !== undefined ? style.opacity : 1.0);
+    var weight = style.weight || 2;
+
+    if (entity.polygon) {{
+      entity.polygon.material        = new Cesium.ColorMaterialProperty(fill);
+      entity.polygon.outlineColor    = new Cesium.ConstantProperty(stroke);
+      entity.polygon.outlineWidth    = new Cesium.ConstantProperty(weight);
+      entity.polygon.outline         = new Cesium.ConstantProperty(true);
+      entity.polygon.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+    }}
+    if (entity.polyline) {{
+      entity.polyline.material    = new Cesium.ColorMaterialProperty(stroke);
+      entity.polyline.width       = new Cesium.ConstantProperty(weight);
+      entity.polyline.clampToGround = new Cesium.ConstantProperty(true);
+    }}
+    if (entity.billboard) {{
+      // Replace auto billboard with a simple point for now
+      entity.billboard = undefined;
+      var mCol = _cssColor(
+        style.markerColor || style.fillColor || '#3388ff',
+        style.markerOpacity !== undefined ? style.markerOpacity : 1.0
+      );
+      entity.point = new Cesium.PointGraphics({{
+        color:           new Cesium.ConstantProperty(mCol),
+        pixelSize:       new Cesium.ConstantProperty(style.markerSize || 8),
+        outlineColor:    new Cesium.ConstantProperty(_cssColor(
+          style.markerStrokeColor || '#ffffff',
+          style.markerStrokeOpacity !== undefined ? style.markerStrokeOpacity : 1.0
+        )),
+        outlineWidth:    new Cesium.ConstantProperty(style.markerStrokeWidth || 1),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      }});
+    }}
+    if (entity.point) {{
+      var mCol2 = _cssColor(
+        style.markerColor || style.color || '#3388ff',
+        style.markerOpacity !== undefined ? style.markerOpacity : 1.0
+      );
+      entity.point.color           = new Cesium.ConstantProperty(mCol2);
+      entity.point.pixelSize       = new Cesium.ConstantProperty(style.markerSize || 8);
+      entity.point.outlineColor    = new Cesium.ConstantProperty(_cssColor(
+        style.markerStrokeColor || '#ffffff',
+        style.markerStrokeOpacity !== undefined ? style.markerStrokeOpacity : 1.0
+      ));
+      entity.point.outlineWidth    = new Cesium.ConstantProperty(style.markerStrokeWidth || 1);
+      entity.point.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
+    }}
+  }}
+
+  // ── Layer loading ─────────────────────────────────────────────────────────
+  function _loadLayers() {{
+    var layerVisState = window._layerVisible || {{}};
+
+    LAYERS.forEach(function(ldef, idx) {{
+      var visible = layerVisState[idx] !== false;
+
+      if (ldef.kind === 'vector') {{
+        Cesium.GeoJsonDataSource.load(ldef.geojson, {{
+          clampToGround: true,
+          stroke:        Cesium.Color.fromCssColorString('#3388ff'),
+          fill:          Cesium.Color.fromCssColorString('#3388ff').withAlpha(0.4),
+          strokeWidth:   2,
+          markerSize:    16,
+          markerSymbol:  '?'
+        }}).then(function(ds) {{
+          ds.show = visible;
+          var entities = ds.entities.values;
+          for (var i = 0; i < entities.length; i++) {{
+            var entity = entities[i];
+            var props  = _getProps(entity);
+            var style  = _resolveStyle(ldef.styleMap, props);
+            _applyEntityStyle(entity, style, ldef.geomType);
+          }}
+          _viewer.dataSources.add(ds);
+          _cesiumLayers[idx] = ds;
+        }}).otherwise(function(err) {{
+          console.warn('Cesium: failed to load vector layer ' + ldef.name, err);
+        }});
+
+      }} else if (ldef.kind === 'raster') {{
+        try {{
+          var provider = new Cesium.SingleTileImageryProvider({{
+            url: 'data:image/png;base64,' + ldef.data,
+            rectangle: Cesium.Rectangle.fromDegrees(
+              ldef.bounds[0][1], ldef.bounds[0][0],
+              ldef.bounds[1][1], ldef.bounds[1][0]
+            )
+          }});
+          var imgLayer = _viewer.imageryLayers.addImageryProvider(provider);
+          imgLayer.alpha = ldef.opacity || 1.0;
+          imgLayer.show  = visible;
+          _cesiumLayers[idx] = imgLayer;
+        }} catch(e) {{
+          console.warn('Cesium: failed to load raster layer ' + ldef.name, e);
+        }}
+
+      }} else if (ldef.kind === 'wms') {{
+        try {{
+          var wmsProvider = new Cesium.WebMapServiceImageryProvider({{
+            url:    ldef.wmsUrl,
+            layers: ldef.wmsLayers,
+            parameters: {{
+              transparent: true,
+              format:  ldef.wmsFormat || 'image/png',
+              styles:  ldef.wmsStyles || '',
+              version: ldef.wmsVersion || '1.1.1'
+            }},
+            proxy: undefined
+          }});
+          var wmsLayer = _viewer.imageryLayers.addImageryProvider(wmsProvider);
+          wmsLayer.alpha = ldef.opacity !== undefined ? ldef.opacity : 1.0;
+          wmsLayer.show  = visible;
+          _cesiumLayers[idx] = wmsLayer;
+        }} catch(e) {{
+          console.warn('Cesium: failed to load WMS layer ' + ldef.name, e);
+        }}
+      }}
+    }});
+  }}
+
+  // ── Visibility sync: called by existing legend checkbox handler ───────────
+  window._onCesiumLayerVisibility = function(idx, visible) {{
+    var cl = _cesiumLayers[idx];
+    if (!cl) return;
+    if (cl.show !== undefined) cl.show = visible;
+  }};
+
+  // ── Viewer init ───────────────────────────────────────────────────────────
+  function _initViewer() {{
+    // Use flat terrain — no Cesium Ion token required
+    var terrainProvider = new Cesium.EllipsoidTerrainProvider();
+
+    _viewer = new Cesium.Viewer('cesium-container', {{
+      baseLayerPicker:       false,
+      geocoder:              false,
+      homeButton:            false,
+      sceneModePicker:       false,
+      navigationHelpButton:  false,
+      animation:             false,
+      timeline:              false,
+      fullscreenButton:      false,
+      infoBox:               false,
+      selectionIndicator:    false,
+      terrainProvider:       terrainProvider
+    }});
+
+    // Replace default Cesium Ion imagery with OSM (no token)
+    _viewer.imageryLayers.removeAll();
+    if ({include_basemap_json}) {{
+      _viewer.imageryLayers.addImageryProvider(
+        new Cesium.UrlTemplateImageryProvider({{
+          url:    'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+          credit: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          subdomains: ['a', 'b', 'c'],
+          maximumLevel: 19
+        }})
+      );
+    }}
+
+    // Style the Cesium UI to match our theme
+    _viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a2e');
+    _viewer.scene.globe.enableLighting = false;
+
+    _loadLayers();
+    _leafletToCesium();
+    _cesiumOk = true;
+  }}
+
+  // ── Lazy-load Cesium from CDN ─────────────────────────────────────────────
+  function _loadCesium(cb) {{
+    if (window.Cesium) {{ cb(); return; }}
+    var BASE = 'https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/';
+    window.CESIUM_BASE_URL = BASE;
+    var link = document.createElement('link');
+    link.rel  = 'stylesheet';
+    link.href = BASE + 'Widgets/widgets.css';
+    document.head.appendChild(link);
+    var script = document.createElement('script');
+    script.src = BASE + 'Cesium.js';
+    script.onload = function() {{
+      // Disable default Ion access so no token is needed
+      try {{ Cesium.Ion.defaultAccessToken = undefined; }} catch(x) {{}}
+      cb();
+    }};
+    script.onerror = function() {{
+      loadingEl.style.display = 'none';
+      alert('Could not load Cesium from CDN. Check your internet connection.');
+    }};
+    document.head.appendChild(script);
+  }}
+
+  // ── Toggle handler ────────────────────────────────────────────────────────
+  toggleBtn.addEventListener('click', function() {{
+    if (_loading) return;
+
+    if (!_is3d) {{
+      // Switch to 3D
+      _loading = true;
+      loadingEl.style.display = 'block';
+      _loadCesium(function() {{
+        if (!_cesiumOk) _initViewer();
+        else _leafletToCesium();
+        cesiumDiv.style.display = 'block';
+        mapDiv.style.display    = 'none';
+        document.getElementById('label-overlay').style.display = 'none';
+        var fr = document.getElementById('filterbar');
+        if (fr) fr.style.display = 'none';
+        loadingEl.style.display = 'none';
+        toggleBtn.textContent = '2D';
+        _is3d   = true;
+        _loading = false;
+      }});
+    }} else {{
+      // Switch back to 2D
+      _cesiumToLeaflet();
+      cesiumDiv.style.display  = 'none';
+      mapDiv.style.display     = 'block';
+      document.getElementById('label-overlay').style.display = 'block';
+      var fr = document.getElementById('filterbar');
+      if (fr) fr.style.display = '';
+      toggleBtn.textContent = '3D';
+      _is3d = false;
+    }}
+  }});
+
+  // ── Intercept legend visibility changes to sync Cesium ───────────────────
+  // The existing code calls window._layerVisible to track state;
+  // we wrap it to also notify Cesium.
+  var _origSetLayerVisible = window.setLayerVisible;
+  window.setLayerVisible = function(idx, visible) {{
+    if (_origSetLayerVisible) _origSetLayerVisible(idx, visible);
+    if (_cesiumOk) window._onCesiumLayerVisibility(idx, visible);
+  }};
 }})();
 </script>
 </body>
