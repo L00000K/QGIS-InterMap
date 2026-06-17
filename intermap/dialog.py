@@ -813,11 +813,14 @@ class WebMapExportDialog(QDockWidget):
 
     def _show_config_menu(self):
         menu = QMenu(self)
-        new_act     = menu.addAction("New blank config…")
-        switch_act  = menu.addAction("Switch / Load…")
-        save_as_act = menu.addAction("Save As…")
+        new_act      = menu.addAction("New blank config…")
+        switch_act   = menu.addAction("Switch / Load…")
+        save_as_act  = menu.addAction("Save As…")
         menu.addSeparator()
-        del_act = menu.addAction("Delete")
+        export_act   = menu.addAction("Export config to file…")
+        import_act   = menu.addAction("Import config from file…")
+        menu.addSeparator()
+        del_act      = menu.addAction("Delete")
         btn = self.sender()
         action = menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
         if action == new_act:
@@ -826,6 +829,10 @@ class WebMapExportDialog(QDockWidget):
             self._config_bar_load()
         elif action == save_as_act:
             self._instance_save_as()
+        elif action == export_act:
+            self._config_export()
+        elif action == import_act:
+            self._config_import()
         elif action == del_act:
             self._instance_delete()
 
@@ -2411,6 +2418,91 @@ class WebMapExportDialog(QDockWidget):
         self._loaded_instance_name = None
         self._has_unsaved_changes = False
         self._update_config_bar()
+
+    def _config_export(self):
+        name = self._loaded_instance_name
+        state = self._collect_state()
+        default_name = f"{name}.intermap.json" if name else "intermap_config.json"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export config", default_name, "InterMap config (*.intermap.json);;JSON (*.json)"
+        )
+        if not path:
+            return
+        payload = {
+            "_intermap_config_version": 1,
+            "name": name or "",
+            "exported": datetime.datetime.now().isoformat(timespec="seconds"),
+            "state": state,
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, ensure_ascii=False)
+            self.iface.messageBar().pushInfo("InterMap", f"Config exported to {os.path.basename(path)}")
+        except OSError as exc:
+            QMessageBox.critical(self, "Export failed", str(exc))
+
+    def _config_import(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import config", "", "InterMap config (*.intermap.json *.json)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            QMessageBox.critical(self, "Import failed", f"Could not read file:\n{exc}")
+            return
+        if not isinstance(payload, dict):
+            QMessageBox.critical(self, "Import failed", "File does not contain a valid InterMap config.")
+            return
+
+        # Support both wrapped format (with _intermap_config_version) and bare state dicts
+        if "_intermap_config_version" in payload:
+            state = payload.get("state", {})
+            suggested_name = payload.get("name") or os.path.splitext(os.path.basename(path))[0]
+        elif "layer_names" in payload or "map_views" in payload:
+            state = payload
+            suggested_name = os.path.splitext(os.path.basename(path))[0]
+        else:
+            QMessageBox.critical(self, "Import failed", "File does not contain a valid InterMap config.")
+            return
+
+        name, ok = QInputDialog.getText(
+            self, "Import config", "Save imported config as:", QLineEdit.Normal, suggested_name
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            QMessageBox.warning(self, "Name required", "Please enter a name.")
+            return
+
+        existing = self._instances_load_all()
+        if name in existing:
+            resp = QMessageBox.question(
+                self, "Overwrite?", f"A config named '{name}' already exists. Overwrite it?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if resp != QMessageBox.Yes:
+                return
+
+        self._apply_state(state)
+        existing[name] = self._collect_state()
+        self._instances_save_all(existing)
+        self._loaded_instance_name = name
+        self._has_unsaved_changes = False
+        self._update_config_bar()
+
+        missing = self._missing_layer_names(state.get("layer_names", []))
+        if missing:
+            QMessageBox.information(
+                self, "Imported with missing layers",
+                "Config '{}' imported.\n\nLayers not in current project (skipped):\n  • {}".format(
+                    name, "\n  • ".join(missing))
+            )
+        else:
+            self.iface.messageBar().pushInfo("InterMap", f"Config '{name}' imported.")
 
     # ── Layer tree ────────────────────────────────────────────────────────────
 
