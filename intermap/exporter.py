@@ -5781,6 +5781,9 @@ class WebMapExporter:
   }});
   var _ctrl = new ViewToggleControl();
   _ctrl.addTo(map);
+  // Prepend to the topleft container so it appears above all other controls
+  var _ctrlEl = _ctrl.getContainer();
+  _ctrlEl.parentElement.insertBefore(_ctrlEl, _ctrlEl.parentElement.firstChild);
   var toggleBtn = _ctrl._link;
   var toggleContainer = _ctrl._container;
 
