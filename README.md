@@ -1,4 +1,4 @@
-# QGIS Web Map Exporter
+# InterMap
 
 A QGIS 3 plugin that exports selected layers to a **standalone HTML web map** powered by [Leaflet.js](https://leafletjs.com). Symbology, labels, layer groups, and interactive features are all preserved in a single self-contained `.html` file — no server required.
 
@@ -31,9 +31,9 @@ A QGIS 3 plugin that exports selected layers to a **standalone HTML web map** po
 python3 install_plugin.py
 ```
 
-Then in QGIS: **Plugins → Manage and Install Plugins → Installed → Enable "QGIS Web Map Exporter"**.
+Then in QGIS: **Plugins → Manage and Install Plugins → Installed → Enable "InterMap"**.
 
-Manual install — copy the `qgis_webmap/` folder to your QGIS plugins directory:
+Manual install — copy the `intermap/` folder to your QGIS plugins directory:
 
 | Platform | Path |
 |---|---|
@@ -44,7 +44,7 @@ Manual install — copy the `qgis_webmap/` folder to your QGIS plugins directory
 ## Usage
 
 1. Open a QGIS project with one or more layers.
-2. In QGIS go to **Web → Web Map Exporter → Export to Web Map…**
+2. In QGIS go to **Web → InterMap → Export to Web Map…**
 3. **Layers tab** — check the layers to export; the layer tree order is preserved.
 4. *(Optional)* **Themes tab** — define named themes (visibility presets + extent).
 5. Choose an output `.html` file path and click **Export**.
@@ -52,7 +52,7 @@ Manual install — copy the `qgis_webmap/` folder to your QGIS plugins directory
 
 ## Branding / logo
 
-Place either `vendor/logo.svg` or `vendor/logo.png` inside the `qgis_webmap/` folder. The plugin embeds it inline in the map header. If neither file is present a built-in fallback SVG is used.
+Place either `vendor/logo.svg` or `vendor/logo.png` inside the `intermap/` folder. The plugin embeds it inline in the map header. If neither file is present a built-in fallback SVG is used.
 
 ## Documentation
 
@@ -67,7 +67,7 @@ Place either `vendor/logo.svg` or `vendor/logo.png` inside the `qgis_webmap/` fo
 ## Running tests
 
 ```bash
-python3 -m pytest qgis_webmap/test_exporter_logic.py -v
+python3 -m pytest intermap/test_exporter_logic.py -v
 ```
 
 All 18 tests run without a QGIS installation (QGIS APIs are mocked).
@@ -75,7 +75,7 @@ All 18 tests run without a QGIS installation (QGIS APIs are mocked).
 ## Plugin structure
 
 ```
-qgis_webmap/
+intermap/
 ├── __init__.py              QGIS entry point
 ├── metadata.txt             Plugin metadata
 ├── plugin.py                Plugin class (menu/toolbar wiring)

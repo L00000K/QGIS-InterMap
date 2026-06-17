@@ -22,7 +22,7 @@ from qgis.core import (
     QgsRectangle, QgsPointXY, QgsWkbTypes,
 )
 
-_SETTINGS_KEY = "QgsWebMapExporter"
+_SETTINGS_KEY = "InterMap"
 _INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"
 
 _PURPOSE_OPTIONS = [
@@ -376,11 +376,54 @@ class WebMapExportDialog(QDockWidget):
         name_lbl.setObjectName("icName")
         title_row.addWidget(name_lbl)
         title_row.addStretch()
-        self._mode_toggle_btn = QPushButton("Lite")
-        self._mode_toggle_btn.setObjectName("icModeBtn")
-        self._mode_toggle_btn.setToolTip("Switch to Lite mode (simplified single-layer map)")
-        self._mode_toggle_btn.clicked.connect(self._toggle_mode)
-        title_row.addWidget(self._mode_toggle_btn)
+        toggle_frame = QFrame()
+        toggle_frame.setObjectName("icModeToggle")
+        toggle_frame.setStyleSheet(
+            "#icModeToggle { background: rgba(255,255,255,0.12); "
+            "border: 1px solid rgba(255,255,255,0.35); border-radius: 11px; padding: 1px; }"
+        )
+        toggle_layout = QHBoxLayout(toggle_frame)
+        toggle_layout.setContentsMargins(2, 1, 2, 1)
+        toggle_layout.setSpacing(0)
+
+        _btn_base = (
+            "QPushButton { background: transparent; color: rgba(255,255,255,0.65); "
+            "border: none; border-radius: 9px; font-size: 10px; font-weight: 600; padding: 2px 9px; } "
+            "QPushButton:hover { color: rgba(255,255,255,0.9); }"
+        )
+        _btn_active = (
+            f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_AR_PURPLE}; "
+            "border: none; border-radius: 9px; font-size: 10px; font-weight: 700; padding: 2px 9px; }"
+        )
+        _btn_disabled = (
+            "QPushButton { background: transparent; color: rgba(255,255,255,0.22); "
+            "border: none; border-radius: 9px; font-size: 10px; font-weight: 600; padding: 2px 9px; }"
+        )
+
+        self._btn_lite = QPushButton("Lite")
+        self._btn_lite.setObjectName("icModeLite")
+        self._btn_lite.setToolTip("Lite mode — simplified single-layer map")
+        self._btn_lite.setStyleSheet(_btn_base)
+        self._btn_lite.clicked.connect(lambda: self._set_lite_mode(True))
+
+        self._btn_pro = QPushButton("Pro")
+        self._btn_pro.setObjectName("icModePro")
+        self._btn_pro.setToolTip("Pro mode — full project with info tab, views and metadata")
+        self._btn_pro.setStyleSheet(_btn_active)  # default active
+        self._btn_pro.clicked.connect(lambda: self._set_lite_mode(False))
+
+        self._btn_ultra = QPushButton("Ultra")
+        self._btn_ultra.setObjectName("icModeUltra")
+        self._btn_ultra.setToolTip("Ultra mode — coming soon")
+        self._btn_ultra.setStyleSheet(_btn_disabled)
+        self._btn_ultra.setEnabled(False)
+
+        self._toggle_btn_styles = (_btn_base, _btn_active, _btn_disabled)
+
+        toggle_layout.addWidget(self._btn_lite)
+        toggle_layout.addWidget(self._btn_pro)
+        toggle_layout.addWidget(self._btn_ultra)
+        title_row.addWidget(toggle_frame)
         top_vl.addLayout(title_row)
         outer.addWidget(top)
 
@@ -2013,31 +2056,19 @@ class WebMapExportDialog(QDockWidget):
         layout.addStretch()
         return widget
 
-    def _toggle_mode(self):
-        self._set_lite_mode(not self._is_lite)
-
     def _set_lite_mode(self, lite: bool):
         self._is_lite = lite
+        _btn_base, _btn_active, _btn_disabled = self._toggle_btn_styles
         if lite:
-            self._mode_toggle_btn.setText("Pro")
-            self._mode_toggle_btn.setToolTip("Switch back to Pro mode")
-            self._mode_toggle_btn.setStyleSheet(
-                f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_AR_PURPLE}; "
-                "border: 1px solid rgba(255,255,255,0.5); border-radius: 10px; "
-                "font-size: 10px; font-weight: 700; padding: 2px 9px; }}"
-            )
+            self._btn_lite.setStyleSheet(_btn_active)
+            self._btn_pro.setStyleSheet(_btn_base)
             self._header_desc1.setText(
                 "Lite: this plugin creates a lite interactive web map with no project "
                 "information tab and a single set of layers."
             )
         else:
-            self._mode_toggle_btn.setText("Lite")
-            self._mode_toggle_btn.setToolTip("Switch to Lite mode")
-            self._mode_toggle_btn.setStyleSheet(
-                "QPushButton { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.9); "
-                "border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; "
-                "font-size: 10px; font-weight: 600; padding: 2px 9px; }"
-            )
+            self._btn_lite.setStyleSheet(_btn_base)
+            self._btn_pro.setStyleSheet(_btn_active)
             self._header_desc1.setText(
                 "Pro: this plugin creates interactive map packages with a project information tab, "
                 "multiple preset views and document control metadata."
