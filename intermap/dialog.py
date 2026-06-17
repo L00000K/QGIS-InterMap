@@ -411,7 +411,7 @@ class WebMapExportDialog(QDockWidget):
             "QPushButton:hover { color: rgba(255,255,255,0.9); }"
         )
         _btn_active = (
-            f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_AR_PURPLE}; "
+            f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_PURPLE}; "
             "border: none; border-radius: 9px; font-size: 10px; font-weight: 700; padding: 2px 9px; }"
         )
         _btn_disabled = (
