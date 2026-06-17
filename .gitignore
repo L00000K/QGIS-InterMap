@@ -7,3 +7,6 @@ __pycache__/
 
 # Runtime-downloaded Leaflet cache (fetched on first export if vendor/ missing)
 intermap/lib/
+
+# Build output
+dist/
