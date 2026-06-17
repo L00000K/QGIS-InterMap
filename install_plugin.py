@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Install the QGIS Web Map Exporter plugin into the active QGIS profile.
+Install the InterMap plugin into the active QGIS profile.
 
 Usage:
     python3 install_plugin.py
@@ -41,14 +41,14 @@ def get_qgis_plugin_dir():
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    src = os.path.join(script_dir, "qgis_webmap")
+    src = os.path.join(script_dir, "intermap")
 
     if not os.path.isdir(src):
         print(f"ERROR: plugin source not found at {src}")
         sys.exit(1)
 
     plugin_dir = get_qgis_plugin_dir()
-    dst = os.path.join(plugin_dir, "qgis_webmap")
+    dst = os.path.join(plugin_dir, "intermap")
 
     print(f"Installing to: {dst}")
     os.makedirs(plugin_dir, exist_ok=True)
@@ -57,7 +57,7 @@ def main():
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
 
-    print("Done. Restart QGIS and enable 'QGIS Web Map Exporter' in Plugins > Manage Plugins.")
+    print("Done. Restart QGIS and enable 'InterMap' in Plugins > Manage Plugins.")
 
 
 if __name__ == "__main__":

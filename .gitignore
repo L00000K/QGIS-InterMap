@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Runtime-downloaded Leaflet cache (fetched on first export if vendor/ missing)
-qgis_webmap/lib/
+# Claude Code agent worktrees
 .claude/
+
+# Runtime-downloaded Leaflet cache (fetched on first export if vendor/ missing)
+intermap/lib/
