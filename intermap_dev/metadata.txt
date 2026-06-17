@@ -1,0 +1,13 @@
+[general]
+name=InterMap Dev Reloader
+qgisMinimumVersion=3.0
+description=Watches the InterMap source directory and hot-reloads the plugin on any file change. Development use only.
+version=1.0.0
+author=InterMap
+email=
+about=Companion plugin for InterMap development. Monitors the source folder for changes and automatically reinstalls + reloads InterMap in QGIS. Configure the source path once via Web → InterMap Dev → Set Source Path.
+hasProcessingProvider=no
+tags=development,reload,intermap
+category=Web
+experimental=True
+deprecated=False
