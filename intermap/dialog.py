@@ -22,7 +22,7 @@ from qgis.core import (
     QgsRectangle, QgsPointXY, QgsWkbTypes,
 )
 
-_SETTINGS_KEY = "InterMap"
+_SETTINGS_KEY = "QgsWebMapExporter"
 _INSTANCES_KEY = f"{_SETTINGS_KEY}/instances"
 
 _PURPOSE_OPTIONS = [
