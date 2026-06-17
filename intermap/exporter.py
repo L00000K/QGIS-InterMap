@@ -2685,7 +2685,7 @@ class WebMapExporter:
   @media print {{
     #left-panel, #legend, #filterbar, #searchbar,
     #info-panel, #attr-table-panel, #help-overlay,
-    #print-btn, #permalink-btn, #view-toggle-btn,
+    #print-btn, #permalink-btn,
     .leaflet-control-container {{ display: none !important; }}
     body {{ display: block; overflow: visible; }}
     #map-wrap {{ width: 100vw !important; height: 100vh !important; position: relative; }}
@@ -2701,24 +2701,17 @@ class WebMapExporter:
     width: 100%; height: 100%;
     z-index: 200;
   }}
-  #view-toggle-btn {{
-    position: absolute;
-    top: 10px; right: 10px;
-    z-index: 500;
-    background: rgba(40,40,40,0.82);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.25);
-    border-radius: 6px;
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
+  .view-toggle-ctrl a {{
+    font-size: 11px !important;
+    font-weight: 700 !important;
     letter-spacing: 0.04em;
-    backdrop-filter: blur(4px);
-    transition: background 0.15s;
-    display: none;
+    color: #333 !important;
+    line-height: 26px !important;
   }}
-  #view-toggle-btn:hover {{ background: rgba(60,60,60,0.92); }}
+  .view-toggle-ctrl.is-3d a {{
+    background: #3f32f1 !important;
+    color: #fff !important;
+  }}
   #cesium-loading {{
     position: absolute;
     top: 50%; left: 50%;
@@ -2750,7 +2743,6 @@ class WebMapExporter:
 <div id="map"></div>
 <div id="cesium-container"></div>
 <div id="cesium-loading">Loading 3D view…</div>
-<button id="view-toggle-btn" title="Toggle 2D / 3D view">3D</button>
 <button id="permalink-btn" title="Copy link to current view">&#128279; Link</button>
 <button id="print-btn" title="Print map">&#128438; Print</button>
 <div id="select-rect"></div>
@@ -5767,11 +5759,30 @@ class WebMapExporter:
 (function() {{
   if (!FEAT.cesium3d) return;
 
-  var toggleBtn = document.getElementById('view-toggle-btn');
   var cesiumDiv = document.getElementById('cesium-container');
   var mapDiv    = document.getElementById('map');
   var loadingEl = document.getElementById('cesium-loading');
-  toggleBtn.style.display = 'block';
+
+  // Add as a Leaflet control so it sits at the top of the topleft toolbar
+  var ViewToggleControl = L.Control.extend({{
+    options: {{ position: 'topleft' }},
+    onAdd: function() {{
+      var c = L.DomUtil.create('div', 'leaflet-bar leaflet-control view-toggle-ctrl');
+      var a = L.DomUtil.create('a', '', c);
+      a.href = '#'; a.title = 'Toggle 2D / 3D view'; a.innerHTML = '3D';
+      L.DomEvent.on(a, 'click', function(e) {{
+        L.DomEvent.preventDefault(e);
+        _onToggle();
+      }});
+      this._link = a;
+      this._container = c;
+      return c;
+    }}
+  }});
+  var _ctrl = new ViewToggleControl();
+  _ctrl.addTo(map);
+  var toggleBtn = _ctrl._link;
+  var toggleContainer = _ctrl._container;
 
   // Embedded export-time config
   var _ionToken     = "{_cesium_ion_token}";
@@ -6141,15 +6152,16 @@ class WebMapExporter:
     script.onload = cb;
     script.onerror = function() {{
       loadingEl.style.display = 'none';
-      toggleBtn.disabled  = true;
-      toggleBtn.title     = '3D unavailable — Cesium could not be loaded (no internet?)';
-      toggleBtn.style.cssText += ';opacity:0.4;cursor:not-allowed';
+      toggleContainer.style.opacity = '0.4';
+      toggleContainer.style.cursor  = 'not-allowed';
+      toggleBtn.title = '3D unavailable — Cesium could not be loaded (no internet?)';
+      toggleBtn.style.pointerEvents = 'none';
     }};
     document.head.appendChild(script);
   }}
 
   // ── Toggle ────────────────────────────────────────────────────────────────
-  toggleBtn.addEventListener('click', function() {{
+  function _onToggle() {{
     if (_loading) return;
     if (!_is3d) {{
       _loading = true;
@@ -6162,7 +6174,8 @@ class WebMapExporter:
         var fr = document.getElementById('filterbar');
         if (fr) fr.style.display = 'none';
         loadingEl.style.display = 'none';
-        toggleBtn.textContent = '2D';
+        toggleBtn.innerHTML = '2D';
+        L.DomUtil.addClass(toggleContainer, 'is-3d');
         _is3d = true; _loading = false;
       }});
     }} else {{
@@ -6172,10 +6185,11 @@ class WebMapExporter:
       document.getElementById('label-overlay').style.display = 'block';
       var fr = document.getElementById('filterbar');
       if (fr) fr.style.display = '';
-      toggleBtn.textContent = '3D';
+      toggleBtn.innerHTML = '3D';
+      L.DomUtil.removeClass(toggleContainer, 'is-3d');
       _is3d = false;
     }}
-  }});
+  }}
 
   // ── Hook window-exposed functions (populated at end of main IIFE) ─────────
   var _origVisible = window.setLayerVisible;
