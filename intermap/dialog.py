@@ -5,7 +5,7 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QFileDialog, QLineEdit,
     QMessageBox, QProgressBar, QCheckBox, QGroupBox,
-    QTabWidget, QTextEdit, QFormLayout, QWidget,
+    QTabWidget, QTextEdit, QFormLayout, QWidget, QFrame,
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
     QScrollArea, QMenu, QGridLayout, QAbstractItemView, QSizePolicy,
     QStackedWidget,
