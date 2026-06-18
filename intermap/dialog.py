@@ -1993,11 +1993,11 @@ class WebMapExportDialog(QDockWidget):
         tools_layout.addWidget(self.feat_changelog_cb)
 
         self.feat_sketch_cb = QCheckBox("Sketching / annotation tools")
-        self.feat_sketch_cb.setChecked(True)
+        self.feat_sketch_cb.setChecked(False)
         tools_layout.addWidget(self.feat_sketch_cb)
 
         self.feat_3d_cb = QCheckBox("3D view toggle (Cesium.js — loads from CDN on demand)")
-        self.feat_3d_cb.setChecked(True)
+        self.feat_3d_cb.setChecked(False)
         tools_layout.addWidget(self.feat_3d_cb)
 
         layout.addWidget(tools_group)
