@@ -302,8 +302,10 @@ class WebMapExportDialog(QDockWidget):
         except Exception:
             self._changelog = []
         self._changelog_refresh_list()
-        lite_val = s.value(f"{_SETTINGS_KEY}/lite_mode", False, type=bool)
-        self._set_lite_mode(lite_val)
+        mode_val = s.value(f"{_SETTINGS_KEY}/mode", "pro")
+        if mode_val not in ("lite", "pro", "3d"):
+            mode_val = "lite" if s.value(f"{_SETTINGS_KEY}/lite_mode", False, type=bool) else "pro"
+        self._set_mode(mode_val)
 
     def _save_settings(self):
         s = QSettings()
@@ -347,7 +349,8 @@ class WebMapExportDialog(QDockWidget):
         s.setValue(f"{_SETTINGS_KEY}/extrude_scale",    self.extrude_scale_spin.value())
         import json as _json
         s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
-        s.setValue(f"{_SETTINGS_KEY}/lite_mode", self._is_lite)
+        mode = "lite" if self._is_lite else ("3d" if self.feat_3d_cb.isChecked() else "pro")
+        s.setValue(f"{_SETTINGS_KEY}/mode", mode)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -418,25 +421,28 @@ class WebMapExportDialog(QDockWidget):
         self._btn_lite.setObjectName("icModeLite")
         self._btn_lite.setToolTip("Lite mode — simplified single-layer map")
         self._btn_lite.setStyleSheet(_btn_base)
-        self._btn_lite.clicked.connect(lambda: self._set_lite_mode(True))
+        self._btn_lite.clicked.connect(lambda: self._set_mode("lite"))
 
         self._btn_pro = QPushButton("Pro")
         self._btn_pro.setObjectName("icModePro")
         self._btn_pro.setToolTip("Pro mode — full project with info tab, views and metadata")
         self._btn_pro.setStyleSheet(_btn_active)  # default active
-        self._btn_pro.clicked.connect(lambda: self._set_lite_mode(False))
+        self._btn_pro.clicked.connect(lambda: self._set_mode("pro"))
 
-        self._btn_ultra = QPushButton("Ultra")
-        self._btn_ultra.setObjectName("icModeUltra")
-        self._btn_ultra.setToolTip("Ultra mode — coming soon")
-        self._btn_ultra.setStyleSheet(_btn_disabled)
-        self._btn_ultra.setEnabled(False)
+        self._btn_3d = QPushButton("3D")
+        self._btn_3d.setObjectName("icMode3D")
+        self._btn_3d.setToolTip(
+            "3D mode — Pro export with Cesium.js 3D view enabled.\n"
+            "Requires a Cesium Ion token and an internet connection."
+        )
+        self._btn_3d.setStyleSheet(_btn_base)
+        self._btn_3d.clicked.connect(lambda: self._set_mode("3d"))
 
         self._toggle_btn_styles = (_btn_base, _btn_active, _btn_disabled)
 
         toggle_layout.addWidget(self._btn_lite)
         toggle_layout.addWidget(self._btn_pro)
-        toggle_layout.addWidget(self._btn_ultra)
+        toggle_layout.addWidget(self._btn_3d)
         title_row.addWidget(toggle_frame)
         top_vl.addLayout(title_row)
         outer.addWidget(top)
@@ -2003,7 +2009,8 @@ class WebMapExportDialog(QDockWidget):
         layout.addWidget(tools_group)
 
         # ── 3D settings ───────────────────────────────────────────────────
-        d3_group = QGroupBox("3D View Settings (optional)")
+        self.d3_group = QGroupBox("3D View Settings (optional)")
+        d3_group = self.d3_group
         d3_form  = QFormLayout(d3_group)
         d3_form.setContentsMargins(8, 6, 8, 8)
         d3_form.setSpacing(6)
@@ -2129,31 +2136,49 @@ class WebMapExportDialog(QDockWidget):
         return widget
 
     def _set_lite_mode(self, lite: bool):
-        self._is_lite = lite
-        _btn_base, _btn_active, _btn_disabled = self._toggle_btn_styles
-        if lite:
-            self._btn_lite.setStyleSheet(_btn_active)
-            self._btn_pro.setStyleSheet(_btn_base)
+        self._set_mode("lite" if lite else "pro")
+
+    def _set_mode(self, mode: str):
+        """mode is one of 'lite', 'pro', '3d'."""
+        self._is_lite = (mode == "lite")
+        _btn_base, _btn_active, _ = self._toggle_btn_styles
+        self._btn_lite.setStyleSheet(_btn_active if mode == "lite" else _btn_base)
+        self._btn_pro.setStyleSheet(_btn_active  if mode == "pro"  else _btn_base)
+        self._btn_3d.setStyleSheet(_btn_active   if mode == "3d"   else _btn_base)
+
+        if mode == "lite":
             self._header_desc1.setText(
-                "Lite: this plugin creates a lite interactive web map with no project "
+                "Lite: creates a simplified interactive web map with no project "
                 "information tab and a single set of layers."
             )
-        else:
-            self._btn_lite.setStyleSheet(_btn_base)
-            self._btn_pro.setStyleSheet(_btn_active)
+        elif mode == "3d":
             self._header_desc1.setText(
-                "Pro: this plugin creates interactive map packages with a project information tab, "
+                "3D: Pro export with Cesium.js 3D view enabled. "
+                "Requires a Cesium Ion token and an internet connection at viewing time."
+            )
+        else:
+            self._header_desc1.setText(
+                "Pro: creates interactive map packages with a project information tab, "
                 "multiple preset views and document control metadata."
             )
+
+        is_lite = (mode == "lite")
         for i in range(3):
-            self._nav_btns[i].setEnabled(not lite)
-        self._nav_btns[self._LITE_TAB].setVisible(lite)
-        self._nav_seps[self._LITE_TAB - 1].setVisible(lite)
-        if lite:
+            self._nav_btns[i].setEnabled(not is_lite)
+        self._nav_btns[self._LITE_TAB].setVisible(is_lite)
+        self._nav_seps[self._LITE_TAB - 1].setVisible(is_lite)
+        if is_lite:
             self._lite_populate_layers()
             self._switch_tab(self._LITE_TAB)
         else:
-            self._switch_tab(0)  # Map Info
+            self._switch_tab(0)
+
+        # Automatically check/uncheck the 3D feature toggle
+        try:
+            self.feat_3d_cb.setChecked(mode == "3d")
+            self.d3_group.setEnabled(mode == "3d")
+        except AttributeError:
+            pass
 
     def _lite_extent_from_canvas(self):
         self._lite_extent = self._capture_canvas_extent()
