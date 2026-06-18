@@ -1142,7 +1142,7 @@ class WebMapExporter:
                  feat_measure=True, feat_filter=True,
                  feat_search=True, feat_minimap=True, feat_fancy_labels=True,
                  feat_changelog=True, changelog=None,
-                 feat_3d=True,
+                 feat_3d=True, feat_sketch=True,
                  cesium_ion_token='', google_maps_key='',
                  feat_3d_extrude_field='', feat_3d_extrude_scale=1.0):
         self.layers = layers
@@ -1167,6 +1167,7 @@ class WebMapExporter:
         self.feat_changelog = feat_changelog
         self.changelog = changelog or []
         self.feat_3d = feat_3d
+        self.feat_sketch = feat_sketch
         self.cesium_ion_token = cesium_ion_token or ''
         self.google_maps_key = google_maps_key or ''
         self.feat_3d_extrude_field = feat_3d_extrude_field or ''
@@ -1377,7 +1378,7 @@ class WebMapExporter:
             _plugin_block("fullscreen"),
             _plugin_block("minimap"),
             _plugin_block("contextmenu"),
-            _plugin_block("geoman"),
+            _plugin_block("geoman") if self.feat_sketch else "",
         ]))
 
         # Brand watermark — prefer logo.svg (case-insensitive), fall back to logo.png, then built-in SVG
@@ -1602,6 +1603,7 @@ class WebMapExporter:
             "fancyLabels": self.feat_fancy_labels,
             "changelog":   self.feat_changelog,
             "cesium3d":    self.feat_3d,
+            "sketch":      self.feat_sketch,
         })
 
         # Pre-build optional HTML panels
@@ -2691,6 +2693,10 @@ class WebMapExporter:
     #map {{ width: 100% !important; height: 100% !important; }}
     #label-overlay {{ display: block !important; }}
   }}
+
+  /* ── Sketch toolbar (Geoman) ──────────────────────────────────────── */
+  .leaflet-pm-toolbar {{ display: none; }}
+  .sketch-active .leaflet-pm-toolbar {{ display: flex !important; }}
 
   /* ── Cesium 3D viewer ─────────────────────────────────────────────── */
   #cesium-container {{
@@ -5645,11 +5651,56 @@ class WebMapExporter:
   }});
   new BrandControl({{position: 'bottomleft'}}).addTo(map);
 
+  // ── Sketch / annotation (Geoman) ─────────────────────────────────────────
+  if (FEAT.sketch && typeof L.PM !== 'undefined') {{
+    try {{
+      map.pm.addControls({{
+        position:         'topleft',
+        drawCircle:       false,
+        drawCircleMarker: false,
+        drawRectangle:    false,
+        rotateMode:       false,
+        cutPolygon:       false,
+      }});
+      map.on('pm:create', function(e) {{
+        var l = e.layer;
+        if (l.setStyle) l.setStyle({{color:'#e74c3c', fillColor:'#e74c3c', fillOpacity:0.2, weight:2}});
+      }});
+    }} catch(ex) {{ console.warn('Geoman init failed', ex); }}
+
+    var SketchToggle = L.Control.extend({{
+      options: {{ position: 'topleft' }},
+      onAdd: function() {{
+        var c = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+        var a = L.DomUtil.create('a', '', c);
+        a.href = '#'; a.title = 'Sketch / annotate'; a.innerHTML = '&#9998;';
+        a.style.fontSize = '16px';
+        L.DomEvent.on(a, 'click', function(e) {{
+          L.DomEvent.preventDefault(e);
+          var active = L.DomUtil.hasClass(map.getContainer(), 'sketch-active');
+          if (active) {{
+            L.DomUtil.removeClass(map.getContainer(), 'sketch-active');
+            a.style.background = '';
+            a.style.color = '';
+          }} else {{
+            L.DomUtil.addClass(map.getContainer(), 'sketch-active');
+            a.style.background = '#3f32f1';
+            a.style.color = '#fff';
+          }}
+        }});
+        return c;
+      }}
+    }});
+    new SketchToggle().addTo(map);
+  }}
+
   // ── Expose for cross-block hooks (Cesium, extensions) ───────────────────
   window.setLayerVisible  = setLayerVisible;
   window.setLayerOpacity  = setLayerOpacity;
   window.applyTheme       = applyTheme;
   window._legendItems     = legendItems;
+  window._im_map          = map;
+  window._im_feat         = FEAT;
 
   // ── Opacity persistence via localStorage ────────────────────────────────
   (function() {{
@@ -5732,31 +5783,13 @@ class WebMapExporter:
     printBtn.addEventListener('click', function() {{ window.print(); }});
   }})();
 
-  // ── Geoman annotation layer ──────────────────────────────────────────────
-  (function() {{
-    if (typeof L.PM === 'undefined' && typeof map.pm === 'undefined') return;
-    try {{
-      map.pm.addControls({{
-        position:         'topleft',
-        drawCircle:       false,
-        drawCircleMarker: false,
-        drawRectangle:    false,
-        rotateMode:       false,
-        cutPolygon:       false
-      }});
-      // Style drawn features consistently
-      map.on('pm:create', function(e) {{
-        var layer = e.layer;
-        if (layer.setStyle) layer.setStyle({{color:'#e74c3c', fillColor:'#e74c3c', fillOpacity:0.2, weight:2}});
-      }});
-    }} catch(ex) {{ console.warn('Geoman init failed', ex); }}
-  }})();
-
 }})();
 
 // ── Cesium 3D viewer ───────────────────────────────────────────────────────
 (function() {{
-  if (!FEAT.cesium3d) return;
+  var FEAT = window._im_feat;
+  var map  = window._im_map;
+  if (!FEAT || !FEAT.cesium3d) return;
 
   var cesiumDiv = document.getElementById('cesium-container');
   var mapDiv    = document.getElementById('map');
