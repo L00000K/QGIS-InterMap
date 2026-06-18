@@ -1084,20 +1084,19 @@ def _wms_legend_url(wms: dict) -> str:
 
 
 def _raster_to_base64(layer) -> tuple:
-    """Render raster layer to PNG, return (base64_str, bounds_list [[s,w],[n,e]])."""
-    extent = layer.extent()
+    """Render raster layer to PNG in WGS-84, return (base64_str, bounds_list [[s,w],[n,e]])."""
     transform = QgsCoordinateTransform(layer.crs(), _WGS84, QgsProject.instance())
-    wgs_extent = transform.transformBoundingBox(extent)
+    wgs_extent = transform.transformBoundingBox(layer.extent())
 
     width = 1024
-    ratio = extent.height() / extent.width() if extent.width() > 0 else 1
+    ratio = wgs_extent.height() / wgs_extent.width() if wgs_extent.width() > 0 else 1
     height = max(1, int(width * ratio))
 
     settings = QgsMapSettings()
     settings.setLayers([layer])
     settings.setOutputSize(QSize(width, height))
-    settings.setExtent(extent)
-    settings.setDestinationCrs(layer.crs())
+    settings.setExtent(wgs_extent)       # render in WGS-84 so image aligns with bounds
+    settings.setDestinationCrs(_WGS84)
     settings.setBackgroundColor(QColor(0, 0, 0, 0))
 
     from qgis.core import QgsMapRendererParallelJob
