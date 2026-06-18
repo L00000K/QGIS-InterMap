@@ -6116,17 +6116,17 @@ class WebMapExporter:
     // Ion token: set a harmless string when absent (suppresses 401 noise)
     Cesium.Ion.defaultAccessToken = _ionToken || 'none';
 
-    var terrainProvider = _ionToken
-      ? new Cesium.CesiumTerrainProvider({{url: Cesium.IonResource.fromAssetId(1)}})
-      : new Cesium.EllipsoidTerrainProvider();
-
-    _viewer = new Cesium.Viewer('cesium-container', {{
+    var viewerOpts = {{
       baseLayerPicker: false, geocoder: false, homeButton: false,
       sceneModePicker: false, navigationHelpButton: false,
       animation: false, timeline: false, fullscreenButton: false,
       infoBox: false, selectionIndicator: false,
-      terrainProvider: terrainProvider
-    }});
+    }};
+    if (_ionToken && Cesium.Terrain) {{
+      viewerOpts.terrain = Cesium.Terrain.fromWorldTerrain();
+    }}
+
+    _viewer = new Cesium.Viewer('cesium-container', viewerOpts);
 
     _viewer.imageryLayers.removeAll();
 
@@ -6202,16 +6202,26 @@ class WebMapExporter:
       _loading = true;
       loadingEl.style.display = 'block';
       _loadCesium(function() {{
-        if (!_cesiumOk) _initViewer(); else _leafletToCesium();
-        cesiumDiv.style.display = 'block';
-        mapDiv.style.display    = 'none';
-        document.getElementById('label-overlay').style.display = 'none';
-        var fr = document.getElementById('filterbar');
-        if (fr) fr.style.display = 'none';
-        loadingEl.style.display = 'none';
-        toggleBtn.innerHTML = '2D';
-        L.DomUtil.addClass(toggleContainer, 'is-3d');
-        _is3d = true; _loading = false;
+        try {{
+          if (!_cesiumOk) _initViewer(); else _leafletToCesium();
+          cesiumDiv.style.display = 'block';
+          mapDiv.style.display    = 'none';
+          document.getElementById('label-overlay').style.display = 'none';
+          var fr = document.getElementById('filterbar');
+          if (fr) fr.style.display = 'none';
+          toggleBtn.innerHTML = '2D';
+          L.DomUtil.addClass(toggleContainer, 'is-3d');
+          _is3d = true;
+        }} catch(e) {{
+          console.error('Cesium init failed:', e);
+          toggleContainer.style.opacity = '0.4';
+          toggleContainer.style.cursor  = 'not-allowed';
+          toggleBtn.title = '3D failed to initialise — check console for details';
+          toggleBtn.style.pointerEvents = 'none';
+        }} finally {{
+          loadingEl.style.display = 'none';
+          _loading = false;
+        }}
       }});
     }} else {{
       _cesiumToLeaflet();

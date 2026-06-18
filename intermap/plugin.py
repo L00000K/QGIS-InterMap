@@ -15,9 +15,7 @@ class WebMapExporterPlugin:
 
     def initGui(self):
         svg_path = os.path.join(os.path.dirname(__file__), "icon.svg")
-        png_path = os.path.join(os.path.dirname(__file__), "icon.png")
-        icon_path = svg_path if os.path.exists(svg_path) else png_path
-        icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
+        icon = QIcon(svg_path) if os.path.exists(svg_path) else QIcon()
         self.action = QAction(icon, self.tr("InterMap — Interactive Map Package…"), self.iface.mainWindow())
         self.action.triggered.connect(self.run)
         self.iface.addPluginToWebMenu(self.tr("InterMap"), self.action)

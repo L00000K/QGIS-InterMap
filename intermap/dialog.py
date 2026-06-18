@@ -368,10 +368,8 @@ class WebMapExportDialog(QDockWidget):
         title_row = QHBoxLayout()
         title_row.setSpacing(10)
 
-        # Prefer icon.svg; fall back to icon.png
         icon_lbl = QLabel()
         svg_icon_path = os.path.join(os.path.dirname(__file__), "icon.svg")
-        png_icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if os.path.exists(svg_icon_path):
             try:
                 from qgis.PyQt.QtSvg import QSvgRenderer
@@ -385,12 +383,7 @@ class WebMapExportDialog(QDockWidget):
                 painter.end()
                 icon_lbl.setPixmap(pm)
             except Exception:
-                if os.path.exists(png_icon_path):
-                    pm = QPixmap(png_icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    icon_lbl.setPixmap(pm)
-        elif os.path.exists(png_icon_path):
-            pm = QPixmap(png_icon_path).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            icon_lbl.setPixmap(pm)
+                pass
         title_row.addWidget(icon_lbl)
 
         name_lbl = QLabel("InterMap")
@@ -2000,11 +1993,11 @@ class WebMapExportDialog(QDockWidget):
         tools_layout.addWidget(self.feat_changelog_cb)
 
         self.feat_sketch_cb = QCheckBox("Sketching / annotation tools")
-        self.feat_sketch_cb.setChecked(True)
+        self.feat_sketch_cb.setChecked(False)
         tools_layout.addWidget(self.feat_sketch_cb)
 
         self.feat_3d_cb = QCheckBox("3D view toggle (Cesium.js — loads from CDN on demand)")
-        self.feat_3d_cb.setChecked(True)
+        self.feat_3d_cb.setChecked(False)
         tools_layout.addWidget(self.feat_3d_cb)
 
         layout.addWidget(tools_group)
