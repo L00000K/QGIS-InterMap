@@ -5701,6 +5701,9 @@ class WebMapExporter:
   window._legendItems     = legendItems;
   window._im_map          = map;
   window._im_feat         = FEAT;
+  window._im_layers       = LAYERS;
+  window._im_themes       = THEMES;
+  window._im_escHtml      = escHtml;
 
   // ── Opacity persistence via localStorage ────────────────────────────────
   (function() {{
@@ -5787,8 +5790,11 @@ class WebMapExporter:
 
 // ── Cesium 3D viewer ───────────────────────────────────────────────────────
 (function() {{
-  var FEAT = window._im_feat;
-  var map  = window._im_map;
+  var FEAT    = window._im_feat;
+  var map     = window._im_map;
+  var LAYERS  = window._im_layers  || [];
+  var THEMES  = window._im_themes  || [];
+  var escHtml = window._im_escHtml || function(s) {{ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }};
   if (!FEAT || !FEAT.cesium3d) return;
 
   var cesiumDiv = document.getElementById('cesium-container');
