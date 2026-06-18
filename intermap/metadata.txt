@@ -16,6 +16,6 @@ changelog=
 tags=web,export,html,leaflet,map,interactive,geology,cartography
 homepage=
 category=Web
-icon=icon.png
+icon=icon.svg
 experimental=False
 deprecated=False
