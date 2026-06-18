@@ -6083,7 +6083,7 @@ class WebMapExporter:
         _batchStyle(ds.entities.values, ldef.styleMap, _extrudeField, _extrudeScale, ldef.labelConfig, null);
         _viewer.dataSources.add(ds);
         _cesiumLayers[idx] = ds;
-      }}).otherwise(function(err) {{
+      }}).catch(function(err) {{
         console.warn('Cesium vector:', ldef.name, err);
       }});
     }});
@@ -6203,20 +6203,31 @@ class WebMapExporter:
       loadingEl.style.display = 'block';
       _loadCesium(function() {{
         try {{
-          if (!_cesiumOk) _initViewer(); else _leafletToCesium();
+          // Show container BEFORE init — Cesium needs a visible, sized div
           cesiumDiv.style.display = 'block';
           mapDiv.style.display    = 'none';
           document.getElementById('label-overlay').style.display = 'none';
           var fr = document.getElementById('filterbar');
           if (fr) fr.style.display = 'none';
+
+          if (!_cesiumOk) _initViewer(); else _leafletToCesium();
+
           toggleBtn.innerHTML = '2D';
           L.DomUtil.addClass(toggleContainer, 'is-3d');
           _is3d = true;
         }} catch(e) {{
           console.error('Cesium init failed:', e);
+          // Restore 2D view so page isn't left blank
+          cesiumDiv.style.display = 'none';
+          mapDiv.style.display    = 'block';
+          document.getElementById('label-overlay').style.display = 'block';
+          var frr = document.getElementById('filterbar');
+          if (frr) frr.style.display = '';
+          L.DomUtil.removeClass(toggleContainer, 'is-3d');
           toggleContainer.style.opacity = '0.4';
           toggleContainer.style.cursor  = 'not-allowed';
-          toggleBtn.title = '3D failed to initialise — check console for details';
+          toggleBtn.innerHTML = '3D';
+          toggleBtn.title = '3D failed — check browser console for details';
           toggleBtn.style.pointerEvents = 'none';
         }} finally {{
           loadingEl.style.display = 'none';
