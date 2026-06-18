@@ -6134,7 +6134,10 @@ class WebMapExporter:
 
     _viewer = new Cesium.Viewer('cesium-container', viewerOpts);
 
+    // Remove default imagery so we control what's shown
     _viewer.imageryLayers.removeAll();
+    // Fallback colour: visible blue globe even if tile requests fail/are disabled
+    _viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a69b0');
 
     if (_googleKey) {{
       // Google Photorealistic 3D Tiles — includes imagery, skip OSM
@@ -6170,14 +6173,16 @@ class WebMapExporter:
 
   function _addOsmImagery() {{
     if (!{include_basemap_json}) return;
-    _viewer.imageryLayers.addImageryProvider(
-      new Cesium.UrlTemplateImageryProvider({{
-        url:         'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-        credit:      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        subdomains:  ['a', 'b', 'c'],
+    try {{
+      var provider = new Cesium.UrlTemplateImageryProvider({{
+        url:          'https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+        credit:       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maximumLevel: 19
-      }})
-    );
+      }});
+      _viewer.imageryLayers.add(new Cesium.ImageryLayer(provider));
+    }} catch(e) {{
+      console.warn('OSM imagery failed:', e);
+    }}
   }}
 
   // ── Lazy-load CesiumJS from CDN ───────────────────────────────────────────
