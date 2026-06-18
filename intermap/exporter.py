@@ -1377,7 +1377,6 @@ class WebMapExporter:
             _plugin_block("fullscreen"),
             _plugin_block("minimap"),
             _plugin_block("contextmenu"),
-            _plugin_block("geoman"),
         ]))
 
         # Brand watermark — prefer logo.svg (case-insensitive), fall back to logo.png, then built-in SVG
@@ -5650,6 +5649,8 @@ class WebMapExporter:
   window.setLayerOpacity  = setLayerOpacity;
   window.applyTheme       = applyTheme;
   window._legendItems     = legendItems;
+  window._im_map          = map;
+  window._im_feat         = FEAT;
 
   // ── Opacity persistence via localStorage ────────────────────────────────
   (function() {{
@@ -5732,31 +5733,13 @@ class WebMapExporter:
     printBtn.addEventListener('click', function() {{ window.print(); }});
   }})();
 
-  // ── Geoman annotation layer ──────────────────────────────────────────────
-  (function() {{
-    if (typeof L.PM === 'undefined' && typeof map.pm === 'undefined') return;
-    try {{
-      map.pm.addControls({{
-        position:         'topleft',
-        drawCircle:       false,
-        drawCircleMarker: false,
-        drawRectangle:    false,
-        rotateMode:       false,
-        cutPolygon:       false
-      }});
-      // Style drawn features consistently
-      map.on('pm:create', function(e) {{
-        var layer = e.layer;
-        if (layer.setStyle) layer.setStyle({{color:'#e74c3c', fillColor:'#e74c3c', fillOpacity:0.2, weight:2}});
-      }});
-    }} catch(ex) {{ console.warn('Geoman init failed', ex); }}
-  }})();
-
 }})();
 
 // ── Cesium 3D viewer ───────────────────────────────────────────────────────
 (function() {{
-  if (!FEAT.cesium3d) return;
+  var FEAT = window._im_feat;
+  var map  = window._im_map;
+  if (!FEAT || !FEAT.cesium3d) return;
 
   var cesiumDiv = document.getElementById('cesium-container');
   var mapDiv    = document.getElementById('map');
