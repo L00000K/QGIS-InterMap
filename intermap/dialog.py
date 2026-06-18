@@ -244,6 +244,7 @@ class WebMapExportDialog(QDockWidget):
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
             ("feat_changelog",        "feat_changelog_cb"),
             ("feat_3d",               "feat_3d_cb"),
+            ("feat_sketch",           "feat_sketch_cb"),
         ):
             key = f"{_SETTINGS_KEY}/{flag}"
             if s.contains(key):
@@ -337,6 +338,7 @@ class WebMapExportDialog(QDockWidget):
             ("feat_fancy_labels",     "feat_fancy_labels_cb"),
             ("feat_changelog",        "feat_changelog_cb"),
             ("feat_3d",               "feat_3d_cb"),
+            ("feat_sketch",           "feat_sketch_cb"),
         ):
             s.setValue(f"{_SETTINGS_KEY}/{flag}", getattr(self, attr).isChecked())
         s.setValue(f"{_SETTINGS_KEY}/cesium_ion_token", self.cesium_ion_token_edit.text().strip())
@@ -1997,6 +1999,10 @@ class WebMapExportDialog(QDockWidget):
         self.feat_changelog_cb.setChecked(True)
         tools_layout.addWidget(self.feat_changelog_cb)
 
+        self.feat_sketch_cb = QCheckBox("Sketching / annotation tools")
+        self.feat_sketch_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_sketch_cb)
+
         self.feat_3d_cb = QCheckBox("3D view toggle (Cesium.js — loads from CDN on demand)")
         self.feat_3d_cb.setChecked(True)
         tools_layout.addWidget(self.feat_3d_cb)
@@ -2355,6 +2361,24 @@ class WebMapExportDialog(QDockWidget):
             "output_path":           self.path_edit.text().strip(),
             "info":                  info,
             "theme":                 self.export_theme_combo.currentData(),
+            "features": {
+                "identify":     self.feat_identify_cb.isChecked(),
+                "attr_table":   self.feat_attr_table_cb.isChecked(),
+                "attr_csv":     self.feat_attr_csv_cb.isChecked(),
+                "attr_geojson": self.feat_attr_geojson_cb.isChecked(),
+                "measure":      self.feat_measure_cb.isChecked(),
+                "filter":       self.feat_filter_cb.isChecked(),
+                "search":       self.feat_search_cb.isChecked(),
+                "minimap":      self.feat_minimap_cb.isChecked(),
+                "fancy_labels": self.feat_fancy_labels_cb.isChecked(),
+                "changelog":    self.feat_changelog_cb.isChecked(),
+                "sketch":       self.feat_sketch_cb.isChecked(),
+                "feat_3d":      self.feat_3d_cb.isChecked(),
+                "cesium_ion_token": self.cesium_ion_token_edit.text().strip(),
+                "google_maps_key":  self.google_maps_key_edit.text().strip(),
+                "extrude_field":    self.extrude_field_edit.text().strip(),
+                "extrude_scale":    self.extrude_scale_spin.value(),
+            },
         }
 
     def _apply_state(self, state):
@@ -2410,6 +2434,36 @@ class WebMapExportDialog(QDockWidget):
         idx = self.export_theme_combo.findData(theme_val)
         if idx >= 0:
             self.export_theme_combo.setCurrentIndex(idx)
+
+        feats = state.get("features", {})
+        _feat_map = [
+            ("identify",     "feat_identify_cb"),
+            ("attr_table",   "feat_attr_table_cb"),
+            ("attr_csv",     "feat_attr_csv_cb"),
+            ("attr_geojson", "feat_attr_geojson_cb"),
+            ("measure",      "feat_measure_cb"),
+            ("filter",       "feat_filter_cb"),
+            ("search",       "feat_search_cb"),
+            ("minimap",      "feat_minimap_cb"),
+            ("fancy_labels", "feat_fancy_labels_cb"),
+            ("changelog",    "feat_changelog_cb"),
+            ("sketch",       "feat_sketch_cb"),
+            ("feat_3d",      "feat_3d_cb"),
+        ]
+        for key, attr in _feat_map:
+            if key in feats:
+                getattr(self, attr).setChecked(bool(feats[key]))
+        if "cesium_ion_token" in feats:
+            self.cesium_ion_token_edit.setText(feats["cesium_ion_token"])
+        if "google_maps_key" in feats:
+            self.google_maps_key_edit.setText(feats["google_maps_key"])
+        if "extrude_field" in feats:
+            self.extrude_field_edit.setText(feats["extrude_field"])
+        if "extrude_scale" in feats:
+            try:
+                self.extrude_scale_spin.setValue(float(feats["extrude_scale"]))
+            except Exception:
+                pass
 
     def _instance_load(self, name=None):
         if name is None:
@@ -3385,6 +3439,7 @@ class WebMapExportDialog(QDockWidget):
                 feat_changelog=self.feat_changelog_cb.isChecked(),
                 changelog=list(self._changelog),
                 feat_3d=self.feat_3d_cb.isChecked(),
+                feat_sketch=self.feat_sketch_cb.isChecked(),
                 cesium_ion_token=self.cesium_ion_token_edit.text().strip(),
                 google_maps_key=self.google_maps_key_edit.text().strip(),
                 feat_3d_extrude_field=self.extrude_field_edit.text().strip(),
