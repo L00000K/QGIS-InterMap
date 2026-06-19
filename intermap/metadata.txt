@@ -1,6 +1,6 @@
 [general]
 name=InterMap
-qgisMinimumVersion=3.0
+qgisMinimumVersion=3.2
 description=Export QGIS layers to a self-contained interactive map package (HTML)
 version=1.3.0
 author=InterMap

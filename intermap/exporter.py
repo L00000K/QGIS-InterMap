@@ -4,6 +4,7 @@ import base64
 import tempfile
 import urllib.request
 from urllib.parse import parse_qs
+from typing import Optional
 
 from qgis.core import (
     QgsMapLayer, QgsWkbTypes, QgsCoordinateReferenceSystem,
@@ -72,7 +73,7 @@ _LEAFLET_URLS = [
 ]
 
 
-def _qgis_fetch(url_str: str) -> str | None:
+def _qgis_fetch(url_str: str) -> Optional[str]:
     """
     Download text from url_str using QGIS's network stack (respects proxy /
     auth settings configured in QGIS options) with a fallback to urllib.
@@ -222,7 +223,7 @@ _THEMES = {
 }
 
 
-def _parse_wms_source(layer) -> dict | None:
+def _parse_wms_source(layer) -> Optional[dict]:
     """
     If layer is a WMS/WMTS raster layer, return a dict describing how to
     add it in Leaflet. Returns None for plain file-based rasters.
@@ -318,7 +319,7 @@ def _encode_marker_shape(sl) -> str:
         return "circle"
 
 
-def _extract_label_config(layer) -> dict | None:
+def _extract_label_config(layer) -> Optional[dict]:
     """Extract label settings from a vector layer. Returns None if no label field is set."""
     if not _HAS_PAL:
         return None
@@ -545,7 +546,7 @@ _DENSE_BRUSH_FACTORS = {
 }
 
 
-def _pen_style_dash(pen) -> str | None:
+def _pen_style_dash(pen) -> Optional[str]:
     """Translate a Qt pen style to an SVG/Leaflet dashArray string."""
     if pen == Qt.DashLine:
         return "8 4"
@@ -6134,7 +6135,10 @@ class WebMapExporter:
 
     _viewer = new Cesium.Viewer('cesium-container', viewerOpts);
 
+    // Remove default imagery so we control what's shown
     _viewer.imageryLayers.removeAll();
+    // Fallback colour: visible blue globe even if tile requests fail/are disabled
+    _viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a69b0');
 
     if (_googleKey) {{
       // Google Photorealistic 3D Tiles — includes imagery, skip OSM
@@ -6170,14 +6174,16 @@ class WebMapExporter:
 
   function _addOsmImagery() {{
     if (!{include_basemap_json}) return;
-    _viewer.imageryLayers.addImageryProvider(
-      new Cesium.UrlTemplateImageryProvider({{
-        url:         'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-        credit:      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        subdomains:  ['a', 'b', 'c'],
+    try {{
+      var provider = new Cesium.UrlTemplateImageryProvider({{
+        url:          'https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+        credit:       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maximumLevel: 19
-      }})
-    );
+      }});
+      _viewer.imageryLayers.add(new Cesium.ImageryLayer(provider));
+    }} catch(e) {{
+      console.warn('OSM imagery failed:', e);
+    }}
   }}
 
   // ── Lazy-load CesiumJS from CDN ───────────────────────────────────────────
