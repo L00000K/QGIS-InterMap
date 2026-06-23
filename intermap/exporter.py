@@ -6120,14 +6120,31 @@ class WebMapExporter:
 
   // ── Viewer init ───────────────────────────────────────────────────────────
   function _initViewer() {{
-    // Ion token: set a harmless string when absent (suppresses 401 noise)
     Cesium.Ion.defaultAccessToken = _ionToken || 'none';
+
+    // Build base imagery layer up-front and pass via constructor option.
+    // This is the only reliable way to get a visible globe in Cesium 1.117:
+    // removeAll() + addImageryProvider() leaves the globe surface invisible
+    // because the globe renderer skips drawing when the layer list is empty.
+    var _baseLayer = false;
+    if ({include_basemap_json} && !_googleKey) {{
+      try {{
+        _baseLayer = new Cesium.ImageryLayer(
+          new Cesium.UrlTemplateImageryProvider({{
+            url:          'https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+            credit:       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maximumLevel: 19
+          }})
+        );
+      }} catch(e) {{ console.warn('OSM provider init:', e); }}
+    }}
 
     var viewerOpts = {{
       baseLayerPicker: false, geocoder: false, homeButton: false,
       sceneModePicker: false, navigationHelpButton: false,
       animation: false, timeline: false, fullscreenButton: false,
       infoBox: false, selectionIndicator: false,
+      baseLayer: _baseLayer,
     }};
     if (_ionToken && Cesium.Terrain) {{
       viewerOpts.terrain = Cesium.Terrain.fromWorldTerrain();
@@ -6135,23 +6152,20 @@ class WebMapExporter:
 
     _viewer = new Cesium.Viewer('cesium-container', viewerOpts);
 
-    // Remove default imagery so we control what's shown
-    _viewer.imageryLayers.removeAll();
-    // Fallback colour: visible blue globe even if tile requests fail/are disabled
+    // Blue fallback colour — shown while tiles load, or when basemap is off
     _viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a69b0');
+    _viewer.scene.globe.enableLighting = false;
+    _viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a2e');
 
     if (_googleKey) {{
-      // Google Photorealistic 3D Tiles — includes imagery, skip OSM
+      // Google Photorealistic 3D Tiles include their own imagery
       Cesium.Cesium3DTileset.fromUrl(
         'https://tile.googleapis.com/v1/3dtiles/root.json?key=' + _googleKey
       ).then(function(ts) {{
         _viewer.scene.primitives.add(ts);
       }}).catch(function(e) {{
-        console.warn('Google 3D Tiles unavailable, falling back to OSM', e);
-        _addOsmImagery();
+        console.warn('Google 3D Tiles unavailable:', e);
       }});
-    }} else {{
-      _addOsmImagery();
     }}
 
     if (_ionToken) {{
@@ -6163,27 +6177,10 @@ class WebMapExporter:
       }});
     }}
 
-    _viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a2e');
-    _viewer.scene.globe.enableLighting = false;
-
     _loadLayers();
     _leafletToCesium();
     _initIdentify();
     _cesiumOk = true;
-  }}
-
-  function _addOsmImagery() {{
-    if (!{include_basemap_json}) return;
-    try {{
-      var provider = new Cesium.UrlTemplateImageryProvider({{
-        url:          'https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-        credit:       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maximumLevel: 19
-      }});
-      _viewer.imageryLayers.add(new Cesium.ImageryLayer(provider));
-    }} catch(e) {{
-      console.warn('OSM imagery failed:', e);
-    }}
   }}
 
   // ── Lazy-load CesiumJS from CDN ───────────────────────────────────────────
