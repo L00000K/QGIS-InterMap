@@ -2597,7 +2597,12 @@ class WebMapExporter:
     flex-shrink: 0;
   }}
   #attr-table-hdr span {{ font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -0.01em; }}
-  #attr-table-layer {{ font-size: 12px; padding: 2px 4px; border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; background: rgba(255,255,255,0.12); color: #fff; }}
+  #attr-table-layer {{
+    font-size: 12px; padding: 2px 6px;
+    border: none; border-radius: 3px;
+    background: rgba(255,255,255,0.92); color: #222;
+    cursor: pointer; max-width: 200px;
+  }}
   #attr-table-close {{
     margin-left: auto; background: none; border: none;
     cursor: pointer; font-size: 14px; color: rgba(255,255,255,0.65); padding: 0 4px;
