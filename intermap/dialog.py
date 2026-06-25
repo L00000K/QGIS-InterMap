@@ -3368,18 +3368,38 @@ class WebMapExportDialog(QDockWidget):
         walk(QgsProject.instance().layerTreeRoot(), tree_nodes)
         layers = list(reversed(panel_layers))
 
-        # Warn if any vector layer has very many features
-        heavy = [
-            f"  {lr.name()}  ({lr.featureCount():,} features)"
-            for lr in layers
-            if hasattr(lr, "featureCount") and lr.featureCount() > 50_000
-        ]
+        # Warn if any vector layer is likely to produce a slow/large export.
+        # Two checks: many features (lots of requests) OR large source file
+        # (dense geometry — e.g. flow lines with thousands of vertices per feature).
+        def _layer_src_mb(lr):
+            try:
+                import os
+                uri = lr.dataProvider().dataSourceUri().split("|")[0].strip()
+                if os.path.isfile(uri):
+                    return os.path.getsize(uri) / 1_048_576
+            except Exception:
+                pass
+            return 0.0
+
+        heavy = []
+        for lr in layers:
+            if not hasattr(lr, "featureCount"):
+                continue
+            fc   = lr.featureCount()
+            mb   = _layer_src_mb(lr)
+            if fc > 50_000:
+                heavy.append(f"  {lr.name()}  ({fc:,} features)")
+            elif mb > 20:
+                heavy.append(f"  {lr.name()}  (~{mb:.0f} MB source — dense geometry)")
+
         if heavy:
             msg = (
-                "The following layers have a large number of features and may result "
-                "in a slow or unresponsive webmap:\n\n"
+                "The following layers are large and may produce a slow or "
+                "unresponsive webmap:\n\n"
                 + "\n".join(heavy)
-                + "\n\nConsider filtering or simplifying before export.\n\nContinue anyway?"
+                + "\n\nFor line/polygon layers with dense geometry, simplify first:\n"
+                "Vector → Geometry Tools → Simplify (tolerance ~0.0001°).\n\n"
+                "Continue anyway?"
             )
             if QMessageBox.question(self, "Performance warning", msg,
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
