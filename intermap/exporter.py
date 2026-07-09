@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import base64
 import tempfile
@@ -257,6 +258,53 @@ def _parse_wms_source(layer) -> Optional[dict]:
         "wmsCrs":     crs,
         "wmsVersion": version,
         "tileType":   ttype,
+    }
+
+
+def _parse_cog_source(layer) -> Optional[dict]:
+    """
+    If a GDAL raster layer's source is a remote HTTP(S) Cloud Optimized
+    GeoTIFF (e.g. a topography raster on public Azure blob storage), return a
+    dict describing how to load it client-side rather than embedding it as
+    base64. Returns None for local files and non-COG sources.
+
+    QGIS represents a remote COG through GDAL's virtual filesystem, e.g.
+        /vsicurl/https://acct.blob.core.windows.net/container/dem.tif
+    or occasionally as a bare https URL. We pull the first http(s) URL out of
+    the source URI and keep it only when it points at a .tif/.tiff.
+    """
+    provider = layer.dataProvider()
+    if provider is None or provider.name() != "gdal":
+        return None
+
+    uri = provider.dataSourceUri() or ""
+    m = re.search(r"https?://\S+", uri)
+    if not m:
+        return None
+    url = m.group(0)
+    # Trim trailing GDAL open-option delimiters (|) or whitespace-separated args
+    for sep in ("|", " ", "\t"):
+        if sep in url:
+            url = url.split(sep)[0]
+
+    low = url.lower()
+    if not (low.endswith(".tif") or low.endswith(".tiff")
+            or ".tif?" in low or ".tiff?" in low):
+        return None
+
+    ext = layer.extent()
+    tr  = QgsCoordinateTransform(layer.crs(), _WGS84, QgsProject.instance())
+    wgs = tr.transformBoundingBox(ext)
+    return {
+        "kind":    "cog",
+        "name":    layer.name(),
+        "url":     url,
+        "opacity": round(layer.opacity(), 3),
+        "bands":   layer.bandCount() if hasattr(layer, "bandCount") else 0,
+        "bounds": [
+            [wgs.yMinimum(), wgs.xMinimum()],
+            [wgs.yMaximum(), wgs.xMaximum()],
+        ],
     }
 
 
@@ -1219,15 +1267,24 @@ class WebMapExporter:
                     if legend_url:
                         wms_def["legendUrl"] = legend_url
                     layer_defs.append(wms_def)
-                else:
-                    b64, bounds = _raster_to_base64(layer)
-                    layer_defs.append({
-                        "kind":         "raster",
-                        "name":         layer.name(),
-                        "data":         b64,
-                        "bounds":       bounds,
-                        "rasterLegend": _raster_legend_data(layer),
-                    })
+                    continue
+
+                cog = _parse_cog_source(layer)
+                if cog:
+                    # Remote COG on blob storage — reference by URL, render
+                    # client-side. Keeps the export small and avoids embedding
+                    # hundreds of MB of raster data.
+                    layer_defs.append(cog)
+                    continue
+
+                b64, bounds = _raster_to_base64(layer)
+                layer_defs.append({
+                    "kind":         "raster",
+                    "name":         layer.name(),
+                    "data":         b64,
+                    "bounds":       bounds,
+                    "rasterLegend": _raster_legend_data(layer),
+                })
 
         self.progress(step + 1)
 
@@ -1242,7 +1299,7 @@ class WebMapExporter:
         min_x = min_y = float("inf")
         max_x = max_y = float("-inf")
         for ld in layer_defs:
-            if ld["kind"] in ("raster", "wms"):
+            if ld["kind"] in ("raster", "wms", "cog"):
                 b = ld["bounds"]
                 min_y = min(min_y, b[0][0])
                 min_x = min(min_x, b[0][1])
@@ -3360,9 +3417,66 @@ class WebMapExporter:
     }});
   }}
 
+  // ── Cloud Optimized GeoTIFF (remote raster on blob storage) ─────────────
+  // Loaded client-side via geotiff.js + georaster-layer-for-leaflet, which
+  // stream the COG using HTTP range requests. The blob MUST send CORS headers
+  // (Access-Control-Allow-Origin + allow the Range request header) or the
+  // browser will refuse to fetch it.
+  var _georasterLoading = false, _georasterQueue = [];
+  function _loadGeoRaster(cb) {{
+    if (window.parseGeoraster && window.GeoRasterLayer) {{ cb(); return; }}
+    _georasterQueue.push(cb);
+    if (_georasterLoading) return;
+    _georasterLoading = true;
+    function loadScript(src, next) {{
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = next;
+      s.onerror = function() {{ console.warn('COG: failed to load ' + src); next(); }};
+      document.head.appendChild(s);
+    }}
+    // georaster bundles geotiff.js; the leaflet layer depends on georaster,
+    // so load them in order.
+    loadScript('https://unpkg.com/georaster@1/dist/georaster.browser.bundle.min.js', function() {{
+      loadScript('https://unpkg.com/georaster-layer-for-leaflet@3/dist/georaster-layer-for-leaflet.min.js', function() {{
+        _georasterLoading = false;
+        var q = _georasterQueue; _georasterQueue = [];
+        q.forEach(function(fn) {{ fn(); }});
+      }});
+    }});
+  }}
+
+  function buildCogLayer(item) {{
+    var ld = item.ld;
+    var op = (ld.opacity != null) ? ld.opacity : 1;
+    // Return a group immediately; the georaster layer is added once it loads.
+    var group = L.layerGroup([], {{ pane: item.paneName }});
+    _loadGeoRaster(function() {{
+      if (!window.parseGeoraster || !window.GeoRasterLayer) {{
+        console.warn('COG libraries unavailable — cannot render "' + ld.name + '"');
+        return;
+      }}
+      parseGeoraster(ld.url).then(function(georaster) {{
+        var gl = new GeoRasterLayer({{
+          georaster:  georaster,
+          opacity:    op,
+          pane:       item.paneName,
+          resolution: 256
+        }});
+        group.addLayer(gl);
+        item._cogLayer = gl;
+      }}).catch(function(e) {{
+        console.warn('COG load failed for "' + ld.name +
+          '". If the raster is on blob storage, verify CORS is enabled.', e);
+      }});
+    }});
+    return group;
+  }}
+
   function buildLayer(item) {{
     if (item.ld.kind === 'vector') return buildVectorLayer(item);
     if (item.ld.kind === 'wms')    return buildWmsLayer(item);
+    if (item.ld.kind === 'cog')    return buildCogLayer(item);
     return buildRasterLayer(item);
   }}
 
@@ -4180,7 +4294,7 @@ class WebMapExporter:
     function buildLayerRow(item, container) {{
       var ld = item.ld;
       var sm = ld.styleMap || {{}};
-      var geomType = (ld.kind === 'raster' || ld.kind === 'wms') ? 'raster' : ld.geomType;
+      var geomType = (ld.kind === 'raster' || ld.kind === 'wms' || ld.kind === 'cog') ? 'raster' : ld.geomType;
       var cfg = ld.labelConfig || null;
 
       var hasEntries = sm.entries && sm.entries.length > 1;
