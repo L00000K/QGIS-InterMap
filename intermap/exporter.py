@@ -1193,7 +1193,8 @@ class WebMapExporter:
                  feat_changelog=True, changelog=None,
                  feat_3d=True, feat_sketch=True,
                  cesium_ion_token='', google_maps_key='',
-                 feat_3d_extrude_field='', feat_3d_extrude_scale=1.0):
+                 feat_3d_extrude_field='', feat_3d_extrude_scale=1.0,
+                 cog_proxy=''):
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
@@ -1221,6 +1222,7 @@ class WebMapExporter:
         self.google_maps_key = google_maps_key or ''
         self.feat_3d_extrude_field = feat_3d_extrude_field or ''
         self.feat_3d_extrude_scale = float(feat_3d_extrude_scale or 1.0)
+        self.cog_proxy = (cog_proxy or '').strip()
 
     def export(self):
         layer_defs = []
@@ -1334,6 +1336,8 @@ class WebMapExporter:
         _google_maps_key     = str(self.google_maps_key  or '').replace('"', '').replace('\\', '')
         _extrude_field       = str(self.feat_3d_extrude_field or '').replace('"', '').replace('\\', '')
         _extrude_scale       = self.feat_3d_extrude_scale
+        # Properly escaped JS string literal (safe against injection)
+        _cog_proxy_json      = json.dumps(str(self.cog_proxy or ''))
 
         # Resolve QGIS theme references to layer name lists at export time so the
         # web map JavaScript can toggle layers without needing the QGIS theme API.
@@ -2991,6 +2995,7 @@ class WebMapExporter:
   var INCLUDE_LEGEND = {include_legend};
   var LAYER_TREE = {tree_json};
   var THEMES = {themes_json};
+  var _cogProxy = {_cog_proxy_json};
 
   // ── Basemap (optional) ───────────────────────────────────────────────────
   var INCLUDE_BASEMAP = {include_basemap_json};
@@ -3446,6 +3451,17 @@ class WebMapExporter:
     }});
   }}
 
+  // Route a COG URL through the configured CORS proxy, if any. A proxy
+  // template may contain {{url}} where the encoded URL should be inserted;
+  // otherwise the encoded URL is appended to the end.
+  function _cogProxied(url) {{
+    if (!_cogProxy) return url;
+    var enc = encodeURIComponent(url);
+    return (_cogProxy.indexOf('{{url}}') !== -1)
+      ? _cogProxy.replace('{{url}}', enc)
+      : _cogProxy + enc;
+  }}
+
   function buildCogLayer(item) {{
     var ld = item.ld;
     var op = (ld.opacity != null) ? ld.opacity : 1;
@@ -3456,7 +3472,7 @@ class WebMapExporter:
         console.warn('COG libraries unavailable — cannot render "' + ld.name + '"');
         return;
       }}
-      parseGeoraster(ld.url).then(function(georaster) {{
+      parseGeoraster(_cogProxied(ld.url)).then(function(georaster) {{
         var gl = new GeoRasterLayer({{
           georaster:  georaster,
           opacity:    op,
@@ -3466,11 +3482,32 @@ class WebMapExporter:
         group.addLayer(gl);
         item._cogLayer = gl;
       }}).catch(function(e) {{
-        console.warn('COG load failed for "' + ld.name +
-          '". If the raster is on blob storage, verify CORS is enabled.', e);
+        var hint = _cogProxy
+          ? 'Check the CORS proxy forwards Range requests and is reachable.'
+          : 'The blob storage did not allow the request (CORS). Set a COG CORS ' +
+            'proxy in export settings, or ask the data host to enable CORS.';
+        console.warn('COG load failed for "' + ld.name + '". ' + hint, e);
+        _cogNotify('Could not load raster "' + ld.name + '" — ' + hint);
       }});
     }});
     return group;
+  }}
+
+  // One-time, dismissible on-map notice so a failed COG isn't silently absent.
+  var _cogNotified = false;
+  function _cogNotify(msg) {{
+    if (_cogNotified) return;
+    _cogNotified = true;
+    var n = document.createElement('div');
+    n.style.cssText = 'position:absolute;bottom:12px;left:50%;transform:translateX(-50%);'
+      + 'z-index:1500;background:rgba(180,30,30,0.95);color:#fff;padding:8px 14px;'
+      + 'border-radius:6px;font-size:12px;max-width:80%;box-shadow:0 2px 8px rgba(0,0,0,0.3);'
+      + 'cursor:pointer;';
+    n.textContent = msg + '  (click to dismiss)';
+    n.title = 'Click to dismiss';
+    n.addEventListener('click', function() {{ n.parentNode && n.parentNode.removeChild(n); }});
+    var mc = document.getElementById('map') || document.body;
+    mc.appendChild(n);
   }}
 
   function buildLayer(item) {{

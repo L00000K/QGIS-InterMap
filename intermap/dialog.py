@@ -254,6 +254,7 @@ class WebMapExportDialog(QDockWidget):
             ("cesium_ion_token", "cesium_ion_token_edit"),
             ("google_maps_key",  "google_maps_key_edit"),
             ("extrude_field",    "extrude_field_edit"),
+            ("cog_proxy",        "cog_proxy_edit"),
         ):
             val = s.value(f"{_SETTINGS_KEY}/{_3d_key}", "")
             if val:
@@ -347,6 +348,7 @@ class WebMapExportDialog(QDockWidget):
         s.setValue(f"{_SETTINGS_KEY}/google_maps_key",  self.google_maps_key_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/extrude_field",    self.extrude_field_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/extrude_scale",    self.extrude_scale_spin.value())
+        s.setValue(f"{_SETTINGS_KEY}/cog_proxy",        self.cog_proxy_edit.text().strip())
         import json as _json
         s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
         mode = "lite" if self._is_lite else ("3d" if self.feat_3d_cb.isChecked() else "pro")
@@ -2052,6 +2054,25 @@ class WebMapExportDialog(QDockWidget):
         self.feat_3d_cb.toggled.connect(d3_group.setEnabled)
         d3_group.setEnabled(self.feat_3d_cb.isChecked())
 
+        # ── Remote raster sources (COG on blob storage) ──────────────────
+        self.cog_group = QGroupBox("Remote raster sources (optional)")
+        cog_form = QFormLayout(self.cog_group)
+        cog_form.setContentsMargins(8, 6, 8, 8)
+        cog_form.setSpacing(6)
+        self.cog_proxy_edit = QLineEdit()
+        self.cog_proxy_edit.setPlaceholderText("e.g. https://my-worker.workers.dev/?url={url}")
+        self.cog_proxy_edit.setToolTip(
+            "Optional CORS proxy for remote Cloud Optimized GeoTIFFs (COGs)\n"
+            "whose blob storage does not send CORS headers.\n\n"
+            "Put {url} where the (URL-encoded) COG URL should be inserted; if\n"
+            "{url} is omitted, the encoded URL is appended to the end.\n\n"
+            "The proxy MUST forward HTTP Range requests — public proxies that\n"
+            "buffer the whole response will not work for large COGs. A small\n"
+            "Cloudflare Worker is the recommended option."
+        )
+        cog_form.addRow("COG CORS proxy:", self.cog_proxy_edit)
+        layout.addWidget(self.cog_group)
+
         self.save_config_on_export_cb = QCheckBox("Save configuration on export")
         self.save_config_on_export_cb.setChecked(True)
         self.save_config_on_export_cb.setToolTip(
@@ -2394,6 +2415,7 @@ class WebMapExportDialog(QDockWidget):
                 "feat_3d":      self.feat_3d_cb.isChecked(),
                 "cesium_ion_token": self.cesium_ion_token_edit.text().strip(),
                 "google_maps_key":  self.google_maps_key_edit.text().strip(),
+                "cog_proxy":        self.cog_proxy_edit.text().strip(),
                 "extrude_field":    self.extrude_field_edit.text().strip(),
                 "extrude_scale":    self.extrude_scale_spin.value(),
             },
@@ -2475,6 +2497,8 @@ class WebMapExportDialog(QDockWidget):
             self.cesium_ion_token_edit.setText(feats["cesium_ion_token"])
         if "google_maps_key" in feats:
             self.google_maps_key_edit.setText(feats["google_maps_key"])
+        if "cog_proxy" in feats:
+            self.cog_proxy_edit.setText(feats["cog_proxy"])
         if "extrude_field" in feats:
             self.extrude_field_edit.setText(feats["extrude_field"])
         if "extrude_scale" in feats:
@@ -3482,6 +3506,7 @@ class WebMapExportDialog(QDockWidget):
                 google_maps_key=self.google_maps_key_edit.text().strip(),
                 feat_3d_extrude_field=self.extrude_field_edit.text().strip(),
                 feat_3d_extrude_scale=self.extrude_scale_spin.value(),
+                cog_proxy=self.cog_proxy_edit.text().strip(),
             )
             exporter.export()
             self._save_settings()
@@ -3571,6 +3596,7 @@ class WebMapExportDialog(QDockWidget):
                 feat_fancy_labels=True,
                 feat_changelog=False,
                 changelog=[],
+                cog_proxy=self.cog_proxy_edit.text().strip(),
             )
             exporter.export()
             self._show_success(output_path)
