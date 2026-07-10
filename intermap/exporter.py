@@ -6282,16 +6282,16 @@ class WebMapExporter:
     // This is the only reliable way to get a visible globe in Cesium 1.117:
     // removeAll() + addImageryProvider() leaves the globe surface invisible
     // because the globe renderer skips drawing when the layer list is empty.
-    var _baseLayer = false;
+    var _baseLayer    = false;
+    var _baseProvider = null;
     if ({include_basemap_json} && !_googleKey) {{
       try {{
-        _baseLayer = new Cesium.ImageryLayer(
-          new Cesium.UrlTemplateImageryProvider({{
-            url:          'https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-            credit:       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            maximumLevel: 19
-          }})
-        );
+        _baseProvider = new Cesium.UrlTemplateImageryProvider({{
+          url:          'https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+          credit:       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          maximumLevel: 19
+        }});
+        _baseLayer = new Cesium.ImageryLayer(_baseProvider);
       }} catch(e) {{ console.warn('OSM provider init:', e); }}
     }}
 
@@ -6312,6 +6312,25 @@ class WebMapExporter:
     _viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a69b0');
     _viewer.scene.globe.enableLighting = false;
     _viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a2e');
+
+    // Tile servers (esp. the public OSM one) frequently block or rate-limit
+    // requests from exported standalone HTML (no matching Referer, bulk
+    // access, offline viewing, corporate proxies, ad-blockers, ...). When
+    // every tile request for the sole base layer fails, Cesium's globe
+    // renderer never marks any tile "renderable" and the globe surface stops
+    // drawing entirely — leaving only the starfield skybox visible. Detect
+    // sustained failure and drop the layer so the solid baseColor sphere
+    // (set above) becomes visible again instead of an invisible globe.
+    if (_baseProvider) {{
+      var _baseLayerFailures = 0;
+      _baseProvider.errorEvent.addEventListener(function() {{
+        _baseLayerFailures++;
+        if (_baseLayerFailures === 6 && _viewer.imageryLayers.contains(_baseLayer)) {{
+          console.warn('Base imagery unreachable after repeated failures — falling back to solid globe colour.');
+          _viewer.imageryLayers.remove(_baseLayer, false);
+        }}
+      }});
+    }}
 
     if (_googleKey) {{
       // Google Photorealistic 3D Tiles include their own imagery
