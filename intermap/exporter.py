@@ -6312,6 +6312,9 @@ class WebMapExporter:
     _viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a69b0');
     _viewer.scene.globe.enableLighting = false;
     _viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a2e');
+    _viewer.scene.skyBox.show    = false;
+    _viewer.scene.sun.show       = false;
+    _viewer.scene.moon.show      = false;
 
     // Tile servers (esp. the public OSM one) frequently block or rate-limit
     // requests from exported standalone HTML (no matching Referer, bulk
