@@ -6294,6 +6294,32 @@ class WebMapExporter:
         panel.classList.add('open');
       }}
     }}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    // Middle-click: rotate around screen center
+    var _mc_start = null;
+    handler.setInputAction(function(down) {{
+      _mc_start = {{ x: down.position.x, y: down.position.y }};
+    }}, Cesium.ScreenSpaceEventType.MIDDLE_DOWN);
+
+    handler.setInputAction(function(move) {{
+      if (!_mc_start) return;
+      var delta_x = move.endPosition.x - _mc_start.x;
+      var delta_y = move.endPosition.y - _mc_start.y;
+      _mc_start = {{ x: move.endPosition.x, y: move.endPosition.y }};
+
+      var camera = _viewer.camera;
+      var canvas = _viewer.scene.canvas;
+      var center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+
+      // Rotate around the center of the screen
+      var rotateSpeed = 0.005;
+      camera.rotate(camera.direction, -delta_x * rotateSpeed);
+      camera.rotate(camera.right, -delta_y * rotateSpeed);
+    }}, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+    handler.setInputAction(function() {{
+      _mc_start = null;
+    }}, Cesium.ScreenSpaceEventType.MIDDLE_UP);
   }}
 
   // ── Viewer init ───────────────────────────────────────────────────────────
