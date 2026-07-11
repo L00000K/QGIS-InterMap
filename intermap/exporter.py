@@ -2817,6 +2817,11 @@ class WebMapExporter:
 <div id="map"></div>
 <div id="cesium-container"></div>
 <div id="cesium-loading">Loading 3D view…</div>
+<div id="cesium-slicer-ui" style="display:none;position:absolute;top:10px;right:10px;z-index:300;background:rgba(0,0,0,0.7);padding:8px;border-radius:4px;color:#fff;font-size:12px;">
+  <label style="display:block;margin-bottom:6px;"><input type="checkbox" id="cesium-slicer-toggle" /> Vertical slicer (drag)</label>
+  <div style="font-size:11px;opacity:0.8;">Drag left/right to slice</div>
+</div>
+<canvas id="cesium-slicer-canvas" style="display:none;position:absolute;top:0;left:0;z-index:250;pointer-events:none;"></canvas>
 <button id="permalink-btn" title="Copy link to current view">&#128279; Link</button>
 <button id="print-btn" title="Print map">&#128438; Print</button>
 <div id="select-rect"></div>
@@ -6322,6 +6327,94 @@ class WebMapExporter:
     }}, Cesium.ScreenSpaceEventType.MIDDLE_UP);
   }}
 
+  // ── Vertical plane slicer ─────────────────────────────────────────────────
+  function _initSlicer() {{
+    var slicerCanvas = document.getElementById('cesium-slicer-canvas');
+    var slicerToggle = document.getElementById('cesium-slicer-toggle');
+    var slicerUI = document.getElementById('cesium-slicer-ui');
+    var cesiumDiv = document.getElementById('cesium-container');
+
+    var _slicerEnabled = false;
+    var _slicerX = null;  // screen X position of the slicer plane
+    var _slicerDragging = false;
+
+    if (!slicerToggle || !slicerCanvas) return;
+
+    function _updateSlicerPlane() {{
+      if (!_slicerEnabled || _slicerX === null) return;
+
+      // Get camera info to convert screen coords to world plane
+      var camera = _viewer.camera;
+      var canvas = _viewer.scene.canvas;
+      var centerScreen = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+
+      // Pick a point at center to get the ground position
+      var pickRay = _viewer.scene.camera.getPickRay(centerScreen);
+      var intersection = Cesium.IntersectionTests.rayPlane(pickRay, Cesium.Plane.ORIGIN_ZX_PLANE);
+      if (!intersection) {{
+        // Fallback: estimate based on camera distance
+        var dist = Cesium.Cartesian3.distance(camera.position, Cesium.Cartesian3.ZERO) || 10000000;
+        intersection = Cesium.Cartesian3.add(camera.position,
+          Cesium.Cartesian3.multiplyByScalar(camera.direction, -dist / 2, new Cesium.Cartesian3()),
+          new Cesium.Cartesian3());
+      }}
+
+      // Create a vertical plane perpendicular to camera's right direction
+      // Normal = camera.right (points toward the slicer line)
+      var normal = Cesium.Cartesian3.clone(camera.right);
+      var d = -Cesium.Cartesian3.dot(normal, intersection);
+      var plane = new Cesium.Plane(normal, d);
+
+      // Apply clipping to all data sources
+      _viewer.scene.clipPlaneCollection.removeAll();
+      _viewer.scene.clipPlaneCollection.add(plane);
+
+      // Render visual indicator
+      slicerCanvas.width = canvas.clientWidth;
+      slicerCanvas.height = canvas.clientHeight;
+      var ctx = slicerCanvas.getContext('2d');
+      ctx.clearRect(0, 0, slicerCanvas.width, slicerCanvas.height);
+      ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(_slicerX, 0);
+      ctx.lineTo(_slicerX, slicerCanvas.height);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255, 100, 100, 0.2)';
+      ctx.fillRect(_slicerX - 20, 0, 40, slicerCanvas.height);
+    }}
+
+    slicerToggle.addEventListener('change', function() {{
+      _slicerEnabled = this.checked;
+      slicerCanvas.style.display = _slicerEnabled ? 'block' : 'none';
+      if (_slicerEnabled) {{
+        _slicerX = cesiumDiv.clientWidth / 2;  // start at center
+        _updateSlicerPlane();
+      }} else {{
+        _viewer.scene.clipPlaneCollection.removeAll();
+        slicerCanvas.getContext('2d').clearRect(0, 0, slicerCanvas.width, slicerCanvas.height);
+      }}
+    }});
+
+    // Mouse tracking for slicer
+    slicerCanvas.addEventListener('mousedown', function(e) {{
+      if (_slicerEnabled) _slicerDragging = true;
+    }});
+
+    document.addEventListener('mousemove', function(e) {{
+      if (_slicerEnabled && _slicerDragging && cesiumDiv.style.display !== 'none') {{
+        var rect = cesiumDiv.getBoundingClientRect();
+        _slicerX = e.clientX - rect.left;
+        _updateSlicerPlane();
+      }}
+    }});
+
+    document.addEventListener('mouseup', function() {{
+      _slicerDragging = false;
+    }});
+  }}
+
   // ── Viewer init ───────────────────────────────────────────────────────────
   function _initViewer() {{
     Cesium.Ion.defaultAccessToken = _ionToken || 'none';
@@ -6406,6 +6499,7 @@ class WebMapExporter:
     _loadLayers();
     _leafletToCesium();
     _initIdentify();
+    _initSlicer();
     _cesiumOk = true;
   }}
 
@@ -6441,6 +6535,7 @@ class WebMapExporter:
           // Show container BEFORE init — Cesium needs a visible, sized div
           cesiumDiv.style.display = 'block';
           mapDiv.style.display    = 'none';
+          document.getElementById('cesium-slicer-ui').style.display = 'block';
           document.getElementById('label-overlay').style.display = 'none';
           var fr = document.getElementById('filterbar');
           if (fr) fr.style.display = 'none';
@@ -6455,6 +6550,7 @@ class WebMapExporter:
           // Restore 2D view so page isn't left blank
           cesiumDiv.style.display = 'none';
           mapDiv.style.display    = 'block';
+          document.getElementById('cesium-slicer-ui').style.display = 'none';
           document.getElementById('label-overlay').style.display = 'block';
           var frr = document.getElementById('filterbar');
           if (frr) frr.style.display = '';
@@ -6473,6 +6569,7 @@ class WebMapExporter:
       _cesiumToLeaflet();
       cesiumDiv.style.display = 'none';
       mapDiv.style.display    = 'block';
+      document.getElementById('cesium-slicer-ui').style.display = 'none';
       document.getElementById('label-overlay').style.display = 'block';
       var fr = document.getElementById('filterbar');
       if (fr) fr.style.display = '';
