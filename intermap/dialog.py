@@ -263,6 +263,11 @@ class WebMapExportDialog(QDockWidget):
         if _es is not None:
             try: self.extrude_scale_spin.setValue(float(_es))
             except Exception: pass
+        _er_id = s.value(f"{_SETTINGS_KEY}/elevation_raster_id", "")
+        if _er_id:
+            idx = self.elevation_raster_combo.findData(_er_id)
+            if idx >= 0:
+                self.elevation_raster_combo.setCurrentIndex(idx)
 
         for fld in ("info_title", "info_client", "info_client_img",
                     "info_project_number", "info_project", "info_project_img",
@@ -346,9 +351,10 @@ class WebMapExportDialog(QDockWidget):
             s.setValue(f"{_SETTINGS_KEY}/{flag}", getattr(self, attr).isChecked())
         s.setValue(f"{_SETTINGS_KEY}/cesium_ion_token", self.cesium_ion_token_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/google_maps_key",  self.google_maps_key_edit.text().strip())
-        s.setValue(f"{_SETTINGS_KEY}/extrude_field",    self.extrude_field_edit.text().strip())
-        s.setValue(f"{_SETTINGS_KEY}/extrude_scale",    self.extrude_scale_spin.value())
-        s.setValue(f"{_SETTINGS_KEY}/cog_proxy",        self.cog_proxy_edit.text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/extrude_field",       self.extrude_field_edit.text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/extrude_scale",       self.extrude_scale_spin.value())
+        s.setValue(f"{_SETTINGS_KEY}/elevation_raster_id", self.elevation_raster_combo.currentData() or "")
+        s.setValue(f"{_SETTINGS_KEY}/cog_proxy",           self.cog_proxy_edit.text().strip())
         import json as _json
         s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
         mode = "lite" if self._is_lite else ("3d" if self.feat_3d_cb.isChecked() else "pro")
@@ -2050,6 +2056,14 @@ class WebMapExportDialog(QDockWidget):
         extrude_row.addWidget(self.extrude_scale_spin)
         d3_form.addRow("Extrude field:", extrude_row)
 
+        self.elevation_raster_combo = QComboBox()
+        self.elevation_raster_combo.addItem("(none)", None)
+        self.elevation_raster_combo.setToolTip(
+            "Optional raster layer to use as elevation surface for 3D view.\n"
+            "Will be converted to a heightmap; features without Z will be draped on this surface."
+        )
+        d3_form.addRow("Elevation raster:", self.elevation_raster_combo)
+
         layout.addWidget(d3_group)
         self.feat_3d_cb.toggled.connect(d3_group.setEnabled)
         d3_group.setEnabled(self.feat_3d_cb.isChecked())
@@ -2416,8 +2430,9 @@ class WebMapExportDialog(QDockWidget):
                 "cesium_ion_token": self.cesium_ion_token_edit.text().strip(),
                 "google_maps_key":  self.google_maps_key_edit.text().strip(),
                 "cog_proxy":        self.cog_proxy_edit.text().strip(),
-                "extrude_field":    self.extrude_field_edit.text().strip(),
-                "extrude_scale":    self.extrude_scale_spin.value(),
+                "extrude_field":       self.extrude_field_edit.text().strip(),
+                "extrude_scale":       self.extrude_scale_spin.value(),
+                "elevation_raster_id": self.elevation_raster_combo.currentData() or "",
             },
         }
 
@@ -2506,6 +2521,12 @@ class WebMapExportDialog(QDockWidget):
                 self.extrude_scale_spin.setValue(float(feats["extrude_scale"]))
             except Exception:
                 pass
+        if "elevation_raster_id" in feats:
+            er_id = feats["elevation_raster_id"]
+            if er_id:
+                idx = self.elevation_raster_combo.findData(er_id)
+                if idx >= 0:
+                    self.elevation_raster_combo.setCurrentIndex(idx)
 
     def _instance_load(self, name=None):
         if name is None:
@@ -2798,8 +2819,25 @@ class WebMapExportDialog(QDockWidget):
         self.layer_tree_widget.expandAll()
         self.layer_tree_widget.blockSignals(False)
         self._populate_qgis_theme_combos()
+        self._populate_elevation_raster_combo()
         self._mv_populate_layer_combo()
         self._update_required_layers()
+
+    def _populate_elevation_raster_combo(self):
+        """Populate elevation raster combo with available raster layers."""
+        self.elevation_raster_combo.blockSignals(True)
+        current_data = self.elevation_raster_combo.currentData()
+        self.elevation_raster_combo.clear()
+        self.elevation_raster_combo.addItem("(none)", None)
+        for layer in QgsProject.instance().mapLayers().values():
+            if layer.type() == QgsMapLayer.RasterLayer:
+                self.elevation_raster_combo.addItem(layer.name(), layer.id())
+        # Restore previous selection if it still exists
+        if current_data:
+            idx = self.elevation_raster_combo.findData(current_data)
+            if idx >= 0:
+                self.elevation_raster_combo.setCurrentIndex(idx)
+        self.elevation_raster_combo.blockSignals(False)
 
     def _populate_qgis_theme_combos(self):
         theme_names = []
@@ -3506,6 +3544,7 @@ class WebMapExportDialog(QDockWidget):
                 google_maps_key=self.google_maps_key_edit.text().strip(),
                 feat_3d_extrude_field=self.extrude_field_edit.text().strip(),
                 feat_3d_extrude_scale=self.extrude_scale_spin.value(),
+                feat_3d_elevation_raster=self.elevation_raster_combo.currentData(),
                 cog_proxy=self.cog_proxy_edit.text().strip(),
             )
             exporter.export()

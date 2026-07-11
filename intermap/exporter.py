@@ -1194,6 +1194,7 @@ class WebMapExporter:
                  feat_3d=True, feat_sketch=True,
                  cesium_ion_token='', google_maps_key='',
                  feat_3d_extrude_field='', feat_3d_extrude_scale=1.0,
+                 feat_3d_elevation_raster=None,
                  cog_proxy=''):
         self.layers = layers
         self.output_path = output_path
@@ -1222,6 +1223,7 @@ class WebMapExporter:
         self.google_maps_key = google_maps_key or ''
         self.feat_3d_extrude_field = feat_3d_extrude_field or ''
         self.feat_3d_extrude_scale = float(feat_3d_extrude_scale or 1.0)
+        self.feat_3d_elevation_raster = feat_3d_elevation_raster or None
         self.cog_proxy = (cog_proxy or '').strip()
 
     def export(self):
@@ -6232,12 +6234,32 @@ class WebMapExporter:
       }}
     }});
 
+    // Helper: detect if a GeoJSON feature collection has any Z coordinates
+    function _geojsonHasZ(geojson) {{
+      if (!geojson || !geojson.features) return false;
+      for (var i = 0; i < geojson.features.length; i++) {{
+        var geom = geojson.features[i].geometry;
+        if (!geom) continue;
+        if (geom.type === 'Point' && geom.coordinates.length > 2) return true;
+        if (geom.type === 'LineString' || geom.type === 'MultiPoint') {{
+          if (geom.coordinates.length > 0 && geom.coordinates[0].length > 2) return true;
+        }}
+        if (geom.type === 'Polygon' || geom.type === 'MultiLineString') {{
+          if (geom.coordinates.length > 0 && geom.coordinates[0].length > 0 && geom.coordinates[0][0].length > 2) return true;
+        }}
+        if (geom.type === 'MultiPolygon') {{
+          if (geom.coordinates.length > 0 && geom.coordinates[0].length > 0 && geom.coordinates[0][0].length > 0 && geom.coordinates[0][0][0].length > 2) return true;
+        }}
+      }}
+      return false;
+    }}
+
     // Vector layers
     LAYERS.forEach(function(ldef, idx) {{
       if (ldef.kind !== 'vector') return;
       var visible = items[idx] ? items[idx].visible : true;
       Cesium.GeoJsonDataSource.load(ldef.geojson, {{
-        clampToGround: !_extrudeField,
+        clampToGround: !_extrudeField && !_geojsonHasZ(ldef.geojson),
         stroke: Cesium.Color.fromCssColorString('#3388ff'),
         fill:   Cesium.Color.fromCssColorString('#3388ff').withAlpha(0.4),
         strokeWidth: 2, markerSize: 16
