@@ -6300,119 +6300,157 @@ class WebMapExporter:
       }}
     }}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-    // Middle-click: rotate around screen center
-    var _mc_start = null;
+    // Middle-drag: orbit the camera around the point at the screen centre.
+    // Take middle-drag away from the default tilt gesture first, otherwise
+    // both run at once and the camera flies off.
+    _viewer.scene.screenSpaceCameraController.tiltEventTypes = [
+      Cesium.CameraEventType.PINCH,
+      {{ eventType: Cesium.CameraEventType.LEFT_DRAG,  modifier: Cesium.KeyboardEventModifier.CTRL }},
+      {{ eventType: Cesium.CameraEventType.RIGHT_DRAG, modifier: Cesium.KeyboardEventModifier.CTRL }}
+    ];
+
+    function _pickViewCentre() {{
+      var canvas = _viewer.scene.canvas;
+      var centre = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+      var ray = _viewer.camera.getPickRay(centre);
+      var p = ray ? _viewer.scene.globe.pick(ray, _viewer.scene) : null;
+      if (!p) p = _viewer.camera.pickEllipsoid(centre, _viewer.scene.globe.ellipsoid);
+      return p || null;
+    }}
+
+    var _mc_last = null, _orbitTarget = null;
     handler.setInputAction(function(down) {{
-      _mc_start = {{ x: down.position.x, y: down.position.y }};
+      _orbitTarget = _pickViewCentre();
+      _mc_last = {{ x: down.position.x, y: down.position.y }};
     }}, Cesium.ScreenSpaceEventType.MIDDLE_DOWN);
 
     handler.setInputAction(function(move) {{
-      if (!_mc_start) return;
-      var delta_x = move.endPosition.x - _mc_start.x;
-      var delta_y = move.endPosition.y - _mc_start.y;
-      _mc_start = {{ x: move.endPosition.x, y: move.endPosition.y }};
-
+      if (!_mc_last || !_orbitTarget) return;
+      var dx = move.endPosition.x - _mc_last.x;
+      var dy = move.endPosition.y - _mc_last.y;
+      _mc_last = {{ x: move.endPosition.x, y: move.endPosition.y }};
+      // Orbit the picked centre: rotateLeft/rotateUp move around the origin
+      // of the current reference frame, so pin that frame to the target.
       var camera = _viewer.camera;
-      var canvas = _viewer.scene.canvas;
-      var center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
-
-      // Rotate around the center of the screen
-      var rotateSpeed = 0.005;
-      camera.rotate(camera.direction, -delta_x * rotateSpeed);
-      camera.rotate(camera.right, -delta_y * rotateSpeed);
+      camera.lookAtTransform(Cesium.Transforms.eastNorthUpToFixedFrame(_orbitTarget));
+      camera.rotateLeft(dx * 0.005);
+      camera.rotateUp(-dy * 0.005);
+      camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
     }}, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
     handler.setInputAction(function() {{
-      _mc_start = null;
+      _mc_last = null; _orbitTarget = null;
     }}, Cesium.ScreenSpaceEventType.MIDDLE_UP);
   }}
 
-  // ── Vertical plane slicer ─────────────────────────────────────────────────
+  // ── Vertical plane slicer (Leapfrog-style cross-section) ─────────────────
   function _initSlicer() {{
     var slicerCanvas = document.getElementById('cesium-slicer-canvas');
     var slicerToggle = document.getElementById('cesium-slicer-toggle');
-    var slicerUI = document.getElementById('cesium-slicer-ui');
-    var cesiumDiv = document.getElementById('cesium-container');
-
-    var _slicerEnabled = false;
-    var _slicerX = null;  // screen X position of the slicer plane
-    var _slicerDragging = false;
-
     if (!slicerToggle || !slicerCanvas) return;
 
-    function _updateSlicerPlane() {{
-      if (!_slicerEnabled || _slicerX === null) return;
+    var _slicerEnabled  = false;
+    var _slicerX        = null;   // screen X of the slicer line
+    var _slicerDragging = false;
+    var GRAB_PX = 20;             // how close to the line a drag must start
 
-      // Get camera info to convert screen coords to world plane
-      var camera = _viewer.camera;
-      var canvas = _viewer.scene.canvas;
-      var centerScreen = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    // One persistent clipping plane on the globe, updated in place while
+    // dragging. Globe clipping cuts terrain, imagery and ground-clamped
+    // features; free-floating extruded entities are unaffected (Cesium
+    // clipping planes only apply to the globe, 3D Tiles and models).
+    var _clipPlane = new Cesium.ClippingPlane(new Cesium.Cartesian3(1, 0, 0), 0);
+    var _clipColl  = new Cesium.ClippingPlaneCollection({{
+      planes: [_clipPlane],
+      enabled: false,
+      edgeWidth: 1.0,
+      edgeColor: Cesium.Color.RED
+    }});
+    _viewer.scene.globe.clippingPlanes = _clipColl;
 
-      // Pick a point at center to get the ground position
-      var pickRay = _viewer.scene.camera.getPickRay(centerScreen);
-      var intersection = Cesium.IntersectionTests.rayPlane(pickRay, Cesium.Plane.ORIGIN_ZX_PLANE);
-      if (!intersection) {{
-        // Fallback: estimate based on camera distance
-        var dist = Cesium.Cartesian3.distance(camera.position, Cesium.Cartesian3.ZERO) || 10000000;
-        intersection = Cesium.Cartesian3.add(camera.position,
-          Cesium.Cartesian3.multiplyByScalar(camera.direction, -dist / 2, new Cesium.Cartesian3()),
-          new Cesium.Cartesian3());
-      }}
-
-      // Create a vertical plane perpendicular to camera's right direction
-      // Normal = camera.right (points toward the slicer line)
-      var normal = Cesium.Cartesian3.clone(camera.right);
-      var d = -Cesium.Cartesian3.dot(normal, intersection);
-      var plane = new Cesium.Plane(normal, d);
-
-      // Apply clipping to all data sources
-      _viewer.scene.clipPlaneCollection.removeAll();
-      _viewer.scene.clipPlaneCollection.add(plane);
-
-      // Render visual indicator
-      slicerCanvas.width = canvas.clientWidth;
-      slicerCanvas.height = canvas.clientHeight;
+    function _drawIndicator() {{
+      slicerCanvas.width  = cesiumDiv.clientWidth;
+      slicerCanvas.height = cesiumDiv.clientHeight;
       var ctx = slicerCanvas.getContext('2d');
       ctx.clearRect(0, 0, slicerCanvas.width, slicerCanvas.height);
-      ctx.strokeStyle = 'rgba(255, 100, 100, 0.8)';
+      ctx.strokeStyle = 'rgba(255,100,100,0.9)';
       ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
+      ctx.setLineDash([6, 5]);
       ctx.beginPath();
       ctx.moveTo(_slicerX, 0);
       ctx.lineTo(_slicerX, slicerCanvas.height);
       ctx.stroke();
-      ctx.fillStyle = 'rgba(255, 100, 100, 0.2)';
-      ctx.fillRect(_slicerX - 20, 0, 40, slicerCanvas.height);
+      // grab handle
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,100,100,0.9)';
+      ctx.beginPath();
+      ctx.arc(_slicerX, slicerCanvas.height / 2, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }}
+
+    function _updateSlicerPlane() {{
+      if (!_slicerEnabled || _slicerX === null) return;
+      var canvas = _viewer.scene.canvas;
+      var pos = new Cesium.Cartesian2(_slicerX, canvas.clientHeight / 2);
+      var ray = _viewer.camera.getPickRay(pos);
+      var anchor = ray ? _viewer.scene.globe.pick(ray, _viewer.scene) : null;
+      if (!anchor) anchor = _viewer.camera.pickEllipsoid(pos, _viewer.scene.globe.ellipsoid);
+      if (!anchor) {{ _drawIndicator(); return; }}  // looking at sky — keep last plane
+      // Vertical plane through the picked point, normal = camera's right
+      // vector, so the cut follows the on-screen line.
+      var normal = Cesium.Cartesian3.normalize(
+        Cesium.Cartesian3.clone(_viewer.camera.right, new Cesium.Cartesian3()),
+        new Cesium.Cartesian3());
+      var plane = Cesium.Plane.fromPointNormal(anchor, normal);
+      _clipPlane.normal   = plane.normal;
+      _clipPlane.distance = plane.distance;
+      _clipColl.enabled   = true;
+      _drawIndicator();
     }}
 
     slicerToggle.addEventListener('change', function() {{
       _slicerEnabled = this.checked;
       slicerCanvas.style.display = _slicerEnabled ? 'block' : 'none';
       if (_slicerEnabled) {{
-        _slicerX = cesiumDiv.clientWidth / 2;  // start at center
+        _slicerX = cesiumDiv.clientWidth / 2;   // start at centre
         _updateSlicerPlane();
       }} else {{
-        _viewer.scene.clipPlaneCollection.removeAll();
-        slicerCanvas.getContext('2d').clearRect(0, 0, slicerCanvas.width, slicerCanvas.height);
+        _clipColl.enabled = false;
+        var ctx = slicerCanvas.getContext('2d');
+        ctx.clearRect(0, 0, slicerCanvas.width, slicerCanvas.height);
       }}
     }});
 
-    // Mouse tracking for slicer
-    slicerCanvas.addEventListener('mousedown', function(e) {{
-      if (_slicerEnabled) _slicerDragging = true;
-    }});
+    // The indicator canvas is pointer-events:none so it never blocks the
+    // camera; instead grab drags that start near the line on the container,
+    // in the capture phase, before Cesium's own handlers see them. Cesium
+    // registers pointer events (not mouse events) where available, so the
+    // interceptor must use the same event family or the drag falls through
+    // to the default camera pan.
+    var EV = window.PointerEvent
+      ? {{ down: 'pointerdown', move: 'pointermove', up: 'pointerup' }}
+      : {{ down: 'mousedown',   move: 'mousemove',   up: 'mouseup' }};
 
-    document.addEventListener('mousemove', function(e) {{
-      if (_slicerEnabled && _slicerDragging && cesiumDiv.style.display !== 'none') {{
-        var rect = cesiumDiv.getBoundingClientRect();
-        _slicerX = e.clientX - rect.left;
-        _updateSlicerPlane();
+    cesiumDiv.addEventListener(EV.down, function(e) {{
+      if (!_slicerEnabled || e.button !== 0) return;
+      var rect = cesiumDiv.getBoundingClientRect();
+      if (Math.abs((e.clientX - rect.left) - _slicerX) <= GRAB_PX) {{
+        _slicerDragging = true;
+        e.stopPropagation();
+        e.preventDefault();
       }}
-    }});
+    }}, true);
 
-    document.addEventListener('mouseup', function() {{
+    document.addEventListener(EV.move, function(e) {{
+      if (!_slicerDragging) return;
+      var rect = cesiumDiv.getBoundingClientRect();
+      _slicerX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+      _updateSlicerPlane();
+      e.stopPropagation();
+    }}, true);
+
+    document.addEventListener(EV.up, function() {{
       _slicerDragging = false;
-    }});
+    }}, true);
   }}
 
   // ── Viewer init ───────────────────────────────────────────────────────────
