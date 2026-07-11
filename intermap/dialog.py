@@ -3635,6 +3635,7 @@ class WebMapExportDialog(QDockWidget):
                 feat_fancy_labels=True,
                 feat_changelog=False,
                 changelog=[],
+                feat_3d_elevation_raster=self.elevation_raster_combo.currentData(),
                 cog_proxy=self.cog_proxy_edit.text().strip(),
             )
             exporter.export()

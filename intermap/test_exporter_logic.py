@@ -397,6 +397,88 @@ def test_wms_layer_def_serialisable():
     assert loaded["wmsUrl"].startswith("https://")
 
 
+# ── DEM helpers — real functions extracted from exporter.py via AST ──────────
+# (exporter.py imports qgis at module level, so it can't be imported here;
+# these helpers are pure Python, so pull just their definitions and exec them)
+
+import ast as _ast
+import base64 as _base64
+import struct as _struct
+
+
+def _load_exporter_functions(*names):
+    src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exporter.py")
+    with open(src_path, encoding="utf-8") as f:
+        tree = _ast.parse(f.read())
+    ns = {"base64": _base64, "Optional": None}
+    found = set()
+    for node in tree.body:
+        if isinstance(node, _ast.FunctionDef) and node.name in names:
+            exec(compile(_ast.Module(body=[node], type_ignores=[]), src_path, "exec"), ns)
+            found.add(node.name)
+    missing = set(names) - found
+    assert not missing, f"functions not found in exporter.py: {missing}"
+    return tuple(ns[n] for n in names)
+
+
+_dem_grid_size, _dem_quantize = _load_exporter_functions("_dem_grid_size", "_dem_quantize")
+
+
+def test_dem_grid_size_square():
+    assert _dem_grid_size(1.0, 1.0, 512) == (512, 512)
+
+
+def test_dem_grid_size_wide():
+    gw, gh = _dem_grid_size(2.0, 1.0, 512)
+    assert gw == 512 and gh == 256
+
+
+def test_dem_grid_size_tall():
+    gw, gh = _dem_grid_size(1.0, 2.0, 512)
+    assert gw == 256 and gh == 512
+
+
+def test_dem_grid_size_degenerate_extent():
+    assert _dem_grid_size(0.0, 1.0) == (2, 2)
+    assert _dem_grid_size(1.0, -5.0) == (2, 2)
+
+
+def test_dem_grid_size_extreme_aspect_clamps_to_two():
+    gw, gh = _dem_grid_size(1000.0, 1.0, 512)
+    assert gw == 512 and gh == 2
+
+
+def test_dem_quantize_round_trip():
+    rows = [[100.0, 200.0], [300.0, 150.0]]
+    vmin, vmax, raw = _dem_quantize(rows)
+    assert (vmin, vmax) == (100.0, 300.0)
+    assert len(raw) == 4 * 2  # u16 per cell, little-endian
+    decoded = [vmin + q / 65535 * (vmax - vmin)
+               for q in _struct.unpack("<4H", raw)]
+    for got, want in zip(decoded, [100.0, 200.0, 300.0, 150.0]):
+        assert abs(got - want) < (vmax - vmin) / 65535 + 1e-9
+
+
+def test_dem_quantize_nodata_encodes_as_minimum():
+    rows = [[50.0, None], [None, 250.0]]
+    vmin, vmax, raw = _dem_quantize(rows)
+    qs = _struct.unpack("<4H", raw)
+    assert qs[1] == 0 and qs[2] == 0          # nodata → 0 → decodes to vmin
+    assert vmin == 50.0 and vmax == 250.0
+
+
+def test_dem_quantize_all_nodata():
+    vmin, vmax, raw = _dem_quantize([[None, None], [None, None]])
+    assert (vmin, vmax) == (0.0, 0.0)
+    assert raw == b"\x00\x00" * 4
+
+
+def test_dem_quantize_flat_grid_no_divide_by_zero():
+    vmin, vmax, raw = _dem_quantize([[42.0, 42.0]])
+    assert vmin == vmax == 42.0
+    assert _struct.unpack("<2H", raw) == (0, 0)  # all values sit at the floor
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = failed = 0

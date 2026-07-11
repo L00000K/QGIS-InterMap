@@ -1180,6 +1180,109 @@ def _geom_type_str(layer) -> str:
     return "polygon"
 
 
+def _dem_grid_size(extent_w: float, extent_h: float, max_dim: int = 512) -> tuple:
+    """Grid dimensions for a DEM sample of a max_dim budget, preserving the
+    extent's aspect ratio. Both dimensions are at least 2 so the grid always
+    has interpolatable corners."""
+    if extent_w <= 0 or extent_h <= 0:
+        return (2, 2)
+    aspect = extent_w / extent_h
+    if aspect >= 1.0:
+        gw = max_dim
+        gh = int(round(max_dim / aspect))
+    else:
+        gh = max_dim
+        gw = int(round(max_dim * aspect))
+    return (max(2, gw), max(2, gh))
+
+
+def _dem_quantize(rows) -> tuple:
+    """Quantize a row-major grid of heights (floats, None = nodata) to
+    little-endian uint16 relative to the grid's min/max. Nodata encodes as 0
+    (= the minimum height). Returns (vmin, vmax, bytes)."""
+    vals = [v for row in rows for v in row if v is not None]
+    if not vals:
+        n = sum(len(row) for row in rows)
+        return (0.0, 0.0, b"\x00\x00" * n)
+    vmin = float(min(vals))
+    vmax = float(max(vals))
+    rng = (vmax - vmin) or 1.0
+    out = bytearray()
+    for row in rows:
+        for v in row:
+            if v is None:
+                q = 0
+            else:
+                q = int(round((v - vmin) / rng * 65535))
+                q = 0 if q < 0 else (65535 if q > 65535 else q)
+            out += q.to_bytes(2, "little")
+    return (vmin, vmax, bytes(out))
+
+
+def _build_elevation_dem(layer, max_dim: int = 512) -> Optional[dict]:
+    """Sample a QGIS raster layer (band 1) into a WGS-84 height grid for the
+    Cesium terrain provider. Row 0 is the northern edge, matching Cesium's
+    heightmap convention. Returns a JSON-able dict, or None if the raster
+    cannot be sampled — the export then simply carries no terrain."""
+    try:
+        from qgis.core import QgsPointXY
+
+        provider = layer.dataProvider()
+        ext = layer.extent()
+        if ext.width() <= 0 or ext.height() <= 0:
+            return None
+        tr_fwd = QgsCoordinateTransform(layer.crs(), _WGS84, QgsProject.instance())
+        wgs = tr_fwd.transformBoundingBox(ext)
+        if wgs.width() <= 0 or wgs.height() <= 0:
+            return None
+        gw, gh = _dem_grid_size(wgs.width(), wgs.height(), max_dim)
+
+        # One resampled read of the source band in the layer's own CRS, then
+        # index into it per grid point — far faster than per-point sample().
+        bw = min(int(provider.xSize() or 0) or 1024, 1024)
+        bh = min(int(provider.ySize() or 0) or 1024, 1024)
+        block = provider.block(1, ext, bw, bh)
+
+        same_crs = layer.crs().authid() == _WGS84.authid()
+        tr_back = None if same_crs else QgsCoordinateTransform(
+            _WGS84, layer.crs(), QgsProject.instance())
+
+        rows = []
+        for j in range(gh):
+            lat = wgs.yMaximum() - (wgs.yMaximum() - wgs.yMinimum()) * (j / (gh - 1))
+            row = []
+            for i in range(gw):
+                lon = wgs.xMinimum() + (wgs.xMaximum() - wgs.xMinimum()) * (i / (gw - 1))
+                if same_crs:
+                    px, py = lon, lat
+                else:
+                    try:
+                        p = tr_back.transform(QgsPointXY(lon, lat))
+                        px, py = p.x(), p.y()
+                    except Exception:
+                        row.append(None)
+                        continue
+                col = int((px - ext.xMinimum()) / ext.width() * bw)
+                rw  = int((ext.yMaximum() - py) / ext.height() * bh)
+                if col < 0 or rw < 0 or col >= bw or rw >= bh or block.isNoData(rw, col):
+                    row.append(None)
+                else:
+                    row.append(float(block.value(rw, col)))
+            rows.append(row)
+
+        vmin, vmax, raw = _dem_quantize(rows)
+        return {
+            "b64":   base64.b64encode(raw).decode("ascii"),
+            "w":     gw, "h": gh,
+            "min":   vmin, "max": vmax,
+            "west":  wgs.xMinimum(), "south": wgs.yMinimum(),
+            "east":  wgs.xMaximum(), "north": wgs.yMaximum(),
+        }
+    except Exception as e:
+        print(f"InterMap: elevation raster skipped ({e})")
+        return None
+
+
 class WebMapExporter:
     def __init__(self, layers, output_path,
                  include_layer_control=True, include_basemap=True,
@@ -1338,6 +1441,18 @@ class WebMapExporter:
         _google_maps_key     = str(self.google_maps_key  or '').replace('"', '').replace('\\', '')
         _extrude_field       = str(self.feat_3d_extrude_field or '').replace('"', '').replace('\\', '')
         _extrude_scale       = self.feat_3d_extrude_scale
+
+        # Elevation raster → embedded WGS-84 heightmap for the 3D terrain
+        _elevation_json = "null"
+        if self.feat_3d and self.feat_3d_elevation_raster:
+            try:
+                _elev_layer = QgsProject.instance().mapLayer(self.feat_3d_elevation_raster)
+            except Exception:
+                _elev_layer = None
+            if _elev_layer is not None:
+                dem = _build_elevation_dem(_elev_layer)
+                if dem:
+                    _elevation_json = json.dumps(dem, separators=(",", ":"))
         # Properly escaped JS string literal (safe against injection)
         _cog_proxy_json      = json.dumps(str(self.cog_proxy or ''))
 
@@ -4861,8 +4976,8 @@ class WebMapExporter:
             pending--;
             if (!err && text) {{
               var t = text.trim();
-              if (t && t !== '' && !/no\s*feature/i.test(t) && !/<body>\s*<\/body>/i.test(t)
-                  && !/<body>\s*no features/i.test(t)) {{
+              if (t && t !== '' && !/no\\s*feature/i.test(t) && !/<body>\\s*<\\/body>/i.test(t)
+                  && !/<body>\\s*no features/i.test(t)) {{
                 wmsFound.push({{layerName: it.ld.name, text: t, legendItem: it}});
               }}
             }}
@@ -5994,6 +6109,7 @@ class WebMapExporter:
   var _googleKey    = "{_google_maps_key}";
   var _extrudeField = "{_extrude_field}";
   var _extrudeScale = {_extrude_scale};
+  var _elevDem      = {_elevation_json};  // embedded WGS-84 heightmap, or null
 
   var _is3d      = false;
   var _viewer    = null;
@@ -6071,6 +6187,30 @@ class WebMapExporter:
     return out;
   }}
 
+  // ── Z-coordinate detection ────────────────────────────────────────────────
+  // A layer counts as 3D when any feature's first position carries a third
+  // (Z) value. Exported GeoJSON has uniform dimensionality per geometry, so
+  // checking the first position of each geometry is sufficient.
+  function _geomHasZ(geom) {{
+    if (!geom) return false;
+    if (geom.type === 'GeometryCollection') {{
+      var gs = geom.geometries || [];
+      for (var i = 0; i < gs.length; i++) if (_geomHasZ(gs[i])) return true;
+      return false;
+    }}
+    var c = geom.coordinates;
+    while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
+    return Array.isArray(c) && c.length > 2;
+  }}
+
+  function _geojsonHasZ(geojson) {{
+    if (!geojson || !geojson.features) return false;
+    for (var i = 0; i < geojson.features.length; i++) {{
+      if (_geomHasZ(geojson.features[i].geometry)) return true;
+    }}
+    return false;
+  }}
+
   // ── SVG markers → billboard data URI ─────────────────────────────────────
   function _svgDataUri(ms) {{
     if (!ms || !ms.inner) return null;
@@ -6080,13 +6220,17 @@ class WebMapExporter:
   }}
 
   // ── Apply style to a Cesium entity ────────────────────────────────────────
-  function _applyEntityStyle(entity, style, extrudeHeight) {{
+  // hasZ: the layer carries real Z coordinates — leave loaded heights alone
+  // instead of re-clamping everything to the ground.
+  function _applyEntityStyle(entity, style, extrudeHeight, hasZ) {{
     if (!style) return;
     var fill   = _cssColor(style.fillColor || style.color || '#3388ff',
                            style.fillOpacity !== undefined ? style.fillOpacity : 0.4);
     var stroke = _cssColor(style.color || '#3388ff',
                            style.opacity !== undefined ? style.opacity : 1.0);
     var weight = style.weight || 2;
+    var clampRef = hasZ ? Cesium.HeightReference.NONE
+                        : Cesium.HeightReference.CLAMP_TO_GROUND;
 
     if (entity.polygon) {{
       entity.polygon.material     = new Cesium.ColorMaterialProperty(fill);
@@ -6097,14 +6241,14 @@ class WebMapExporter:
         entity.polygon.extrudedHeight = new Cesium.ConstantProperty(extrudeHeight);
         entity.polygon.closeTop       = new Cesium.ConstantProperty(true);
         entity.polygon.closeBottom    = new Cesium.ConstantProperty(true);
-      }} else {{
+      }} else if (!hasZ) {{
         entity.polygon.heightReference = Cesium.HeightReference.CLAMP_TO_GROUND;
       }}
     }}
     if (entity.polyline) {{
       entity.polyline.material      = new Cesium.ColorMaterialProperty(stroke);
       entity.polyline.width         = new Cesium.ConstantProperty(weight);
-      entity.polyline.clampToGround = new Cesium.ConstantProperty(!extrudeHeight);
+      entity.polyline.clampToGround = new Cesium.ConstantProperty(!extrudeHeight && !hasZ);
     }}
 
     // Points and billboards
@@ -6122,7 +6266,7 @@ class WebMapExporter:
               (ms.h || 24) / 2 - (ms.ay || 0)
             )),
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+            heightReference: clampRef
           }});
           entity.point = undefined;
           return;
@@ -6139,13 +6283,13 @@ class WebMapExporter:
           style.markerStrokeOpacity !== undefined ? style.markerStrokeOpacity : 1.0
         )),
         outlineWidth:    new Cesium.ConstantProperty(style.markerStrokeWidth || 1),
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        heightReference: clampRef
       }});
     }}
   }}
 
   // ── Apply labels from labelConfig ─────────────────────────────────────────
-  function _applyLabels(entities, labelCfg) {{
+  function _applyLabels(entities, labelCfg, hasZ) {{
     if (!labelCfg || !labelCfg.enabled || !labelCfg.field) return;
     var col = _cssColor(labelCfg.color || '#222222');
     entities.forEach(function(entity) {{
@@ -6161,14 +6305,15 @@ class WebMapExporter:
         style:            new Cesium.ConstantProperty(Cesium.LabelStyle.FILL_AND_OUTLINE),
         verticalOrigin:   new Cesium.ConstantProperty(Cesium.VerticalOrigin.BOTTOM),
         pixelOffset:      new Cesium.ConstantProperty(new Cesium.Cartesian2(0, -8)),
-        heightReference:  Cesium.HeightReference.CLAMP_TO_GROUND,
+        heightReference:  hasZ ? Cesium.HeightReference.NONE
+                               : Cesium.HeightReference.CLAMP_TO_GROUND,
         disableDepthTestDistance: Number.POSITIVE_INFINITY
       }});
     }});
   }}
 
   // ── Batch style entities in rAF chunks to avoid freezing ─────────────────
-  function _batchStyle(entities, styleMap, extrudeField, extrudeScale, labelCfg, done) {{
+  function _batchStyle(entities, styleMap, extrudeField, extrudeScale, labelCfg, hasZ, done) {{
     var CHUNK = 200, i = 0;
     function step() {{
       var end = Math.min(i + CHUNK, entities.length);
@@ -6181,11 +6326,11 @@ class WebMapExporter:
           extH = parseFloat(props[extrudeField]) * (extrudeScale || 1);
           if (isNaN(extH)) extH = 0;
         }}
-        _applyEntityStyle(entity, style, extH);
+        _applyEntityStyle(entity, style, extH, hasZ);
       }}
       if (i < entities.length) requestAnimationFrame(step);
       else {{
-        _applyLabels(entities, labelCfg);
+        _applyLabels(entities, labelCfg, hasZ);
         if (done) done();
       }}
     }}
@@ -6239,38 +6384,19 @@ class WebMapExporter:
       }}
     }});
 
-    // Helper: detect if a GeoJSON feature collection has any Z coordinates
-    function _geojsonHasZ(geojson) {{
-      if (!geojson || !geojson.features) return false;
-      for (var i = 0; i < geojson.features.length; i++) {{
-        var geom = geojson.features[i].geometry;
-        if (!geom) continue;
-        if (geom.type === 'Point' && geom.coordinates.length > 2) return true;
-        if (geom.type === 'LineString' || geom.type === 'MultiPoint') {{
-          if (geom.coordinates.length > 0 && geom.coordinates[0].length > 2) return true;
-        }}
-        if (geom.type === 'Polygon' || geom.type === 'MultiLineString') {{
-          if (geom.coordinates.length > 0 && geom.coordinates[0].length > 0 && geom.coordinates[0][0].length > 2) return true;
-        }}
-        if (geom.type === 'MultiPolygon') {{
-          if (geom.coordinates.length > 0 && geom.coordinates[0].length > 0 && geom.coordinates[0][0].length > 0 && geom.coordinates[0][0][0].length > 2) return true;
-        }}
-      }}
-      return false;
-    }}
-
     // Vector layers
     LAYERS.forEach(function(ldef, idx) {{
       if (ldef.kind !== 'vector') return;
       var visible = items[idx] ? items[idx].visible : true;
+      var hasZ    = _geojsonHasZ(ldef.geojson);
       Cesium.GeoJsonDataSource.load(ldef.geojson, {{
-        clampToGround: !_extrudeField && !_geojsonHasZ(ldef.geojson),
+        clampToGround: !_extrudeField && !hasZ,
         stroke: Cesium.Color.fromCssColorString('#3388ff'),
         fill:   Cesium.Color.fromCssColorString('#3388ff').withAlpha(0.4),
         strokeWidth: 2, markerSize: 16
       }}).then(function(ds) {{
         ds.show = visible;
-        _batchStyle(ds.entities.values, ldef.styleMap, _extrudeField, _extrudeScale, ldef.labelConfig, null);
+        _batchStyle(ds.entities.values, ldef.styleMap, _extrudeField, _extrudeScale, ldef.labelConfig, hasZ, null);
         _viewer.dataSources.add(ds);
         _cesiumLayers[idx] = ds;
       }}).catch(function(err) {{
@@ -6395,11 +6521,18 @@ class WebMapExporter:
       var anchor = ray ? _viewer.scene.globe.pick(ray, _viewer.scene) : null;
       if (!anchor) anchor = _viewer.camera.pickEllipsoid(pos, _viewer.scene.globe.ellipsoid);
       if (!anchor) {{ _drawIndicator(); return; }}  // looking at sky — keep last plane
-      // Vertical plane through the picked point, normal = camera's right
-      // vector, so the cut follows the on-screen line.
-      var normal = Cesium.Cartesian3.normalize(
-        Cesium.Cartesian3.clone(_viewer.camera.right, new Cesium.Cartesian3()),
-        new Cesium.Cartesian3());
+      // Vertical plane through the picked point. Start from the camera's
+      // right vector (so the cut follows the on-screen line) but project out
+      // its vertical component — a tilted camera must still cut plumb.
+      var up = _viewer.scene.globe.ellipsoid.geodeticSurfaceNormal(anchor, new Cesium.Cartesian3());
+      var normal = Cesium.Cartesian3.clone(_viewer.camera.right, new Cesium.Cartesian3());
+      var vert = Cesium.Cartesian3.multiplyByScalar(
+        up, Cesium.Cartesian3.dot(normal, up), new Cesium.Cartesian3());
+      Cesium.Cartesian3.subtract(normal, vert, normal);
+      if (Cesium.Cartesian3.magnitude(normal) < 1e-6) {{
+        Cesium.Cartesian3.clone(_viewer.camera.right, normal);  // degenerate: camera right is vertical
+      }}
+      Cesium.Cartesian3.normalize(normal, normal);
       var plane = Cesium.Plane.fromPointNormal(anchor, normal);
       _clipPlane.normal   = plane.normal;
       _clipPlane.distance = plane.distance;
@@ -6453,6 +6586,54 @@ class WebMapExporter:
     }}, true);
   }}
 
+  // ── Embedded-DEM terrain provider ─────────────────────────────────────────
+  // The exporter can embed a quantized WGS-84 height grid sampled from a
+  // QGIS raster. Serve it as terrain via CustomHeightmapTerrainProvider:
+  // Cesium asks for a small heightmap per tile and we answer by bilinear-
+  // sampling the grid. Outside the raster's extent the terrain is 0 m.
+  function _demTerrainProvider() {{
+    var bytes = Uint8Array.from(atob(_elevDem.b64), function(ch) {{ return ch.charCodeAt(0); }});
+    var grid  = new Uint16Array(bytes.buffer);           // little-endian, row 0 = north
+    var W = _elevDem.w, H = _elevDem.h;
+    var west = _elevDem.west, south = _elevDem.south;
+    var east = _elevDem.east, north = _elevDem.north;
+    var hMin = _elevDem.min;
+    var hScale = (_elevDem.max - _elevDem.min) / 65535 || 0;
+    if (grid.length !== W * H) throw new Error('DEM grid size mismatch');
+
+    function sampleHeight(lonDeg, latDeg) {{
+      var fx = (lonDeg - west) / (east - west) * (W - 1);
+      var fy = (north - latDeg) / (north - south) * (H - 1);
+      if (fx < 0 || fy < 0 || fx > W - 1 || fy > H - 1) return 0;
+      var x0 = Math.floor(fx), y0 = Math.floor(fy);
+      var x1 = Math.min(x0 + 1, W - 1), y1 = Math.min(y0 + 1, H - 1);
+      var tx = fx - x0, ty = fy - y0;
+      var v = grid[y0 * W + x0] * (1 - tx) * (1 - ty)
+            + grid[y0 * W + x1] * tx       * (1 - ty)
+            + grid[y1 * W + x0] * (1 - tx) * ty
+            + grid[y1 * W + x1] * tx       * ty;
+      return hMin + v * hScale;
+    }}
+
+    var TILE = 32;
+    var tilingScheme = new Cesium.GeographicTilingScheme();
+    return new Cesium.CustomHeightmapTerrainProvider({{
+      width: TILE, height: TILE, tilingScheme: tilingScheme,
+      callback: function(x, y, level) {{
+        var r = tilingScheme.tileXYToRectangle(x, y, level);
+        var out = new Float32Array(TILE * TILE);
+        for (var j = 0; j < TILE; j++) {{
+          var lat = Cesium.Math.toDegrees(r.north - (r.north - r.south) * (j / (TILE - 1)));
+          for (var i = 0; i < TILE; i++) {{
+            var lon = Cesium.Math.toDegrees(r.west + (r.east - r.west) * (i / (TILE - 1)));
+            out[j * TILE + i] = sampleHeight(lon, lat);
+          }}
+        }}
+        return out;
+      }}
+    }});
+  }}
+
   // ── Viewer init ───────────────────────────────────────────────────────────
   function _initViewer() {{
     Cesium.Ion.defaultAccessToken = _ionToken || 'none';
@@ -6481,7 +6662,14 @@ class WebMapExporter:
       infoBox: false, selectionIndicator: false,
       baseLayer: _baseLayer,
     }};
-    if (_ionToken && Cesium.Terrain) {{
+    // Terrain precedence: an explicitly chosen elevation raster wins over
+    // Cesium Ion world terrain; with neither, the globe is the ellipsoid.
+    if (_elevDem) {{
+      try {{
+        viewerOpts.terrainProvider = _demTerrainProvider();
+      }} catch(e) {{ console.warn('Elevation DEM terrain unavailable:', e); }}
+    }}
+    if (!viewerOpts.terrainProvider && _ionToken && Cesium.Terrain) {{
       viewerOpts.terrain = Cesium.Terrain.fromWorldTerrain();
     }}
 
@@ -6539,6 +6727,7 @@ class WebMapExporter:
     _initIdentify();
     _initSlicer();
     _cesiumOk = true;
+    window._im_cesiumViewer = _viewer;  // cross-block / extension hook
   }}
 
   // ── Lazy-load CesiumJS from CDN ───────────────────────────────────────────
@@ -6563,6 +6752,19 @@ class WebMapExporter:
   }}
 
   // ── Toggle ────────────────────────────────────────────────────────────────
+  function _setDisplay(id, value) {{
+    var el = document.getElementById(id);
+    if (el) el.style.display = value;
+  }}
+
+  function _show2d() {{
+    cesiumDiv.style.display = 'none';
+    mapDiv.style.display    = 'block';
+    _setDisplay('cesium-slicer-ui', 'none');
+    _setDisplay('label-overlay', 'block');
+    _setDisplay('filterbar', '');
+  }}
+
   function _onToggle() {{
     if (_loading) return;
     if (!_is3d) {{
@@ -6573,10 +6775,9 @@ class WebMapExporter:
           // Show container BEFORE init — Cesium needs a visible, sized div
           cesiumDiv.style.display = 'block';
           mapDiv.style.display    = 'none';
-          document.getElementById('cesium-slicer-ui').style.display = 'block';
-          document.getElementById('label-overlay').style.display = 'none';
-          var fr = document.getElementById('filterbar');
-          if (fr) fr.style.display = 'none';
+          _setDisplay('cesium-slicer-ui', 'block');
+          _setDisplay('label-overlay', 'none');
+          _setDisplay('filterbar', 'none');
 
           if (!_cesiumOk) _initViewer(); else _leafletToCesium();
 
@@ -6586,12 +6787,7 @@ class WebMapExporter:
         }} catch(e) {{
           console.error('Cesium init failed:', e);
           // Restore 2D view so page isn't left blank
-          cesiumDiv.style.display = 'none';
-          mapDiv.style.display    = 'block';
-          document.getElementById('cesium-slicer-ui').style.display = 'none';
-          document.getElementById('label-overlay').style.display = 'block';
-          var frr = document.getElementById('filterbar');
-          if (frr) frr.style.display = '';
+          _show2d();
           L.DomUtil.removeClass(toggleContainer, 'is-3d');
           toggleContainer.style.opacity = '0.4';
           toggleContainer.style.cursor  = 'not-allowed';
@@ -6605,12 +6801,7 @@ class WebMapExporter:
       }});
     }} else {{
       _cesiumToLeaflet();
-      cesiumDiv.style.display = 'none';
-      mapDiv.style.display    = 'block';
-      document.getElementById('cesium-slicer-ui').style.display = 'none';
-      document.getElementById('label-overlay').style.display = 'block';
-      var fr = document.getElementById('filterbar');
-      if (fr) fr.style.display = '';
+      _show2d();
       toggleBtn.innerHTML = '3D';
       L.DomUtil.removeClass(toggleContainer, 'is-3d');
       _is3d = false;
