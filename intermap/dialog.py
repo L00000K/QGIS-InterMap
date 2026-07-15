@@ -251,10 +251,12 @@ class WebMapExportDialog(QDockWidget):
                 getattr(self, attr).setChecked(s.value(key, True, type=bool))
 
         for _3d_key, _3d_attr in (
-            ("cesium_ion_token", "cesium_ion_token_edit"),
-            ("google_maps_key",  "google_maps_key_edit"),
-            ("extrude_field",    "extrude_field_edit"),
-            ("cog_proxy",        "cog_proxy_edit"),
+            ("cesium_ion_token",   "cesium_ion_token_edit"),
+            ("google_maps_key",    "google_maps_key_edit"),
+            ("extrude_field",      "extrude_field_edit"),
+            ("cog_proxy",          "cog_proxy_edit"),
+            ("report_md_path",     "report_md_edit"),
+            ("report_figures_dir", "report_figures_edit"),
         ):
             val = s.value(f"{_SETTINGS_KEY}/{_3d_key}", "")
             if val:
@@ -354,6 +356,8 @@ class WebMapExportDialog(QDockWidget):
         s.setValue(f"{_SETTINGS_KEY}/extrude_field",       self.extrude_field_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/extrude_scale",       self.extrude_scale_spin.value())
         s.setValue(f"{_SETTINGS_KEY}/elevation_raster_id", self.elevation_raster_combo.currentData() or "")
+        s.setValue(f"{_SETTINGS_KEY}/report_md_path",      self.report_md_edit.text().strip())
+        s.setValue(f"{_SETTINGS_KEY}/report_figures_dir",  self.report_figures_edit.text().strip())
         s.setValue(f"{_SETTINGS_KEY}/cog_proxy",           self.cog_proxy_edit.text().strip())
         import json as _json
         s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
@@ -2068,6 +2072,46 @@ class WebMapExportDialog(QDockWidget):
         self.feat_3d_cb.toggled.connect(d3_group.setEnabled)
         d3_group.setEnabled(self.feat_3d_cb.isChecked())
 
+        # ── Report / story mode ───────────────────────────────────────────
+        self.report_group = QGroupBox("Report / story mode (optional)")
+        report_form = QFormLayout(self.report_group)
+        report_form.setContentsMargins(8, 6, 8, 8)
+        report_form.setSpacing(6)
+
+        report_md_row = QHBoxLayout()
+        self.report_md_edit = QLineEdit()
+        self.report_md_edit.setPlaceholderText("Select report .md file…")
+        self.report_md_edit.setToolTip(
+            "Markdown report rendered as a scrolling story panel beside the map.\n\n"
+            "Front-matter supports title: and autolink: (layer/field/pattern).\n"
+            "Directives:\n"
+            "  :::view <Map View name> [3d pitch=-35 heading=120]\n"
+            "  ![caption](figures/plan.png){#fig:plan}\n"
+            "  {#tbl:results caption=\"...\"} above a markdown table\n"
+            "  :::table layer=\"Boreholes\" filter=\"depth > 10\" {#tbl:bh caption=\"...\"}\n"
+            "Links: [BH-101](gis:Boreholes?ID=BH-101), [text](view:Name), (fig:plan)"
+        )
+        report_md_btn = QPushButton("Browse…")
+        report_md_btn.clicked.connect(self._browse_report_md)
+        report_md_row.addWidget(self.report_md_edit)
+        report_md_row.addWidget(report_md_btn)
+        report_form.addRow("Report markdown:", report_md_row)
+
+        report_fig_row = QHBoxLayout()
+        self.report_figures_edit = QLineEdit()
+        self.report_figures_edit.setPlaceholderText("Figures folder (optional — defaults beside the .md)")
+        self.report_figures_edit.setToolTip(
+            "Folder that image paths in the markdown are resolved against.\n"
+            "Images are embedded into the exported HTML."
+        )
+        report_fig_btn = QPushButton("Browse…")
+        report_fig_btn.clicked.connect(self._browse_report_figures)
+        report_fig_row.addWidget(self.report_figures_edit)
+        report_fig_row.addWidget(report_fig_btn)
+        report_form.addRow("Figures folder:", report_fig_row)
+
+        layout.addWidget(self.report_group)
+
         # ── Remote raster sources (COG on blob storage) ──────────────────
         self.cog_group = QGroupBox("Remote raster sources (optional)")
         cog_form = QFormLayout(self.cog_group)
@@ -2433,6 +2477,8 @@ class WebMapExportDialog(QDockWidget):
                 "extrude_field":       self.extrude_field_edit.text().strip(),
                 "extrude_scale":       self.extrude_scale_spin.value(),
                 "elevation_raster_id": self.elevation_raster_combo.currentData() or "",
+                "report_md_path":      self.report_md_edit.text().strip(),
+                "report_figures_dir":  self.report_figures_edit.text().strip(),
             },
         }
 
@@ -2527,6 +2573,10 @@ class WebMapExportDialog(QDockWidget):
                 idx = self.elevation_raster_combo.findData(er_id)
                 if idx >= 0:
                     self.elevation_raster_combo.setCurrentIndex(idx)
+        if "report_md_path" in feats:
+            self.report_md_edit.setText(feats["report_md_path"])
+        if "report_figures_dir" in feats:
+            self.report_figures_edit.setText(feats["report_figures_dir"])
 
     def _instance_load(self, name=None):
         if name is None:
@@ -3382,6 +3432,29 @@ class WebMapExportDialog(QDockWidget):
                 path += ".html"
             self.path_edit.setText(path)
 
+    def _browse_report_md(self):
+        current = self.report_md_edit.text().strip()
+        start_dir = os.path.dirname(current) if current else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select report markdown", start_dir,
+            "Markdown (*.md *.markdown *.txt);;All files (*)"
+        )
+        if path:
+            self.report_md_edit.setText(path)
+            # Default the figures folder to a 'figures' dir beside the .md
+            if not self.report_figures_edit.text().strip():
+                guess = os.path.join(os.path.dirname(path), "figures")
+                if os.path.isdir(guess):
+                    self.report_figures_edit.setText(guess)
+
+    def _browse_report_figures(self):
+        current = self.report_figures_edit.text().strip()
+        path = QFileDialog.getExistingDirectory(
+            self, "Select figures folder", current or ""
+        )
+        if path:
+            self.report_figures_edit.setText(path)
+
     def _export(self):
         output_path = self.path_edit.text().strip()
         if not output_path:
@@ -3545,6 +3618,8 @@ class WebMapExportDialog(QDockWidget):
                 feat_3d_extrude_field=self.extrude_field_edit.text().strip(),
                 feat_3d_extrude_scale=self.extrude_scale_spin.value(),
                 feat_3d_elevation_raster=self.elevation_raster_combo.currentData(),
+                report_md_path=self.report_md_edit.text().strip(),
+                report_figures_dir=self.report_figures_edit.text().strip(),
                 cog_proxy=self.cog_proxy_edit.text().strip(),
             )
             exporter.export()
@@ -3636,6 +3711,8 @@ class WebMapExportDialog(QDockWidget):
                 feat_changelog=False,
                 changelog=[],
                 feat_3d_elevation_raster=self.elevation_raster_combo.currentData(),
+                report_md_path=self.report_md_edit.text().strip(),
+                report_figures_dir=self.report_figures_edit.text().strip(),
                 cog_proxy=self.cog_proxy_edit.text().strip(),
             )
             exporter.export()

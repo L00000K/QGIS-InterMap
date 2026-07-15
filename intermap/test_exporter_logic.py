@@ -407,17 +407,25 @@ import struct as _struct
 
 
 def _load_exporter_functions(*names):
+    import re as _re
     src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exporter.py")
     with open(src_path, encoding="utf-8") as f:
         tree = _ast.parse(f.read())
-    ns = {"base64": _base64, "Optional": None}
+    ns = {"base64": _base64, "re": _re, "os": os, "Optional": None}
     found = set()
     for node in tree.body:
+        name = None
         if isinstance(node, _ast.FunctionDef) and node.name in names:
+            name = node.name
+        elif (isinstance(node, _ast.Assign) and len(node.targets) == 1
+              and isinstance(node.targets[0], _ast.Name)
+              and node.targets[0].id in names):
+            name = node.targets[0].id
+        if name:
             exec(compile(_ast.Module(body=[node], type_ignores=[]), src_path, "exec"), ns)
-            found.add(node.name)
+            found.add(name)
     missing = set(names) - found
-    assert not missing, f"functions not found in exporter.py: {missing}"
+    assert not missing, f"not found in exporter.py: {missing}"
     return tuple(ns[n] for n in names)
 
 
@@ -477,6 +485,85 @@ def test_dem_quantize_flat_grid_no_divide_by_zero():
     vmin, vmax, raw = _dem_quantize([[42.0, 42.0]])
     assert vmin == vmax == 42.0
     assert _struct.unpack("<2H", raw) == (0, 0)  # all values sit at the floor
+
+
+# ── Report / story mode helpers ───────────────────────────────────────────────
+
+(_parse_front_matter, _report_image_refs, _validate_report_refs,
+ _REPORT_IMG_RE) = _load_exporter_functions(
+    "_parse_front_matter", "_report_image_refs", "_validate_report_refs",
+    "_REPORT_IMG_RE")
+
+
+_FM_SAMPLE = """---
+title: Site Investigation Report
+autolink:
+  - layer: Boreholes
+    field: ID
+    pattern: "BH-\\\\d+"
+  - layer: Trial Pits
+    field: Ref
+    pattern: "TP\\\\d+"
+---
+
+# Introduction
+
+Body text here.
+"""
+
+
+def test_front_matter_title_and_autolink():
+    meta, body = _parse_front_matter(_FM_SAMPLE)
+    assert meta["title"] == "Site Investigation Report"
+    assert len(meta["autolink"]) == 2
+    assert meta["autolink"][0] == {"layer": "Boreholes", "field": "ID", "pattern": "BH-\\\\d+"}
+    assert body.startswith("\n# Introduction")
+
+
+def test_front_matter_absent():
+    meta, body = _parse_front_matter("# No front matter\n\ntext")
+    assert meta == {} and body.startswith("# No front matter")
+
+
+def test_front_matter_unterminated_is_ignored():
+    text = "---\ntitle: broken\nno closing fence"
+    meta, body = _parse_front_matter(text)
+    assert meta == {} and body == text
+
+
+def test_front_matter_incomplete_autolink_entries_dropped():
+    meta, _ = _parse_front_matter(
+        "---\nautolink:\n  - layer: L\n    field: F\n---\nbody")
+    assert meta["autolink"] == []  # no pattern → dropped
+
+
+def test_report_image_refs_unique_in_order():
+    md = ("![a](figures/one.png) text ![b](figures/two.png)\n"
+          "again ![c](figures/one.png) and ![d](https://x/y.png)")
+    assert _report_image_refs(md) == [
+        "figures/one.png", "figures/two.png", "https://x/y.png"]
+
+
+def test_validate_report_refs_flags_dead_links():
+    md = (":::view Missing View\n"
+          "A [link](gis:NoLayer?ID=1) and [ok](gis:Boreholes?ID=2).\n"
+          "[v](view:Site Overview)\n"
+          ':::table layer="Ghost" {#tbl:x}\n')
+    warnings = _validate_report_refs(
+        md, {"autolink": [{"layer": "Boreholes", "field": "ID", "pattern": "x"}]},
+        layer_names=["Boreholes"], view_names=["Site Overview"])
+    joined = "\n".join(warnings)
+    assert "Missing View" in joined
+    assert "NoLayer" in joined
+    assert "Ghost" in joined
+    assert "Site Overview" not in joined and "Boreholes" not in joined
+
+
+def test_validate_report_refs_strips_view_options():
+    md = ":::view Site Overview [3d pitch=-35 heading=120]\n"
+    warnings = _validate_report_refs(md, {"autolink": []},
+                                     layer_names=[], view_names=["Site Overview"])
+    assert warnings == []
 
 
 if __name__ == "__main__":
