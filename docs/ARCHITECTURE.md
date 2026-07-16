@@ -3,20 +3,40 @@
 ## 1. File map
 
 ```
-qgis_webmap/
-├── __init__.py              classFactory() → QgisWebMapPlugin
+intermap/
+├── __init__.py              classFactory() → WebMapExporterPlugin
 ├── plugin.py                Plugin class: menu item, toolbar button, dialog trigger
-├── dialog.py                WebMapExportDialog (PyQt5)
-├── exporter.py              WebMapExporter + _render_html() HTML template
-├── test_exporter_logic.py   18 unit tests (no QGIS required)
+├── dialog.py                WebMapExportDialog (PyQt5 dock widget)
+├── exporter/                Export engine package
+│   ├── __init__.py          re-exports WebMapExporter
+│   ├── core.py              WebMapExporter: export() + template context building
+│   ├── compat.py            version-tolerant QGIS imports (_WGS84, optional classes)
+│   ├── utils.py             rich-text body, colours, unit conversion
+│   ├── assets.py            Leaflet / plugin / vendor asset loading + script-safe JS
+│   ├── themes.py            _THEMES colour tokens
+│   ├── sources.py           WMS/WMTS/XYZ + remote COG source parsing
+│   ├── markers.py           shape aliases, QGIS symbol → inline SVG
+│   ├── labels.py            _extract_label_config
+│   ├── styles.py            renderers/symbol layers → styleMap dicts
+│   ├── geometry.py          layer → GeoJSON, _flatten_coords
+│   ├── rasters.py           raster PNG embedding, legends, elevation DEM
+│   ├── report.py            report front matter, figures, reference checks
+│   ├── template.py          page assembly + @@placeholder@@ substitution
+│   └── templates/           the exported web app as plain HTML/CSS/JS
+│       ├── head.html        <head> with asset placeholders
+│       ├── webmap.css       all page styles
+│       ├── body.html        page markup
+│       ├── app.js           2D map application (main IIFE)
+│       ├── cesium.js        3D viewer IIFE
+│       └── report.js        report / story-mode IIFE
 ├── metadata.txt             QGIS plugin manifest
-└── vendor/
-    ├── leaflet.js           Leaflet 1.9.4 (bundled)
-    ├── leaflet.css
-    ├── leaflet.fullscreen.js / .css
-    ├── leaflet.minimap.js / .css
-    ├── leaflet.contextmenu.js / .css
-    └── logo.svg / logo.png  (optional branding)
+└── vendor/                  bundled Leaflet 1.9.4 + plugins, marked, logo
+
+tests/                       (repo only — not shipped in the plugin zip)
+├── qgis_mock/               importable stand-in for the qgis package
+├── test_exporter.py         unit tests against the real modules
+├── render_snapshot.py       renders full export scenarios (regression oracle)
+└── browser_check.py         boots exports in headless Chromium, fails on JS errors
 ```
 
 ---
@@ -42,7 +62,9 @@ WebMapExporter.export()
   │    ├─ layer.getFeatures() → GeoJSON dicts
   │    └─ appends LayerDef dict to layer_defs[]
   └─ _render_html(layer_defs, bounds)
-       └─ writes single HTML file to output_path
+       ├─ builds the template context (JSON payloads, feature flags,
+       │    theme colours, panel HTML fragments)
+       └─ template.render_page(ctx) → writes single HTML file to output_path
 ```
 
 ---
@@ -61,7 +83,7 @@ WebMapExporter.export()
 | `_theme_save()` | Snapshots current Layers tab state + form fields into `self._themes[]` |
 | `_theme_capture_extent()` | Calls `_capture_canvas_extent()` and stores on the form being edited |
 
-### `exporter.py — symbol extraction`
+### `exporter/ — symbol extraction`
 
 | Function | Input | Output |
 |---|---|---|
@@ -72,12 +94,22 @@ WebMapExporter.export()
 | `_color_to_hex(color)` | `QColor` | `"#rrggbb"` |
 | `_size_to_px(size, unit)` | float, `QgsUnitTypes.RenderUnit` | float pixels |
 
-### `exporter.py — WebMapExporter`
+### `exporter/core.py — WebMapExporter`
 
 | Method | Purpose |
 |---|---|
 | `export()` | Iterates layers, builds `layer_defs[]`, calls `_render_html()` |
-| `_render_html(layer_defs, bounds)` | Serialises all data to JSON, injects into the f-string HTML template |
+| `_render_html(layer_defs, bounds)` | Serialises all data to JSON, builds the template context, calls `template.render_page()` |
+
+### `exporter/template.py — page assembly`
+
+The exported page lives in `exporter/templates/` as ordinary HTML/CSS/JS
+files containing `@@name@@` placeholders. `render_page(ctx)` concatenates the
+parts (head → style → body → app.js → cesium.js → report.js) and substitutes
+every placeholder in a single regex pass, so placeholder-like text inside
+substituted values (e.g. user data in the GeoJSON payload) is never
+re-processed. A missing context key raises immediately rather than emitting a
+broken page.
 
 ---
 
@@ -274,15 +306,22 @@ map.on('click', function(e) {
 
 ## 9. Testing strategy
 
-Tests in `test_exporter_logic.py` mock the QGIS module tree so they run with plain Python. They cover:
+Three layers, none requiring a QGIS installation:
 
-- Colour conversion (`_color_to_hex`)
-- Coordinate flattening (`_flatten_coords`) for all geometry types
-- GeoJSON structure output
-- Style dict serialisability for all renderer types
-- HTML output contains expected Leaflet markers
-- Unit conversion (`_size_to_px`) for px, mm, pt
-- Marker shape alias resolution
-- WMS layer def serialisability
+1. **Unit tests** — `tests/test_exporter.py` imports the real plugin modules
+   through `tests/qgis_mock/` (a minimal stand-in for the `qgis` package) and
+   covers colours, units, rich text, coordinate flattening, SVG id
+   namespacing, dash/hatch styles, DEM grid sizing and quantisation, report
+   front matter and reference validation, script-safe JS escaping, template
+   placeholder integrity, and end-to-end page rendering invariants.
 
-Run with: `python3 -m pytest qgis_webmap/test_exporter_logic.py -v`
+2. **Snapshot rendering** — `tests/render_snapshot.py` renders four full
+   export configurations (minimal, full-featured, report mode, theme
+   fallback) through the real `WebMapExporter._render_html()` and writes
+   SHA-256 hashes, so refactors can be proven output-identical.
+
+3. **Browser checks** — `tests/browser_check.py` opens each rendered export
+   in headless Chromium and fails on any JavaScript error (network noise from
+   offline tile servers is filtered out).
+
+Run with: `python3 -m unittest discover tests -v`

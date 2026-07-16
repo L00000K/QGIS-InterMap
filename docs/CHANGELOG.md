@@ -6,6 +6,28 @@ All entries below represent work completed in a single extended development sess
 
 ---
 
+### Session — 2026-07-16 · Bottom-up rebuild (v1.4.0)
+
+#### Restructure: exporter monolith → package
+
+`exporter.py` had grown to 7,682 lines, 5,600 of which were a single f-string containing the whole web application. It is now `intermap/exporter/` — thirteen focused Python modules plus `templates/`, where the exported page lives as ordinary HTML/CSS/JS files (`head.html`, `webmap.css`, `body.html`, `app.js`, `cesium.js`, `report.js`) with `@@placeholder@@` substitution. The public API (`from .exporter import WebMapExporter`) is unchanged.
+
+The restructure was proven safe mechanically: `tests/render_snapshot.py` rendered four representative export configurations before and after the split, and the SHA-256 hashes matched byte-for-byte.
+
+#### Fix: report / story mode was completely broken
+
+Embedding `marked.min.js` with a blanket `.replace("</", "<\\/")` corrupted regex literals inside the library (e.g. `/^</` became an unterminated regex), so the whole script block failed to parse and the report pane rendered nothing. New `_script_safe_js()` escapes only `</script` (the only sequence that can terminate a script element), applied to marked and all Leaflet plugin bundles. Verified in headless Chromium: the report now renders headings, TOC, figures, and working `view:`/`gis:` links.
+
+#### Testing: suite now tests the real code
+
+The old test file asserted against *copies* of exporter functions pasted into the test module, so it could pass while the plugin was broken. Replaced with `tests/test_exporter.py` (55 tests) which imports the actual modules via `tests/qgis_mock/`, plus `tests/browser_check.py`, which boots rendered exports in headless Chromium and fails on any JS error.
+
+#### Cleanup: dead code removed
+
+Nine unused theme-token locals and their theme dict entries, five orphaned dialog methods (legacy config-instance loaders, pre-SVG rich-text helper), duplicate inline imports, four unused Qt imports, and CSS rules for UI that no longer exists (old tooltip-based labels, old multi-feature pick list, `.fading` media state). DOM-structure probes before/after confirm no behavioural change.
+
+---
+
 ### Session — 2026-06-01
 
 #### Fix: Marker shape rendering restored

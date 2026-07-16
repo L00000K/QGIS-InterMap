@@ -67,10 +67,14 @@ Place either `vendor/logo.svg` or `vendor/logo.png` inside the `intermap/` folde
 ## Running tests
 
 ```bash
-python3 -m pytest intermap/test_exporter_logic.py -v
+python3 -m unittest discover tests -v
 ```
 
-All 18 tests run without a QGIS installation (QGIS APIs are mocked).
+All tests run without a QGIS installation — `tests/qgis_mock/` stands in for
+the QGIS API so the real plugin modules can be imported and exercised.
+`tests/render_snapshot.py` renders full export scenarios for regression
+comparison, and `tests/browser_check.py` boots them in headless Chromium and
+fails on any JavaScript error.
 
 ## Plugin structure
 
@@ -79,15 +83,31 @@ intermap/
 ├── __init__.py              QGIS entry point
 ├── metadata.txt             Plugin metadata
 ├── plugin.py                Plugin class (menu/toolbar wiring)
-├── dialog.py                Export dialog (Layers tab + Themes tab)
-├── exporter.py              Core export logic: symbology, GeoJSON, HTML template
-├── icon.png                 Toolbar icon
-├── test_exporter_logic.py   Offline unit tests
+├── dialog.py                Export dialog (dock widget, tabs, configs)
+├── exporter/                Export engine package
+│   ├── core.py              WebMapExporter orchestration
+│   ├── compat.py            version-tolerant QGIS imports
+│   ├── assets.py            Leaflet/plugin/vendor asset embedding
+│   ├── styles.py            renderers/symbols → web style dicts
+│   ├── markers.py           marker shapes, symbol → SVG
+│   ├── labels.py            label config extraction
+│   ├── geometry.py          layers → GeoJSON
+│   ├── rasters.py           raster embedding, legends, elevation DEM
+│   ├── sources.py           WMS/WMTS/XYZ and remote COG parsing
+│   ├── report.py            report / story-mode markdown helpers
+│   ├── themes.py            UI colour themes
+│   ├── template.py          page assembly + placeholder substitution
+│   └── templates/           the exported web app as real files
+│       ├── head.html / body.html
+│       ├── webmap.css
+│       ├── app.js           2D map application
+│       ├── cesium.js        3D viewer
+│       └── report.js        report / story mode
+├── icon.svg                 Toolbar icon
 └── vendor/                  Embedded JS/CSS libraries
     ├── leaflet.js / .css
-    ├── leaflet.fullscreen.*
-    ├── leaflet.minimap.*
-    ├── leaflet.contextmenu.*
+    ├── fullscreen / minimap / contextmenu / markercluster
+    ├── geoman (sketch), measure, search, marked (report)
     ├── logo.svg              (optional — your branding)
     └── logo.png              (optional — fallback branding)
 ```

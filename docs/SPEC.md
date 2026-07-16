@@ -46,7 +46,7 @@ layer.getFeatures()        — geometries → GeoJSON dicts
     ↓
 layer_defs[]              — list of layer definition dicts
     ↓
-_render_html()            — Python f-string template → single HTML file
+_render_html()            — template context + templates/ files → single HTML file
 ```
 
 Each layer becomes a dict (`LayerDef`) with the following keys (subset shown):

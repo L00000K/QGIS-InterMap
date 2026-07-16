@@ -13,6 +13,16 @@
 
 ## Completed ✅
 
+### Bottom-up rebuild (2026-07-16)
+
+- [x] Split `exporter.py` monolith into `intermap/exporter/` package (13 modules + `templates/`)
+- [x] Extract the 5,600-line embedded HTML f-string into real HTML/CSS/JS template files
+- [x] Prove the restructure byte-identical via snapshot hashes (4 export configurations)
+- [x] Fix report mode: embedded marked.min.js corrupted by blanket `</` escaping
+- [x] Rewrite tests to import the real modules through a qgis mock (55 tests)
+- [x] Add headless-Chromium boot checks for rendered exports
+- [x] Remove dead Python/CSS accumulated across the app's evolution
+
 ### Core export
 
 - [x] Export vector layers as embedded GeoJSON with Leaflet styles
