@@ -5,6 +5,7 @@ All assets are bundled in the plugin's vendor/ directory so exports work
 offline; network download is a last-resort fallback for Leaflet itself.
 """
 import os
+import re
 import urllib.request
 from typing import Optional
 
@@ -105,6 +106,19 @@ _PLUGIN_SPECS = {
     "geoman":        ("geoman.min.css",      "geoman.min.js"),
     "markercluster": ("markercluster.css",   "markercluster.js"),
 }
+
+
+def _script_safe_js(js: str) -> str:
+    """
+    Escape raw JavaScript for inline embedding in a <script> element.
+
+    Only the close-tag prefix "</script" can terminate the element, so only
+    it is escaped. A blanket "</" -> "<\\/" replacement corrupts regex
+    literals such as /^</ — the inserted backslash keeps the regex open past
+    its closing delimiter and breaks the whole script (this broke the
+    embedded marked.min.js in report mode).
+    """
+    return re.sub(r"</(?=script)", lambda m: "<\\/", js, flags=re.IGNORECASE)
 
 
 def _load_plugin_assets() -> dict:

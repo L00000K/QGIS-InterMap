@@ -8,7 +8,7 @@ import json
 from qgis.core import QgsCoordinateTransform, QgsMapLayer, QgsProject
 
 from .assets import (
-    _PLUGIN_DIR, _get_leaflet_assets, _load_plugin_assets,
+    _PLUGIN_DIR, _get_leaflet_assets, _load_plugin_assets, _script_safe_js,
 )
 from .compat import _WGS84
 from .geometry import _flatten_coords, _geom_type_str, _layer_to_geojson
@@ -234,7 +234,7 @@ class WebMapExporter:
                 if os.path.exists(_marked_path):
                     with open(_marked_path, encoding="utf-8") as f:
                         _report_head = ("<script>\n"
-                                        + f.read().replace("</", "<\\/")
+                                        + _script_safe_js(f.read())
                                         + "\n</script>")
                 _report_pane_html = (
                     '<div id="report-pane">\n'
@@ -326,7 +326,7 @@ class WebMapExporter:
             css, js = _plugins[name]
             return (
                 "<style>\n" + css + "\n</style>\n"
-                "<script>\n" + js.replace("</", "<\\/") + "\n</script>"
+                "<script>\n" + _script_safe_js(js) + "\n</script>"
             )
 
         plugin_heads = "\n".join(filter(bool, [

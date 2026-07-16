@@ -159,11 +159,14 @@ subtitle: Site investigation summary
 
 # Introduction
 
-Some *markdown* content referencing [view:Overview] and [layer:Boreholes].
+Some *markdown* content linking to [the overview](view:Overview) and
+[borehole BH01](gis:Boreholes?name=BH01).
 
 ![Figure 1](fig1.png)
 
 # Findings
+
+:::view North detail
 
 More content.
 """
