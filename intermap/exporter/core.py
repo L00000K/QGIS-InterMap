@@ -287,16 +287,7 @@ class WebMapExporter:
         _th_acc_dk  = _t["acc_dk"]
         _th_acc_lt  = _t["acc_lt"]
         _th_acc_md  = _t["acc_md"]
-        _th_acc_ft  = _t["acc_ft"]
-        _th_pnl     = _t["pnl"]
-        _th_pnl_a   = _t["pnl_a"]
         _th_pnl_r   = _t["pnl_r"]
-        _th_txt     = _t["txt"]
-        _th_txt2    = _t["txt2"]
-        _th_txt3    = _t["txt3"]
-        _th_bdr     = _t["bdr"]
-        _th_bdr2    = _t["bdr2"]
-        _th_map     = _t["map"]
         # 15%-opacity accent for resize handle hovers
         _hex = _th_acc.lstrip("#")
         _th_acc_a15 = f"rgba({int(_hex[0:2],16)},{int(_hex[2:4],16)},{int(_hex[4:6],16)},0.15)"
@@ -355,7 +346,6 @@ class WebMapExporter:
             )
             _cad_logo_html = f'<div class="cad-logo">{_svg_src}</div>'
         elif os.path.exists(_logo_png):
-            import base64 as _b64
             with open(_logo_png, "rb") as _f:
                 _logo_b64 = _b64.b64encode(_f.read()).decode("utf-8")
             brand_content = (

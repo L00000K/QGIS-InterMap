@@ -153,7 +153,6 @@ class DevReloadPlugin:
         )
 
     def _reload_plugin(self):
-        import importlib
         import qgis.utils as qu
 
         # Unload

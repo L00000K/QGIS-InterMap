@@ -5,14 +5,14 @@ from qgis.PyQt.QtWidgets import (
     QDockWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QFileDialog, QLineEdit,
     QMessageBox, QProgressBar, QCheckBox, QGroupBox,
-    QTabWidget, QTextEdit, QFormLayout, QWidget, QFrame,
+    QTextEdit, QFormLayout, QWidget, QFrame,
     QTreeWidget, QTreeWidgetItem, QComboBox, QInputDialog,
-    QScrollArea, QMenu, QGridLayout, QAbstractItemView, QSizePolicy,
+    QScrollArea, QMenu, QGridLayout, QAbstractItemView,
     QStackedWidget, QDoubleSpinBox,
 )
 from qgis.PyQt.QtGui import (
     QDesktopServices, QPixmap, QColor, QFont, QTextCharFormat,
-    QTextListFormat, QTextImageFormat, QTextBlockFormat, QTextLength,
+    QTextListFormat, QTextLength,
     QTextTableFormat,
 )
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QUrl, QSettings, pyqtSignal, QBuffer, QByteArray
@@ -900,16 +900,6 @@ class WebMapExportDialog(QDockWidget):
             edit.setHtml(text)
         else:
             edit.setPlainText(text or "")
-
-    @staticmethod
-    def _richtext_to_body(html):
-        import re
-        m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
-        if m:
-            body = m.group(1).strip()
-            body = re.sub(r"^<p\s[^>]*>", "<p>", body)
-            return body
-        return html
 
     def _make_rt_btn(self, label, tip, checkable=False, width=24, label_style=""):
         """Small toolbar button for rich-text toolbars."""
@@ -2214,9 +2204,6 @@ class WebMapExportDialog(QDockWidget):
         layout.addStretch()
         return widget
 
-    def _set_lite_mode(self, lite: bool):
-        self._set_mode("lite" if lite else "pro")
-
     def _set_mode(self, mode: str):
         """mode is one of 'lite', 'pro', '3d'."""
         self._is_lite = (mode == "lite")
@@ -2424,10 +2411,6 @@ class WebMapExportDialog(QDockWidget):
     def _instances_save_all(self, data):
         QSettings().setValue(self._project_instances_key(), json.dumps(data))
 
-    def _instances_refresh_combo(self, select_name=None):
-        # Legacy stub — config bar replaces the old combo
-        self._update_config_bar()
-
     def _collect_state(self):
         info = {
             "enabled":             self.include_info_cb.isChecked(),
@@ -2577,26 +2560,6 @@ class WebMapExportDialog(QDockWidget):
             self.report_md_edit.setText(feats["report_md_path"])
         if "report_figures_dir" in feats:
             self.report_figures_edit.setText(feats["report_figures_dir"])
-
-    def _instance_load(self, name=None):
-        if name is None:
-            return
-        data = self._instances_load_all()
-        state = data.get(name)
-        if state is None:
-            QMessageBox.warning(self, "Not found", f"Config '{name}' could not be found.")
-            return
-        self._apply_state(state)
-        self._loaded_instance_name = name
-        self._has_unsaved_changes = False
-        self._update_config_bar()
-        missing = self._missing_layer_names(state.get("layer_names", []))
-        if missing:
-            QMessageBox.information(
-                self, "Loaded with missing layers",
-                "Config '{}' loaded.\n\nThe following layers are not in the current "
-                "project and were skipped:\n  • {}".format(name, "\n  • ".join(missing))
-            )
 
     def _instance_save(self):
         name = self._loaded_instance_name
@@ -3027,9 +2990,6 @@ class WebMapExportDialog(QDockWidget):
     def _update_initial_extent_label(self):
         pass  # label removed; _initial_extent still used in export
 
-    def _recapture_initial_extent(self):
-        self._initial_extent = self._capture_canvas_extent()
-
     def _save_to_downloads(self):
         self.path_edit.setText(self._default_output_path())
 
@@ -3238,7 +3198,6 @@ class WebMapExportDialog(QDockWidget):
             return None, None, None
 
         try:
-            from qgis.core import QgsLayoutItemMap
             map_items = [item for item in layout.items()
                          if isinstance(item, QgsLayoutItemMap)]
         except Exception:
