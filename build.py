@@ -23,7 +23,7 @@ METADATA = os.path.join(PLUGIN_DIR, "metadata.txt")
 
 EXCLUDE_DIRS = {"__pycache__"}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
-EXCLUDE_FILES = {"test_exporter_logic.py"}
+EXCLUDE_FILES = set()
 
 
 def read_version():
