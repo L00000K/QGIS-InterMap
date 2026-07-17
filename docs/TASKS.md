@@ -108,40 +108,46 @@
 
 ---
 
-## Pending 🔜
+## Backlog audit (2026-07-17)
 
-### Cluster / spiderify
+Every pending/deferred item below was checked against the current code.
+Items marked ✅ were implemented in later sessions; items marked ⤳ were
+superseded by a different mechanism that covers the same need.
 
-- [ ] Add Leaflet.markercluster toggle button (cluster overlapping points at low zoom, spiderify at high zoom)
-  - **Blocked by**: network policy prevents downloading `leaflet.markercluster.js` and `MarkerCluster.css` from CDN. Files must be provided manually in `intermap/vendor/`. Once present, wiring can be done quickly.
+### Completed since originally listed ✅
 
-### Label leaders / offsets
+- [x] Cluster / spiderify toggle — `markercluster.js/.css` are vendored and wired
+  (`spiderfyOnMaxZoom` in `app.js`), alongside the runtime explode/group system
+  for point layers
+- [x] Attribute table search box — `#attr-table-search` live-filters rows
+- [x] Export table to CSV — `#attr-table-csv` button
+- [x] Highlight selected feature on map — `highlightFeatureOnMap()` on row click
+- [x] Graduated renderer range labels — `styles.py` exports
+  `r.label() or "lower – upper"` per range and the legend renders entry labels
+- [x] Print / export to image (was deferred) — `#print-btn` uses the browser
+  print pipeline; report mode adds inline print copies of figures
 
-- [ ] Investigate label leader lines (lines from label to feature)
-- [ ] Support QGIS label offset (x/y offset settings from `QgsPalLayerSettings`)
-  - Currently labels are placed at the feature centroid; QGIS offset settings are not translated.
+### Superseded by app direction ⤳
 
-### Additional renderer types
+- Label leader lines → the icon de-overlap **spread system** draws leader
+  lines from spread icons back to their true position (`#spread-leader-svg`)
+- Point displacement renderer → same spread/explode system covers overlapping
+  point separation at runtime for any point layer, without a QGIS renderer
+- Virtual DOM / canvas label rendering → labels moved from per-tooltip DOM to
+  a **single-SVG render pass** with collision detection; a canvas rewrite is
+  no longer the natural next step (see Performance below for what remains)
 
-- [ ] Point displacement renderer → spaced point rings
-- [ ] Heatmap renderer → Leaflet.heat
+### Still pending 🔜
+
+- [ ] QGIS label x/y offset support — labels still placed at centroid;
+  `QgsPalLayerSettings` offsets are not read (`labels.py` has no offset fields)
+- [ ] Heatmap renderer → Leaflet.heat (would need `leaflet-heat.js` vendored)
 - [ ] Inverted polygon renderer (mask/highlight)
-
-### Attribute table enhancements
-
-- [ ] Search/filter box within the attribute table panel
-- [ ] Export table to CSV button
-- [ ] Highlight selected feature on map while row is selected
-
-### Legend enhancements
-
-- [ ] Graduated renderer — show range labels alongside swatches
 - [ ] Custom legend title field in plugin dialog
-
-### Performance
-
-- [ ] Label rendering: investigate virtual DOM / canvas label approach for very large datasets (> 10 000 features)
-- [ ] GeoJSON simplification at export time for large polygon layers (Douglas-Peucker)
+- [ ] GeoJSON simplification at export time for large polygon layers
+  (Douglas-Peucker) — still relevant for the "very large layers" limitation
+- [ ] Label performance for > 10 000 features — the SVG pass helps, but very
+  large datasets still do a full placement recompute per zoom/pan
 
 ---
 
@@ -152,19 +158,11 @@
 - User confirmed: "Don't worry about this one for now."
 - All data is currently re-projected to WGS-84 (EPSG:4326) at export time, which is what Leaflet expects.
 
-### Cluster/spiderify toggle (without vendor files)
-
-- Cannot be implemented without the Leaflet.markercluster vendor files.
-- Deferred until files are provided.
-
 ### Layer info button (per-layer metadata popover)
 
 - Was considered but not selected by the user during feature prioritisation.
 - Would show layer description / metadata in a popover when an ℹ icon next to the layer name is clicked.
-
-### Print / export to image
-
-- No tooling for server-side rendering considered at this stage.
+- Still absent from the current legend UI (verified 2026-07-17).
 
 ---
 
