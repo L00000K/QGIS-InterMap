@@ -19,7 +19,7 @@ jobs:
       - name: Lint
         run: |
           python3 -m pip install --quiet pyflakes
-          python3 -m pyflakes intermap/exporter/*.py intermap/dialog.py intermap/plugin.py intermap_dev/*.py
+          python3 -m pyflakes intermap/exporter/*.py intermap/dialog/*.py intermap/plugin.py intermap_dev/*.py
 
       - name: Build plugin zip
         run: python3 build.py --out-dir dist

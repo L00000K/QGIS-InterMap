@@ -6,7 +6,18 @@
 intermap/
 ├── __init__.py              classFactory() → WebMapExporterPlugin
 ├── plugin.py                Plugin class: menu item, toolbar button, dialog trigger
-├── dialog.py                WebMapExportDialog (PyQt5 dock widget)
+├── dialog/                  Export dialog package (PyQt5 dock widget)
+│   ├── __init__.py          re-exports WebMapExportDialog
+│   ├── main.py              dialog shell: init, settings, header, tab switching
+│   ├── constants.py         _SETTINGS_KEY, purposes, brand colours
+│   ├── widgets.py           _VResizeHandle, _RectExtentTool
+│   ├── richtext.py          RichTextMixin — editor toolbars
+│   ├── configs.py           ConfigsMixin — named configs, persistence, import/export
+│   ├── info_tab.py          MapInfoTabMixin — title block, doc control, changelog
+│   ├── views_tab.py         MapViewsTabMixin — views, extents, theme/layout links
+│   ├── layers_tab.py        LayersTabMixin — layer tree, required layers
+│   ├── lite.py              LiteModeMixin — simplified export flow
+│   └── export_tab.py        ExportTabMixin — export tab + export run
 ├── exporter/                Export engine package
 │   ├── __init__.py          re-exports WebMapExporter
 │   ├── core.py              WebMapExporter: export() + template context building

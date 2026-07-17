@@ -54,3 +54,30 @@ class QBuffer:
 
     def close(self):
         pass
+
+
+def pyqtSignal(*_args, **_kwargs):
+    class _Signal:
+        def connect(self, *_a):
+            pass
+
+        def emit(self, *_a):
+            pass
+
+    return _Signal()
+
+
+class _Placeholder:
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+_placeholder_cache = {}
+
+
+def __getattr__(name):
+    if name.startswith("__"):
+        raise AttributeError(name)
+    if name not in _placeholder_cache:
+        _placeholder_cache[name] = type(name, (_Placeholder,), {})
+    return _placeholder_cache[name]

@@ -83,7 +83,17 @@ intermap/
 ├── __init__.py              QGIS entry point
 ├── metadata.txt             Plugin metadata
 ├── plugin.py                Plugin class (menu/toolbar wiring)
-├── dialog.py                Export dialog (dock widget, tabs, configs)
+├── dialog/                  Export dialog package
+│   ├── main.py              WebMapExportDialog shell, settings, header
+│   ├── constants.py         settings keys, purposes, brand colours
+│   ├── widgets.py           resize handle, drag-to-draw extent tool
+│   ├── richtext.py          rich-text editor toolbars
+│   ├── configs.py           named export configurations
+│   ├── info_tab.py          Map Info tab (title block, doc control, changelog)
+│   ├── views_tab.py         Map Views tab (extents, layer sets, layouts)
+│   ├── layers_tab.py        Layers tab (tree, required layers, themes)
+│   ├── lite.py              Lite mode (simplified export flow)
+│   └── export_tab.py        Export tab + the export run itself
 ├── exporter/                Export engine package
 │   ├── core.py              WebMapExporter orchestration
 │   ├── compat.py            version-tolerant QGIS imports
