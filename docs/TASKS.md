@@ -13,6 +13,15 @@
 
 ## Completed ✅
 
+### PDF report mode (2026-07-17)
+
+- [x] Vendor PDF.js legacy build (`pdfjs.min.js` + worker) for offline rendering
+- [x] `_build_pdf_report_payload`: base64 PDF, page→view bindings, validation warnings
+- [x] Web pane renders PDF pages as canvases; scroll drives bound map views
+- [x] TOC page list with current-page highlight; header page indicator; view chips
+- [x] Dialog: PDF picker + page/view bindings table, persisted in configs
+- [x] Unit + headless-browser tests (scroll page 1→3 verifiably flies the map)
+
 ### Bottom-up rebuild (2026-07-16)
 
 - [x] Split `exporter.py` monolith into `intermap/exporter/` package (13 modules + `templates/`)

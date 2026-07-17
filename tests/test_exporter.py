@@ -262,6 +262,61 @@ class ReportRefTests(unittest.TestCase):
             _validate_report_refs(md, {}, ["RealLayer"], ["RealView"]), [])
 
 
+class PdfReportTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from make_test_pdf import make_pdf
+        cls.tmp = tempfile.mkdtemp(prefix="intermap-pdf-")
+        cls.pdf_path = os.path.join(cls.tmp, "site report.pdf")
+        with open(cls.pdf_path, "wb") as f:
+            f.write(make_pdf(3))
+
+    def _build(self, bindings, views=("Overview", "North detail")):
+        from intermap.exporter.report import _build_pdf_report_payload
+        return _build_pdf_report_payload(self.pdf_path, bindings, list(views))
+
+    def test_payload_shape(self):
+        import base64
+        p = self._build([{"page": 2, "view": "Overview"}])
+        self.assertEqual(p["title"], "site report")
+        self.assertEqual(p["pages"], 3)
+        self.assertEqual(p["bindings"], [{"page": 2, "view": "Overview"}])
+        self.assertEqual(p["warnings"], [])
+        raw = base64.b64decode(p["pdf"])
+        self.assertTrue(raw.startswith(b"%PDF-"))
+
+    def test_bindings_sorted_by_page(self):
+        p = self._build([{"page": 3, "view": "Overview"},
+                         {"page": 1, "view": "North detail"}])
+        self.assertEqual([b["page"] for b in p["bindings"]], [1, 3])
+
+    def test_unknown_view_warned_but_kept(self):
+        p = self._build([{"page": 1, "view": "Nope"}])
+        self.assertTrue(any("Nope" in w for w in p["warnings"]))
+        self.assertEqual(len(p["bindings"]), 1)
+
+    def test_out_of_range_page_warned(self):
+        p = self._build([{"page": 7, "view": "Overview"}])
+        self.assertTrue(any("beyond last page" in w for w in p["warnings"]))
+
+    def test_invalid_page_dropped(self):
+        p = self._build([{"page": "x", "view": "Overview"},
+                         {"page": 0, "view": "Overview"},
+                         {"view": "Overview"}])
+        self.assertEqual(p["bindings"], [])
+        self.assertEqual(len(p["warnings"]), 3)
+
+    def test_empty_view_dropped_silently(self):
+        p = self._build([{"page": 1, "view": "  "}])
+        self.assertEqual(p["bindings"], [])
+        self.assertEqual(p["warnings"], [])
+
+    def test_page_count_regex_ignores_pages_tree(self):
+        from intermap.exporter.report import _pdf_page_count
+        self.assertEqual(
+            _pdf_page_count(b"<< /Type /Pages >> << /Type /Page >>"), 1)
+
+
 class ScriptSafeJsTests(unittest.TestCase):
     def test_escapes_close_script_tag(self):
         self.assertEqual(_script_safe_js('a="</script>"'), 'a="<\\/script>"')
@@ -320,8 +375,12 @@ class RenderedPageTests(unittest.TestCase):
         }
 
     def test_no_unresolved_placeholders(self):
+        # Match the substitution pattern, not bare '@@' — embedded libraries
+        # may legitimately contain '@@' (e.g. pdf.js's "@@iterator" string).
+        import re
+        pat = re.compile(r"@@[A-Za-z_][A-Za-z0-9_]*@@")
         for name, html in self.pages.items():
-            self.assertNotIn("@@", html, name)
+            self.assertIsNone(pat.search(html), name)
 
     def test_layers_payload_embeds_and_parses(self):
         html = self.pages["full"]

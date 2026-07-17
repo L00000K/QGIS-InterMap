@@ -180,6 +180,7 @@ _PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
 def build_scenarios(tmpdir):
     """Return {scenario_name: WebMapExporter} covering the feature matrix."""
     from intermap.exporter import WebMapExporter
+    from make_test_pdf import make_pdf
 
     report_dir = os.path.join(tmpdir, "report")
     figures_dir = os.path.join(report_dir, "figures")
@@ -222,6 +223,20 @@ def build_scenarios(tmpdir):
             **common,
         ),
     }
+
+    pdf_path = os.path.join(report_dir, "report.pdf")
+    with open(pdf_path, "wb") as f:
+        f.write(make_pdf(4))
+    scenarios["pdf-report"] = WebMapExporter(
+        [], "unused.html",
+        map_views=MAP_VIEWS, info_panel=INFO_PANEL,
+        report_pdf_path=pdf_path,
+        report_pdf_bindings=[
+            {"page": 1, "view": "Overview"},
+            {"page": 3, "view": "North detail"},
+        ],
+        **common,
+    )
     return scenarios
 
 

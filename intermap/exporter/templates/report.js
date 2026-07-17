@@ -1,7 +1,7 @@
 // ── Report / story mode ──────────────────────────────────────────────────────
 (function() {
   var REPORT = @@_report_json@@;
-  if (!REPORT || !REPORT.md) return;
+  if (!REPORT || (!REPORT.md && !REPORT.pdf)) return;
 
   var map      = window._im_map;
   var THEMES   = window._im_themes || [];
@@ -104,7 +104,9 @@
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  if (typeof marked !== 'undefined') {
+  if (REPORT.pdf) {
+    // PDF mode — pages are rendered asynchronously by initPdfReport() below.
+  } else if (typeof marked !== 'undefined') {
     if (marked.use) marked.use({
       renderer: {
         image: function(href, title, text) {
@@ -483,6 +485,135 @@
     requestAnimationFrame(_onScroll);
   });
   setTimeout(_onScroll, 300);
+
+  // ── PDF report mode ───────────────────────────────────────────────────────
+  // Renders the uploaded PDF page-by-page into the report pane and drives the
+  // map from the page→view bindings as the reader scrolls: whichever page
+  // sits closest to the middle of the pane is "current", and if it has a
+  // bound map view, that view is applied (same applyView machinery as the
+  // markdown scrollytelling).
+  function initPdfReport() {
+    var lib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+    if (!lib) {
+      content.textContent = 'PDF viewer failed to load.';
+      return;
+    }
+    var wsEl = document.getElementById('pdfjs-worker-src');
+    if (wsEl) {
+      lib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+        new Blob([wsEl.textContent], {type: 'text/javascript'}));
+    }
+    var raw = atob(REPORT.pdf);
+    var bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+
+    var bindings = {};                       // page number → {page, view, opts}
+    (REPORT.bindings || []).forEach(function(b) {
+      if (b && b.page >= 1 && b.view) bindings[b.page] = b;
+    });
+
+    var pageEls = [];
+    var _current = 0;
+
+    lib.getDocument({data: bytes}).promise.then(function(doc) {
+      var total = doc.numPages;
+      var chain = Promise.resolve();
+      for (var n = 1; n <= total; n++) (function(n) {
+        chain = chain.then(function() {
+          return doc.getPage(n);
+        }).then(function(page) {
+          // Render at 1.5x and let CSS fit the pane width — crisp on normal
+          // displays without re-rendering on divider drags.
+          var vp = page.getViewport({scale: 1.5});
+          var holder = document.createElement('div');
+          holder.className = 'rp-pdf-page';
+          holder.dataset.page = String(n);
+          var canvas = document.createElement('canvas');
+          canvas.width = vp.width;
+          canvas.height = vp.height;
+          holder.appendChild(canvas);
+          var b = bindings[n];
+          if (b) {
+            var chip = document.createElement('div');
+            chip.className = 'rp-pdf-chip';
+            chip.textContent = '◎ ' + b.view;
+            chip.title = 'This page is linked to map view "' + b.view + '"';
+            holder.appendChild(chip);
+          }
+          content.appendChild(holder);
+          pageEls.push(holder);
+          return page.render({canvasContext: canvas.getContext('2d'),
+                              viewport: vp}).promise;
+        });
+      })(n);
+      return chain.then(function() {
+        buildPdfToc(total);
+        scroller.addEventListener('scroll', _onPdfScroll);
+        updateCurrentPage(true);
+      });
+    }).catch(function(e) {
+      console.error('PDF report failed:', e);
+      content.textContent = 'Could not render the PDF report.';
+    });
+
+    function buildPdfToc(total) {
+      if (!tocBody) return;
+      for (var n = 1; n <= total; n++) (function(n) {
+        var a = document.createElement('a');
+        a.href = '#';
+        var b = bindings[n];
+        a.textContent = 'Page ' + n + (b ? ' — ' + b.view : '');
+        a.addEventListener('click', function(e) {
+          e.preventDefault();
+          var el = pageEls[n - 1];
+          if (el) scroller.scrollTo({top: el.offsetTop - 8, behavior: 'smooth'});
+        });
+        tocBody.appendChild(a);
+      })(n);
+    }
+
+    function dominantPage() {
+      var mid = scroller.getBoundingClientRect().top + scroller.clientHeight / 2;
+      var best = 1, bestDist = Infinity;
+      for (var i = 0; i < pageEls.length; i++) {
+        var r = pageEls[i].getBoundingClientRect();
+        var d = Math.abs((r.top + r.bottom) / 2 - mid);
+        if (d < bestDist) { bestDist = d; best = i + 1; }
+      }
+      return best;
+    }
+
+    function updateCurrentPage(force) {
+      var n = dominantPage();
+      if (!force && n === _current) return;
+      _current = n;
+      pane.dataset.currentPage = String(n);
+      if (titleEl) {
+        titleEl.textContent = (REPORT.title || 'Report')
+                            + '  ·  p.' + n + '/' + pageEls.length;
+      }
+      if (tocBody) {
+        Array.prototype.forEach.call(tocBody.children, function(a, i) {
+          a.classList.toggle('rp-pdf-current', i === n - 1);
+        });
+      }
+      var b = bindings[n];
+      if (b) {
+        pane.dataset.activeView = b.view;
+        applyView(b.view, b.opts || null);
+      }
+    }
+
+    var _pdfRaf = null;
+    function _onPdfScroll() {
+      if (_pdfRaf) return;
+      _pdfRaf = requestAnimationFrame(function() {
+        _pdfRaf = null;
+        updateCurrentPage(false);
+      });
+    }
+  }
+  if (REPORT.pdf) initPdfReport();
 
   // ── Divider drag + collapse / restore ─────────────────────────────────────
   if (divider) {

@@ -118,6 +118,7 @@ intermap/
     ├── leaflet.js / .css
     ├── fullscreen / minimap / contextmenu / markercluster
     ├── geoman (sketch), measure, search, marked (report)
+    ├── pdfjs + worker (PDF report mode)
     ├── logo.svg              (optional — your branding)
     └── logo.png              (optional — fallback branding)
 ```

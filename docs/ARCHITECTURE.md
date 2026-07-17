@@ -41,7 +41,7 @@ intermap/
 │       ├── cesium.js        3D viewer IIFE
 │       └── report.js        report / story-mode IIFE
 ├── metadata.txt             QGIS plugin manifest
-└── vendor/                  bundled Leaflet 1.9.4 + plugins, marked, logo
+└── vendor/                  bundled Leaflet 1.9.4 + plugins, marked, PDF.js, logo
 
 tests/                       (repo only — not shipped in the plugin zip)
 ├── qgis_mock/               importable stand-in for the qgis package

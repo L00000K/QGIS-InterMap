@@ -1016,6 +1016,21 @@
   #report-toc-body a.active { border-left-color: @@_th_acc@@; background: #f2f6fb; font-weight: 600; }
   #report-toc-body a.toc-h2 { padding-left: 26px; }
   #report-toc-body a.toc-h3 { padding-left: 38px; font-size: 11px; }
+  #report-toc-body a.rp-pdf-current { border-left-color: @@_th_acc@@; background: #f2f6fb; font-weight: 600; }
+
+  /* ── PDF report pages ── */
+  .rp-pdf-page {
+    position: relative; margin: 0 0 14px 0;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.18);
+    background: #fff;
+  }
+  .rp-pdf-page canvas { display: block; width: 100%; height: auto; }
+  .rp-pdf-chip {
+    position: absolute; top: 8px; right: 8px;
+    background: @@_th_acc@@; color: #fff;
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    opacity: 0.9; pointer-events: none;
+  }
   #report-scroll { flex: 1; overflow-y: auto; min-height: 0; scroll-behavior: smooth; }
   #report-content {
     padding: 18px 26px 55vh;   /* bottom pad lets last section reach the trigger band */

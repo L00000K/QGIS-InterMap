@@ -14,7 +14,7 @@ from .compat import _WGS84
 from .geometry import _flatten_coords, _geom_type_str, _layer_to_geojson
 from .labels import _extract_label_config
 from .rasters import _build_elevation_dem, _raster_legend_data, _raster_to_base64
-from .report import _build_report_payload
+from .report import _build_pdf_report_payload, _build_report_payload
 from .sources import _parse_cog_source, _parse_wms_source, _wms_legend_url
 from .styles import _build_style_map
 from .template import render_page
@@ -38,6 +38,7 @@ class WebMapExporter:
                  feat_3d_extrude_field='', feat_3d_extrude_scale=1.0,
                  feat_3d_elevation_raster=None,
                  report_md_path='', report_figures_dir='',
+                 report_pdf_path='', report_pdf_bindings=None,
                  cog_proxy=''):
         self.layers = layers
         self.output_path = output_path
@@ -69,6 +70,8 @@ class WebMapExporter:
         self.feat_3d_elevation_raster = feat_3d_elevation_raster or None
         self.report_md_path = (report_md_path or '').strip()
         self.report_figures_dir = (report_figures_dir or '').strip()
+        self.report_pdf_path = (report_pdf_path or '').strip()
+        self.report_pdf_bindings = report_pdf_bindings or []
         self.cog_proxy = (cog_proxy or '').strip()
 
     def export(self):
@@ -216,11 +219,51 @@ class WebMapExporter:
             resolved_views.append(mv_copy)
         themes_json = json.dumps(resolved_views, separators=(",", ":")).replace("</", "<\\/")
 
-        # ── Report / story mode payload ─────────────────────────────────
+        # ── Report / story mode payload (markdown or PDF) ───────────────
         _report_json = "null"
         _report_head = ""
         _report_pane_html = ""
-        if self.report_md_path:
+        _REPORT_PANE_HTML = (
+            '<div id="report-pane">\n'
+            '  <div id="report-header">\n'
+            '    <div id="report-title"></div>\n'
+            '    <button id="report-collapse" title="Collapse report — full map">&#9668;</button>\n'
+            '  </div>\n'
+            '  <details id="report-toc" open><summary>Contents</summary>'
+            '<div id="report-toc-body"></div></details>\n'
+            '  <div id="report-scroll"><div id="report-content"></div></div>\n'
+            '</div>\n'
+            '<div id="report-divider" title="Drag to resize"></div>'
+        )
+        if self.report_pdf_path:
+            try:
+                payload = _build_pdf_report_payload(
+                    self.report_pdf_path, self.report_pdf_bindings,
+                    [mv.get("name", "") for mv in resolved_views])
+                for w in payload["warnings"]:
+                    print(f"InterMap report: {w}")
+                _report_json = json.dumps(
+                    payload, separators=(",", ":")).replace("</", "<\\/")
+                _pdfjs = os.path.join(_PLUGIN_DIR, "vendor", "pdfjs.min.js")
+                _pdfworker = os.path.join(_PLUGIN_DIR, "vendor", "pdfjs.worker.min.js")
+                if os.path.exists(_pdfjs) and os.path.exists(_pdfworker):
+                    with open(_pdfjs, encoding="utf-8") as f:
+                        _pdfjs_src = _script_safe_js(f.read())
+                    with open(_pdfworker, encoding="utf-8") as f:
+                        _worker_src = _script_safe_js(f.read())
+                    # The worker ships as an inert text/plain block; the web app
+                    # turns it into a Blob URL so PDF.js runs fully offline.
+                    _report_head = (
+                        "<script>\n" + _pdfjs_src + "\n</script>\n"
+                        '<script id="pdfjs-worker-src" type="text/plain">\n'
+                        + _worker_src + "\n</script>")
+                else:
+                    print("InterMap report: pdfjs vendor files missing — "
+                          "PDF pane will not render")
+                _report_pane_html = _REPORT_PANE_HTML
+            except Exception as e:
+                print(f"InterMap report skipped: {e}")
+        elif self.report_md_path:
             try:
                 payload = _build_report_payload(
                     self.report_md_path, self.report_figures_dir,
@@ -236,18 +279,7 @@ class WebMapExporter:
                         _report_head = ("<script>\n"
                                         + _script_safe_js(f.read())
                                         + "\n</script>")
-                _report_pane_html = (
-                    '<div id="report-pane">\n'
-                    '  <div id="report-header">\n'
-                    '    <div id="report-title"></div>\n'
-                    '    <button id="report-collapse" title="Collapse report — full map">&#9668;</button>\n'
-                    '  </div>\n'
-                    '  <details id="report-toc" open><summary>Contents</summary>'
-                    '<div id="report-toc-body"></div></details>\n'
-                    '  <div id="report-scroll"><div id="report-content"></div></div>\n'
-                    '</div>\n'
-                    '<div id="report-divider" title="Drag to resize"></div>'
-                )
+                _report_pane_html = _REPORT_PANE_HTML
             except Exception as e:
                 print(f"InterMap report skipped: {e}")
 

@@ -258,6 +258,8 @@ class ConfigsMixin:
                 "elevation_raster_id": self.elevation_raster_combo.currentData() or "",
                 "report_md_path":      self.report_md_edit.text().strip(),
                 "report_figures_dir":  self.report_figures_edit.text().strip(),
+                "report_pdf_path":     self.report_pdf_edit.text().strip(),
+                "report_pdf_bindings": self._pdf_bindings_collect(),
             },
         }
 
@@ -356,6 +358,10 @@ class ConfigsMixin:
             self.report_md_edit.setText(feats["report_md_path"])
         if "report_figures_dir" in feats:
             self.report_figures_edit.setText(feats["report_figures_dir"])
+        if "report_pdf_path" in feats:
+            self.report_pdf_edit.setText(feats["report_pdf_path"])
+        if "report_pdf_bindings" in feats:
+            self._pdf_bindings_apply(feats["report_pdf_bindings"])
 
     def _instance_save(self):
         name = self._loaded_instance_name

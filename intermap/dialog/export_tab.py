@@ -4,7 +4,7 @@ import datetime
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLineEdit,
     QMessageBox, QCheckBox, QGroupBox, QFormLayout, QWidget,
-    QComboBox, QDoubleSpinBox,
+    QComboBox, QDoubleSpinBox, QTreeWidget,
 )
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtCore import Qt, QUrl
@@ -180,6 +180,43 @@ class ExportTabMixin:
         report_fig_row.addWidget(report_fig_btn)
         report_form.addRow("Figures folder:", report_fig_row)
 
+        # PDF report (alternative to markdown; takes precedence when set)
+        report_pdf_row = QHBoxLayout()
+        self.report_pdf_edit = QLineEdit()
+        self.report_pdf_edit.setPlaceholderText("…or select a report .pdf")
+        self.report_pdf_edit.setToolTip(
+            "PDF report shown as a scrolling panel beside the map.\n"
+            "Bind pages to Map Views below — as the reader scrolls, the map\n"
+            "flies to the view bound to the page in front of them.\n"
+            "When both a PDF and a markdown report are set, the PDF wins."
+        )
+        report_pdf_btn = QPushButton("Browse…")
+        report_pdf_btn.clicked.connect(self._browse_report_pdf)
+        report_pdf_row.addWidget(self.report_pdf_edit)
+        report_pdf_row.addWidget(report_pdf_btn)
+        report_form.addRow("Report PDF:", report_pdf_row)
+
+        # Page → view bindings table
+        self.pdf_bindings_tree = QTreeWidget()
+        self.pdf_bindings_tree.setColumnCount(2)
+        self.pdf_bindings_tree.setHeaderLabels(["Page", "Map view"])
+        self.pdf_bindings_tree.setRootIsDecorated(False)
+        self.pdf_bindings_tree.setMaximumHeight(110)
+        self.pdf_bindings_tree.setToolTip(
+            "As the PDF is scrolled, reaching a listed page applies its map view.")
+        pdf_bind_btns = QHBoxLayout()
+        pdf_bind_add = QPushButton("+ Add binding")
+        pdf_bind_add.clicked.connect(self._pdf_binding_add)
+        pdf_bind_del = QPushButton("Remove")
+        pdf_bind_del.clicked.connect(self._pdf_binding_remove)
+        pdf_bind_btns.addWidget(pdf_bind_add)
+        pdf_bind_btns.addWidget(pdf_bind_del)
+        pdf_bind_btns.addStretch()
+        pdf_bind_col = QVBoxLayout()
+        pdf_bind_col.addWidget(self.pdf_bindings_tree)
+        pdf_bind_col.addLayout(pdf_bind_btns)
+        report_form.addRow("Page bindings:", pdf_bind_col)
+
         layout.addWidget(self.report_group)
 
         # ── Remote raster sources (COG on blob storage) ──────────────────
@@ -268,6 +305,68 @@ class ExportTabMixin:
         )
         if path:
             self.report_figures_edit.setText(path)
+
+    def _browse_report_pdf(self):
+        current = self.report_pdf_edit.text().strip()
+        start_dir = os.path.dirname(current) if current else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select report PDF", start_dir,
+            "PDF (*.pdf);;All files (*)"
+        )
+        if path:
+            self.report_pdf_edit.setText(path)
+            if self.pdf_bindings_tree.topLevelItemCount() == 0:
+                self._pdf_binding_add()
+
+    def _pdf_view_names(self):
+        return [mv.get("name", "") for mv in getattr(self, "_map_views", [])
+                if mv.get("name")]
+
+    def _pdf_binding_add(self, page=1, view=""):
+        from qgis.PyQt.QtWidgets import QTreeWidgetItem, QSpinBox
+        item = QTreeWidgetItem(["", ""])
+        self.pdf_bindings_tree.addTopLevelItem(item)
+        spin = QSpinBox()
+        spin.setRange(1, 9999)
+        spin.setValue(int(page) if page else 1)
+        spin.valueChanged.connect(self._mark_unsaved)
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.addItems(self._pdf_view_names())
+        if view:
+            combo.setCurrentText(view)
+        combo.currentTextChanged.connect(self._mark_unsaved)
+        self.pdf_bindings_tree.setItemWidget(item, 0, spin)
+        self.pdf_bindings_tree.setItemWidget(item, 1, combo)
+        self._mark_unsaved()
+
+    def _pdf_binding_remove(self):
+        tree = self.pdf_bindings_tree
+        item = tree.currentItem()
+        if item is None and tree.topLevelItemCount():
+            item = tree.topLevelItem(tree.topLevelItemCount() - 1)
+        if item is not None:
+            tree.takeTopLevelItem(tree.indexOfTopLevelItem(item))
+            self._mark_unsaved()
+
+    def _pdf_bindings_collect(self):
+        out = []
+        tree = self.pdf_bindings_tree
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
+            spin = tree.itemWidget(item, 0)
+            combo = tree.itemWidget(item, 1)
+            if spin is None or combo is None:
+                continue
+            view = combo.currentText().strip()
+            if view:
+                out.append({"page": spin.value(), "view": view})
+        return out
+
+    def _pdf_bindings_apply(self, bindings):
+        self.pdf_bindings_tree.clear()
+        for b in bindings or []:
+            self._pdf_binding_add(b.get("page", 1), b.get("view", ""))
 
     def _export(self):
         output_path = self.path_edit.text().strip()
@@ -434,6 +533,8 @@ class ExportTabMixin:
                 feat_3d_elevation_raster=self.elevation_raster_combo.currentData(),
                 report_md_path=self.report_md_edit.text().strip(),
                 report_figures_dir=self.report_figures_edit.text().strip(),
+                report_pdf_path=self.report_pdf_edit.text().strip(),
+                report_pdf_bindings=self._pdf_bindings_collect(),
                 cog_proxy=self.cog_proxy_edit.text().strip(),
             )
             exporter.export()

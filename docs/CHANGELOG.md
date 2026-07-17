@@ -6,6 +6,31 @@ All entries below represent work completed in a single extended development sess
 
 ---
 
+### Session — 2026-07-17 · PDF report mode (v1.5.0)
+
+#### Feature: scroll a PDF, drive the map
+
+The report pane can now show a **PDF** instead of markdown. In the dialog's
+Report section, pick a `.pdf` and add **page → map view bindings**; the
+exported page renders the PDF page-by-page down the left-hand pane (via a
+bundled PDF.js — fully offline, worker included as an inline blob), and as
+the reader scrolls, whichever page sits in front of them becomes current:
+its bound map view is applied through the same `applyView` machinery as
+markdown scrollytelling (2D fly-to or 3D camera). Bound pages carry a small
+"◎ view" chip, the Contents list shows `Page N — View` entries with the
+current page highlighted, and the header shows `p.N/total`. The
+resizable divider and collapse-to-full-map behaviour are shared with
+markdown mode; when both a PDF and a markdown report are configured, the
+PDF wins.
+
+Export-side validation warns on bindings to unknown views, pages beyond the
+document, and malformed page numbers (`_build_pdf_report_payload`, with a
+best-effort raw page count). Verified end-to-end in headless Chromium:
+scrolling from page 1 to page 3 flies the map from the Overview extent
+(zoom 11) to the North-detail extent (zoom 14) with zero JS errors.
+
+---
+
 ### Session — 2026-07-16 · Bottom-up rebuild (v1.4.0)
 
 #### Restructure: exporter monolith → package

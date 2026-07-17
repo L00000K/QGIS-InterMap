@@ -130,3 +130,53 @@ def _build_report_payload(md_path, figures_dir, layer_names, view_names) -> dict
         "autolink": meta.get("autolink", []),
         "warnings": warnings,
     }
+
+
+# Matches page objects ("/Type /Page") but not the page tree ("/Type /Pages").
+_PDF_PAGE_RE = re.compile(rb"/Type\s*/Page(?![a-zA-Z])")
+
+
+def _pdf_page_count(data: bytes) -> int:
+    """Best-effort page count from raw PDF bytes. Returns 0 when the count
+    cannot be determined (e.g. compressed object streams); callers must treat
+    0 as "unknown", not "empty"."""
+    return len(_PDF_PAGE_RE.findall(data))
+
+
+def _build_pdf_report_payload(pdf_path, bindings, view_names) -> dict:
+    """Read the report PDF and validate its page→view bindings. Returns the
+    JSON-able payload for the export: the PDF as base64 plus normalised
+    bindings [{page, view}] the web app drives scrollytelling from."""
+    with open(pdf_path, "rb") as f:
+        data = f.read()
+    view_names = set(view_names)
+    page_count = _pdf_page_count(data)
+
+    warnings = []
+    norm = []
+    for b in bindings or []:
+        try:
+            page = int(b.get("page"))
+        except (TypeError, ValueError):
+            warnings.append(f"pdf binding has invalid page — {b!r}")
+            continue
+        view = str(b.get("view") or "").strip()
+        if page < 1:
+            warnings.append(f"pdf binding page {page} out of range")
+            continue
+        if page_count and page > page_count:
+            warnings.append(
+                f"pdf binding page {page} beyond last page ({page_count})")
+        if view and view not in view_names:
+            warnings.append(f"unknown map view in pdf binding — {view}")
+        if view:
+            norm.append({"page": page, "view": view})
+    norm.sort(key=lambda b: b["page"])
+
+    return {
+        "title":    os.path.splitext(os.path.basename(pdf_path))[0],
+        "pdf":      base64.b64encode(data).decode("ascii"),
+        "pages":    page_count,
+        "bindings": norm,
+        "warnings": warnings,
+    }
