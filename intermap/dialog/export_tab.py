@@ -198,12 +198,13 @@ class ExportTabMixin:
 
         # Page → view bindings table
         self.pdf_bindings_tree = QTreeWidget()
-        self.pdf_bindings_tree.setColumnCount(2)
-        self.pdf_bindings_tree.setHeaderLabels(["Page", "Map view"])
+        self.pdf_bindings_tree.setColumnCount(3)
+        self.pdf_bindings_tree.setHeaderLabels(["Page", "Map view", "Options"])
         self.pdf_bindings_tree.setRootIsDecorated(False)
         self.pdf_bindings_tree.setMaximumHeight(110)
         self.pdf_bindings_tree.setToolTip(
-            "As the PDF is scrolled, reaching a listed page applies its map view.")
+            "As the PDF is scrolled, reaching a listed page applies its map view.\n"
+            "Options (optional) use the :::view grammar, e.g.:  3d pitch=-35 heading=120")
         pdf_bind_btns = QHBoxLayout()
         pdf_bind_add = QPushButton("+ Add binding")
         pdf_bind_add.clicked.connect(self._pdf_binding_add)
@@ -322,9 +323,9 @@ class ExportTabMixin:
         return [mv.get("name", "") for mv in getattr(self, "_map_views", [])
                 if mv.get("name")]
 
-    def _pdf_binding_add(self, page=1, view=""):
+    def _pdf_binding_add(self, page=1, view="", opts=""):
         from qgis.PyQt.QtWidgets import QTreeWidgetItem, QSpinBox
-        item = QTreeWidgetItem(["", ""])
+        item = QTreeWidgetItem(["", "", ""])
         self.pdf_bindings_tree.addTopLevelItem(item)
         spin = QSpinBox()
         spin.setRange(1, 9999)
@@ -336,8 +337,12 @@ class ExportTabMixin:
         if view:
             combo.setCurrentText(view)
         combo.currentTextChanged.connect(self._mark_unsaved)
+        opts_edit = QLineEdit(opts or "")
+        opts_edit.setPlaceholderText("e.g. 3d pitch=-35")
+        opts_edit.textChanged.connect(self._mark_unsaved)
         self.pdf_bindings_tree.setItemWidget(item, 0, spin)
         self.pdf_bindings_tree.setItemWidget(item, 1, combo)
+        self.pdf_bindings_tree.setItemWidget(item, 2, opts_edit)
         self._mark_unsaved()
 
     def _pdf_binding_remove(self):
@@ -356,17 +361,23 @@ class ExportTabMixin:
             item = tree.topLevelItem(i)
             spin = tree.itemWidget(item, 0)
             combo = tree.itemWidget(item, 1)
+            opts_edit = tree.itemWidget(item, 2)
             if spin is None or combo is None:
                 continue
             view = combo.currentText().strip()
             if view:
-                out.append({"page": spin.value(), "view": view})
+                entry = {"page": spin.value(), "view": view}
+                opts = opts_edit.text().strip() if opts_edit else ""
+                if opts:
+                    entry["opts"] = opts
+                out.append(entry)
         return out
 
     def _pdf_bindings_apply(self, bindings):
         self.pdf_bindings_tree.clear()
         for b in bindings or []:
-            self._pdf_binding_add(b.get("page", 1), b.get("view", ""))
+            self._pdf_binding_add(b.get("page", 1), b.get("view", ""),
+                                  b.get("opts", ""))
 
     def _export(self):
         output_path = self.path_edit.text().strip()

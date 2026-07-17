@@ -29,6 +29,15 @@ best-effort raw page count). Verified end-to-end in headless Chromium:
 scrolling from page 1 to page 3 flies the map from the Overview extent
 (zoom 11) to the North-detail extent (zoom 14) with zero JS errors.
 
+Pages **lazy-render**: all holders are laid out immediately (so scroll
+geometry and the view driver work from the start) but pixels are only
+painted when a page nears the viewport (IntersectionObserver, 1200 px
+margin) — verified with a 40-page document where page 35 stays blank until
+scrolled to. Bindings also accept an **options** string using the
+`:::view` grammar (`3d pitch=-35 heading=120`), parsed at export into the
+opts dict `applyView()` already understands, so a page can put the 3D
+camera at a specific angle.
+
 ---
 
 ### Session — 2026-07-16 · Bottom-up rebuild (v1.4.0)

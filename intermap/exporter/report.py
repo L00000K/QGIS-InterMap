@@ -143,6 +143,24 @@ def _pdf_page_count(data: bytes) -> int:
     return len(_PDF_PAGE_RE.findall(data))
 
 
+def _parse_view_opts(s: str) -> dict:
+    """Parse a binding options string like "3d pitch=-35 heading=120" into the
+    opts dict the web app's applyView() accepts — the same grammar as the
+    markdown ":::view Name [ ... ]" directive."""
+    opts = {}
+    for tok in (s or "").split():
+        if tok == "3d":
+            opts["mode3d"] = True
+            continue
+        if "=" in tok:
+            key, _, val = tok.partition("=")
+            try:
+                opts[key] = float(val)
+            except ValueError:
+                pass
+    return opts
+
+
 def _build_pdf_report_payload(pdf_path, bindings, view_names) -> dict:
     """Read the report PDF and validate its page→view bindings. Returns the
     JSON-able payload for the export: the PDF as base64 plus normalised
@@ -170,7 +188,11 @@ def _build_pdf_report_payload(pdf_path, bindings, view_names) -> dict:
         if view and view not in view_names:
             warnings.append(f"unknown map view in pdf binding — {view}")
         if view:
-            norm.append({"page": page, "view": view})
+            entry = {"page": page, "view": view}
+            opts = _parse_view_opts(str(b.get("opts") or ""))
+            if opts:
+                entry["opts"] = opts
+            norm.append(entry)
     norm.sort(key=lambda b: b["page"])
 
     return {

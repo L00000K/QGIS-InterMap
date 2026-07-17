@@ -233,7 +233,7 @@ def build_scenarios(tmpdir):
         report_pdf_path=pdf_path,
         report_pdf_bindings=[
             {"page": 1, "view": "Overview"},
-            {"page": 3, "view": "North detail"},
+            {"page": 3, "view": "North detail", "opts": "3d pitch=-35 heading=120"},
         ],
         **common,
     )

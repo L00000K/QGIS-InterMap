@@ -21,6 +21,8 @@
 - [x] TOC page list with current-page highlight; header page indicator; view chips
 - [x] Dialog: PDF picker + page/view bindings table, persisted in configs
 - [x] Unit + headless-browser tests (scroll page 1→3 verifiably flies the map)
+- [x] Lazy page rendering (IntersectionObserver; 40-page doc renders on demand)
+- [x] Binding options column with `:::view` grammar (`3d pitch=… heading=…`)
 
 ### Bottom-up rebuild (2026-07-16)
 

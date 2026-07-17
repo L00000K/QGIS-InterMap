@@ -316,6 +316,23 @@ class PdfReportTests(unittest.TestCase):
         self.assertEqual(
             _pdf_page_count(b"<< /Type /Pages >> << /Type /Page >>"), 1)
 
+    def test_view_opts_parsing(self):
+        from intermap.exporter.report import _parse_view_opts
+        self.assertEqual(_parse_view_opts("3d pitch=-35 heading=120"),
+                         {"mode3d": True, "pitch": -35.0, "heading": 120.0})
+        self.assertEqual(_parse_view_opts(""), {})
+        self.assertEqual(_parse_view_opts("pitch=abc junk"), {})
+
+    def test_binding_opts_passed_through(self):
+        p = self._build([{"page": 2, "view": "Overview",
+                          "opts": "3d pitch=-30"}])
+        self.assertEqual(p["bindings"][0]["opts"],
+                         {"mode3d": True, "pitch": -30.0})
+
+    def test_binding_without_opts_has_no_opts_key(self):
+        p = self._build([{"page": 2, "view": "Overview", "opts": "  "}])
+        self.assertNotIn("opts", p["bindings"][0])
+
 
 class ScriptSafeJsTests(unittest.TestCase):
     def test_escapes_close_script_tag(self):

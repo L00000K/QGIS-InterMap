@@ -515,6 +515,10 @@
     var pageEls = [];
     var _current = 0;
 
+    // Pages are laid out immediately (correctly-sized blank canvases, so
+    // scroll geometry and the view driver work from the start) but pixels
+    // are only rendered when a page nears the viewport — long documents
+    // don't pay for pages the reader never reaches.
     lib.getDocument({data: bytes}).promise.then(function(doc) {
       var total = doc.numPages;
       var chain = Promise.resolve();
@@ -522,8 +526,8 @@
         chain = chain.then(function() {
           return doc.getPage(n);
         }).then(function(page) {
-          // Render at 1.5x and let CSS fit the pane width — crisp on normal
-          // displays without re-rendering on divider drags.
+          // 1.5x scale, CSS fits the pane width — crisp on normal displays
+          // without re-rendering on divider drags.
           var vp = page.getViewport({scale: 1.5});
           var holder = document.createElement('div');
           holder.className = 'rp-pdf-page';
@@ -542,12 +546,17 @@
           }
           content.appendChild(holder);
           pageEls.push(holder);
-          return page.render({canvasContext: canvas.getContext('2d'),
-                              viewport: vp}).promise;
+          holder._render = function() {
+            if (holder._rendered) return;
+            holder._rendered = true;
+            page.render({canvasContext: canvas.getContext('2d'),
+                         viewport: vp});
+          };
         });
       })(n);
       return chain.then(function() {
         buildPdfToc(total);
+        installLazyRender();
         scroller.addEventListener('scroll', _onPdfScroll);
         updateCurrentPage(true);
       });
@@ -555,6 +564,22 @@
       console.error('PDF report failed:', e);
       content.textContent = 'Could not render the PDF report.';
     });
+
+    function installLazyRender() {
+      if (typeof IntersectionObserver === 'undefined') {
+        pageEls.forEach(function(el) { el._render(); });
+        return;
+      }
+      var io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target._render();
+            io.unobserve(entry.target);
+          }
+        });
+      }, {root: scroller, rootMargin: '1200px 0px'});
+      pageEls.forEach(function(el) { io.observe(el); });
+    }
 
     function buildPdfToc(total) {
       if (!tocBody) return;
