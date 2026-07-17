@@ -113,7 +113,7 @@
 ### Cluster / spiderify
 
 - [ ] Add Leaflet.markercluster toggle button (cluster overlapping points at low zoom, spiderify at high zoom)
-  - **Blocked by**: network policy prevents downloading `leaflet.markercluster.js` and `MarkerCluster.css` from CDN. Files must be provided manually in `qgis_webmap/vendor/`. Once present, wiring can be done quickly.
+  - **Blocked by**: network policy prevents downloading `leaflet.markercluster.js` and `MarkerCluster.css` from CDN. Files must be provided manually in `intermap/vendor/`. Once present, wiring can be done quickly.
 
 ### Label leaders / offsets
 

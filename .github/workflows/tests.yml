@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests (real modules via qgis mock)
+        run: python3 -m unittest discover tests -v
+
+      - name: Render smoke — full export scenarios produce valid pages
+        run: python3 tests/render_snapshot.py /tmp/snapshots
+
+      - name: Lint
+        run: |
+          python3 -m pip install --quiet pyflakes
+          python3 -m pyflakes intermap/exporter/*.py intermap/dialog.py intermap/plugin.py intermap_dev/*.py
+
+      - name: Build plugin zip
+        run: python3 build.py --out-dir dist

@@ -223,7 +223,7 @@ If the extent cannot be captured (e.g. no canvas is open), the map auto-fits to 
 
 ## 13. Branding / logo
 
-The map header shows a logo in the top bar. Place files in `qgis_webmap/vendor/`:
+The map header shows a logo in the top bar. Place files in `intermap/vendor/`:
 
 | File | Used when |
 |---|---|

@@ -203,8 +203,8 @@ OpenStreetMap is always included. Zoom is unrestricted up to level 23 (tiles ove
 
 The map header shows a logo. Resolution order:
 
-1. `qgis_webmap/vendor/logo.svg` — embedded as inline SVG (preferred).
-2. `qgis_webmap/vendor/logo.png` — embedded as base64 data URI.
+1. `intermap/vendor/logo.svg` — embedded as inline SVG (preferred).
+2. `intermap/vendor/logo.png` — embedded as base64 data URI.
 3. Built-in fallback SVG globe icon.
 
 ---
