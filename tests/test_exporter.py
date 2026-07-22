@@ -29,7 +29,10 @@ from intermap.exporter.report import (                                  # noqa: 
     _parse_front_matter, _report_image_refs, _validate_report_refs,
 )
 from intermap.exporter.styles import (                                  # noqa: E402
-    _blend_hex, _pen_style_dash, _snap_hatch_angle,
+    _blend_hex, _pen_style_dash, _snap_hatch_angle, _extract_symbol_style,
+)
+from qgis.core import (                                                 # noqa: E402
+    QgsSymbol, QgsSimpleLineSymbolLayer, QgsMarkerLineSymbolLayer,
 )
 from intermap.exporter.template import render_page, _page_template      # noqa: E402
 from intermap.exporter.themes import _THEMES                            # noqa: E402
@@ -334,6 +337,92 @@ class PdfReportTests(unittest.TestCase):
         self.assertNotIn("opts", p["bindings"][0])
 
 
+class _FakeSimpleLine(QgsSimpleLineSymbolLayer):
+    def __init__(self, color, width_mm, pen="solid"):
+        self._c, self._w, self._pen = color, width_mm, pen
+
+    def enabled(self): return True
+    def color(self): return self._c
+    def width(self): return self._w
+    def widthUnit(self): return QgsUnitTypes.RenderMillimeters
+    def penStyle(self): return {"solid": Qt.SolidLine, "dash": Qt.DashLine}[self._pen]
+
+
+class _FakeMarkerLine(QgsMarkerLineSymbolLayer):
+    def __init__(self, sub_color, interval_mm=3.0, hash_len_mm=2.0):
+        self._sub_color, self._iv, self._hl = sub_color, interval_mm, hash_len_mm
+
+    def enabled(self): return True
+    def color(self): return self._sub_color
+    def subSymbol(self):
+        outer = self
+        class _Sub:
+            def color(self): return outer._sub_color
+            def symbolLayerCount(self): return 0
+        return _Sub()
+    def interval(self): return self._iv
+    def intervalUnit(self): return QgsUnitTypes.RenderMillimeters
+    def hashLength(self): return self._hl
+    def hashLengthUnit(self): return QgsUnitTypes.RenderMillimeters
+
+
+class _FakeSymbol:
+    def __init__(self, geom_type, layers, opacity=1.0):
+        self._t, self._layers, self._op = geom_type, layers, opacity
+
+    def type(self): return self._t
+    def opacity(self): return self._op
+    def symbolLayerCount(self): return len(self._layers)
+    def symbolLayer(self, i): return self._layers[i]
+    def color(self): return QColor(0, 0, 0)
+
+
+class LineSymbologyTests(unittest.TestCase):
+    def test_single_line_no_strokes_list(self):
+        sym = _FakeSymbol(QgsSymbol.Line,
+                          [_FakeSimpleLine(QColor(255, 0, 0), 1.0)])
+        style = _extract_symbol_style(sym)
+        self.assertEqual(style["color"], "#ff0000")
+        self.assertNotIn("strokes", style)          # single stroke stays flat
+        self.assertEqual(style["fillOpacity"], 0)
+
+    def test_cased_line_emits_stacked_strokes(self):
+        # casing (wide blue, drawn first/bottom) + core (narrow yellow, top)
+        sym = _FakeSymbol(QgsSymbol.Line, [
+            _FakeSimpleLine(QColor(0, 0, 255), 3.0),   # casing
+            _FakeSimpleLine(QColor(255, 255, 0), 1.0),  # core
+        ])
+        style = _extract_symbol_style(sym)
+        self.assertIn("strokes", style)
+        self.assertEqual(len(style["strokes"]), 2)
+        # bottom→top order preserved
+        self.assertEqual(style["strokes"][0]["color"], "#0000ff")
+        self.assertEqual(style["strokes"][1]["color"], "#ffff00")
+        self.assertGreater(style["strokes"][0]["weight"], style["strokes"][1]["weight"])
+        # flat fields describe the top (core) stroke for the legend swatch
+        self.assertEqual(style["color"], "#ffff00")
+
+    def test_dashed_line_stroke(self):
+        sym = _FakeSymbol(QgsSymbol.Line,
+                          [_FakeSimpleLine(QColor(0, 0, 0), 1.0, pen="dash"),
+                           _FakeSimpleLine(QColor(0, 0, 0), 1.0)])
+        style = _extract_symbol_style(sym)
+        self.assertEqual(style["strokes"][0].get("dashArray"), "8 4")
+
+    def test_marker_line_becomes_tick_stroke(self):
+        sym = _FakeSymbol(QgsSymbol.Line, [
+            _FakeSimpleLine(QColor(160, 32, 240), 0.5),   # thin base line
+            _FakeMarkerLine(QColor(160, 32, 240)),         # ticks
+        ])
+        style = _extract_symbol_style(sym)
+        self.assertIn("strokes", style)
+        ticks = [s for s in style["strokes"] if s.get("tick")]
+        self.assertEqual(len(ticks), 1)
+        self.assertEqual(ticks[0]["color"], "#a020f0")
+        self.assertGreater(ticks[0]["interval"], 0)
+        self.assertGreater(ticks[0]["tickLen"], 0)
+
+
 class ScriptSafeJsTests(unittest.TestCase):
     def test_escapes_close_script_tag(self):
         self.assertEqual(_script_safe_js('a="</script>"'), 'a="<\\/script>"')
@@ -399,14 +488,28 @@ class RenderedPageTests(unittest.TestCase):
         for name, html in self.pages.items():
             self.assertIsNone(pat.search(html), name)
 
-    def test_layers_payload_embeds_and_parses(self):
-        html = self.pages["full"]
+    def _layers_payload(self, scenario="full"):
+        html = self.pages[scenario]
         marker = "var LAYERS = "
         start = html.index(marker) + len(marker)
         end = html.index(";\n", start)
-        payload = json.loads(html[start:end].replace("<\\/", "</"))
+        return json.loads(html[start:end].replace("<\\/", "</"))
+
+    def test_layers_payload_embeds_and_parses(self):
+        payload = self._layers_payload()
         self.assertEqual([ld["name"] for ld in payload],
                          [ld["name"] for ld in self.layer_defs])
+
+    def test_line_strokes_survive_to_payload(self):
+        by_name = {ld["name"]: ld for ld in self._layers_payload()}
+        routes = by_name["Routes"]["styleMap"]["style"]
+        self.assertEqual(len(routes["strokes"]), 2)   # casing + core
+        ticks = by_name["Boundary ticks"]["styleMap"]["style"]["strokes"]
+        self.assertTrue(any(s.get("tick") for s in ticks))
+
+    def test_line_deco_overlay_present(self):
+        # the container the curved labels / ticks render into
+        self.assertIn('id="line-deco-svg"', self.pages["full"])
 
     def test_report_scenario_embeds_marked_and_payload(self):
         html = self.pages["report"]

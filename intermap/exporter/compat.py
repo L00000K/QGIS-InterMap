@@ -27,6 +27,11 @@ _QgsSVGFill          = _opt_import("QgsSVGFillSymbolLayer")
 _QgsShapeburstFill   = _opt_import("QgsShapeburstFillSymbolLayer")
 _QgsCentroidFill     = _opt_import("QgsCentroidFillSymbolLayer")
 
+# Templated line layers (markers/hashes repeated along a line). Availability
+# varies: QgsHashedLineSymbolLayer arrived in QGIS 3.8.
+_QgsMarkerLine       = _opt_import("QgsMarkerLineSymbolLayer")
+_QgsHashedLine       = _opt_import("QgsHashedLineSymbolLayer")
+
 try:
     from qgis.core import QgsPalLayerSettings as _QgsPalLayerSettings
     _HAS_PAL = True

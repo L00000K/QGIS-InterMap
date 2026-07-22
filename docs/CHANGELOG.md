@@ -6,6 +6,46 @@ All entries below represent work completed in a single extended development sess
 
 ---
 
+### Session — 2026-07-22 · Line symbology & curved labels (v1.6.0)
+
+Reported from a QGIS map that exported with the wrong line rendering: cased
+roads collapsed to a single stroke, a hashed/tick line came through as a
+plain line, and line labels sat flat at the centroid instead of following
+the line.
+
+#### Cased / multi-stroke lines
+
+`_extract_symbol_style` walked line symbol layers but returned on the first
+one, so only one stroke of a layered line survived. It now walks **all**
+layers into an ordered `strokes[]` list (bottom→top); the web app stacks one
+non-interactive canvas "casing" underlay per lower stroke beneath the
+interactive core, reproducing QGIS's layered line symbology (e.g. a coloured
+core over a wider casing). The legend swatch uses the top/core stroke.
+
+#### Marker / hashed (tick) lines
+
+`QgsMarkerLineSymbolLayer` / `QgsHashedLineSymbolLayer` (markers or ticks
+repeated along a line) are exported as `tick` strokes — colour from the
+sub-symbol, plus interval and tick length. They can't be a Leaflet dash, so
+the web app draws them as perpendicular hash marks in a container-space SVG
+overlay, re-projected on every move/zoom.
+
+#### Curved line labels
+
+Line labels now follow the line via SVG `<textPath>` built from the line's
+projected pixel path (with above/on/below placement, halo via
+`paint-order`, and left-to-right reading correction), rendered in a
+dedicated overlay group that the point-label relayout can't disturb —
+instead of the previous flat centroid text.
+
+Verified end-to-end in headless Chromium against a fixture with a cased line
+and a tick line: the export draws two stacked strokes for the cased line,
+seven perpendicular ticks for the marker line, and two curved textPath
+labels, with no JS errors. 77 unit tests (six new for line-stroke
+extraction and payload survival).
+
+---
+
 ### Session — 2026-07-17 · PDF report mode (v1.5.0)
 
 #### Feature: scroll a PDF, drive the map

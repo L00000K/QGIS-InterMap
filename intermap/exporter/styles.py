@@ -19,6 +19,7 @@ from qgis.PyQt.QtGui import QColor
 from .compat import (
     _QgsGradientFill, _QgsLinePatternFill,
     _QgsPointPatternFill, _QgsSVGFill, _QgsShapeburstFill, _QgsCentroidFill,
+    _QgsMarkerLine, _QgsHashedLine,
 )
 from .utils import _color_to_hex, _size_to_px
 from .markers import _encode_marker_shape, _render_marker_symbol_to_svg
@@ -263,6 +264,139 @@ def _extract_fill_symbol_style(symbol, sym_opacity) -> dict:
     return style
 
 
+def _line_dash_array(sl):
+    """SVG/Leaflet dashArray for a simple line layer, or None for solid."""
+    try:
+        pen = sl.penStyle()
+    except Exception:
+        return None
+    if pen == Qt.CustomDashLine:
+        try:
+            dv = sl.customDashVector()
+            unit = sl.customDashPatternUnit()
+            parts = [str(round(_size_to_px(v, unit), 1)) for v in dv]
+            return " ".join(parts) if parts else None
+        except Exception:
+            return None
+    return _pen_style_dash(pen)
+
+
+def _simple_line_stroke(sl, sym_opacity) -> dict:
+    """One simple line layer → a web stroke dict (colour, width, dash)."""
+    color = sl.color()
+    stroke = {
+        "color":   _color_to_hex(color),
+        "opacity": round(color.alphaF() * sym_opacity, 3),
+        "weight":  round(max(0.5, _size_to_px(sl.width(), sl.widthUnit())), 1),
+    }
+    dash = _line_dash_array(sl)
+    if dash:
+        stroke["dashArray"] = dash
+    return stroke
+
+
+def _templated_line_stroke(sl, sym_opacity):
+    """Approximate a marker/hashed line — markers or ticks repeated along the
+    line — as a 'tick' stroke the web app draws as perpendicular hash marks.
+    Colour comes from the sub-symbol so it matches QGIS."""
+    col = None
+    try:
+        sub = sl.subSymbol()
+        if sub is not None:
+            col = sub.color()
+    except Exception:
+        col = None
+    if col is None:
+        try:
+            col = sl.color()
+        except Exception:
+            return None
+    stroke = {
+        "tick":    True,
+        "color":   _color_to_hex(col),
+        "opacity": round(col.alphaF() * sym_opacity, 3),
+    }
+    try:
+        stroke["interval"] = max(2.0, round(_size_to_px(sl.interval(), sl.intervalUnit()), 1))
+    except Exception:
+        stroke["interval"] = 8.0
+    # tick length: hashed lines expose hashLength; marker lines fall back to
+    # the sub-symbol's marker size.
+    tick_len = None
+    try:
+        tick_len = _size_to_px(sl.hashLength(), sl.hashLengthUnit())
+    except Exception:
+        tick_len = None
+    if tick_len is None:
+        try:
+            sub = sl.subSymbol()
+            if sub is not None:
+                tick_len = _size_to_px(sub.size(), sub.sizeUnit())
+        except Exception:
+            tick_len = None
+    stroke["tickLen"] = round(tick_len, 1) if tick_len else 6.0
+    # tick line width from the sub-symbol's first layer, if it is a line
+    weight = None
+    try:
+        sub = sl.subSymbol()
+        if sub is not None and sub.symbolLayerCount():
+            sub_sl = sub.symbolLayer(0)
+            if hasattr(sub_sl, "width"):
+                weight = _size_to_px(sub_sl.width(), sub_sl.widthUnit())
+    except Exception:
+        weight = None
+    stroke["weight"] = round(max(0.5, weight), 1) if weight else 1.5
+    try:
+        stroke["tickAngle"] = round(float(sl.hashAngle()), 1)
+    except Exception:
+        pass
+    return stroke
+
+
+def _extract_line_strokes(symbol, sym_opacity) -> list:
+    """All enabled stroke layers of a line symbol, bottom→top, as web strokes.
+    Simple lines become solid/dashed strokes; marker/hashed lines become
+    'tick' strokes."""
+    strokes = []
+    for i in range(symbol.symbolLayerCount()):
+        sl = symbol.symbolLayer(i)
+        if not _sl_enabled(sl):
+            continue
+        if isinstance(sl, QgsSimpleLineSymbolLayer):
+            strokes.append(_simple_line_stroke(sl, sym_opacity))
+        elif ((_QgsMarkerLine and isinstance(sl, _QgsMarkerLine)) or
+              (_QgsHashedLine and isinstance(sl, _QgsHashedLine))):
+            ts = _templated_line_stroke(sl, sym_opacity)
+            if ts:
+                strokes.append(ts)
+    return strokes
+
+
+def _extract_line_symbol_style(symbol, sym_opacity) -> dict:
+    """Line symbol → web style. Emits the top (core) stroke as flat fields for
+    the swatch/fallback, plus a full strokes[] list (bottom→top) whenever the
+    line has casing or tick layers so the web app can stack them faithfully."""
+    strokes = _extract_line_strokes(symbol, sym_opacity)
+    style = {"fillOpacity": 0}
+    core = next((s for s in reversed(strokes) if not s.get("tick")), None)
+    if core is None and strokes:
+        core = strokes[-1]
+    if core:
+        style["color"]   = core["color"]
+        style["opacity"] = core.get("opacity", 1)
+        style["weight"]  = core.get("weight", 2)
+        if core.get("dashArray"):
+            style["dashArray"] = core["dashArray"]
+    else:
+        c = symbol.color()
+        style["color"]   = _color_to_hex(c)
+        style["opacity"] = round(c.alphaF(), 3)
+        style["weight"]  = 2
+    if len(strokes) > 1 or any(s.get("tick") for s in strokes):
+        style["strokes"] = strokes
+    return style
+
+
 def _extract_symbol_style(symbol) -> dict:
     """Extract Leaflet path/marker style from a QGIS symbol."""
     style = {}
@@ -277,42 +411,21 @@ def _extract_symbol_style(symbol) -> dict:
     except Exception:
         sym_opacity = 1.0
 
+    # Line symbols: walk ALL layers so cased lines (casing + core) and
+    # marker/hashed lines survive — handled by a dedicated extractor.
+    if geom_type == QgsSymbol.Line:
+        return _extract_line_symbol_style(symbol, sym_opacity)
+
     # Fill symbols need a multi-layer walk (fill + separate outline layers,
     # hatch brushes, pattern fills) — handled by a dedicated extractor.
     if geom_type == QgsSymbol.Fill:
         return _extract_fill_symbol_style(symbol, sym_opacity)
 
-    # Walk symbol layers to find the primary paint layer
+    # Walk symbol layers to find the primary marker paint layer
     for i in range(symbol.symbolLayerCount()):
         sl = symbol.symbolLayer(i)
 
-        if isinstance(sl, QgsSimpleLineSymbolLayer):
-            color = sl.color()
-            style["color"] = _color_to_hex(color)
-            style["opacity"] = round(color.alphaF() * sym_opacity, 3)
-            style["weight"] = round(max(0.5, _size_to_px(sl.width(), sl.widthUnit())), 1)
-            style["fillOpacity"] = 0
-            try:
-                pen = sl.penStyle()
-                if pen == Qt.DashLine:
-                    style["dashArray"] = "8 4"
-                elif pen == Qt.DotLine:
-                    style["dashArray"] = "2 4"
-                elif pen == Qt.DashDotLine:
-                    style["dashArray"] = "8 4 2 4"
-                elif pen == Qt.DashDotDotLine:
-                    style["dashArray"] = "8 4 2 4 2 4"
-                elif pen == Qt.CustomDashLine:
-                    dv = sl.customDashVector()
-                    unit = sl.customDashPatternUnit()
-                    parts = [str(round(_size_to_px(v, unit), 1)) for v in dv]
-                    if parts:
-                        style["dashArray"] = " ".join(parts)
-            except Exception:
-                pass
-            break
-
-        elif isinstance(sl, QgsSimpleMarkerSymbolLayer):
+        if isinstance(sl, QgsSimpleMarkerSymbolLayer):
             color = sl.color()
             stroke_color = sl.strokeColor()
             style["markerColor"] = _color_to_hex(color)
@@ -351,14 +464,7 @@ def _extract_symbol_style(symbol) -> dict:
             style["markerShape"] = "circle"
             break
 
-    if geom_type == QgsSymbol.Line and "color" not in style:
-        c = symbol.color()
-        style["color"] = _color_to_hex(c)
-        style["opacity"] = round(c.alphaF(), 3)
-        style["weight"] = 2
-        style["fillOpacity"] = 0
-
-    elif geom_type == QgsSymbol.Marker and "markerColor" not in style:
+    if geom_type == QgsSymbol.Marker and "markerColor" not in style:
         c = symbol.color()
         style["markerColor"] = _color_to_hex(c)
         style["markerOpacity"] = round(c.alphaF(), 3)

@@ -30,6 +30,13 @@ class QgsMapLayer:
     RasterLayer = 1
 
 
+class QgsSymbol:
+    # Geometry types, matching QGIS
+    Marker = 0
+    Line = 1
+    Fill = 2
+
+
 class _StubMapThemeCollection:
     def mapThemes(self):
         return []

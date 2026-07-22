@@ -23,22 +23,24 @@ def _vector_layer_def(name, geom_type, features, style_map=None, label=False):
         "geomType": geom_type,
         "geojson": {"type": "FeatureCollection", "features": features},
         "styleMap": style_map or {
-            "__default__": {
+            "type": "single",
+            "style": {
                 "kind": geom_type,
                 "color": "#1f6feb",
                 "weight": 2,
                 "opacity": 1.0,
                 "fillColor": "#1f6feb",
                 "fillOpacity": 0.4,
-            }
+            },
         },
     }
     if label:
         ld["labelConfig"] = {
             "field": "name",
+            "enabled": True,
             "fontFamily": "Arial, sans-serif",
             "fontSize": 11,
-            "color": "#222222",
+            "fontColor": "#222222",
             "bold": False,
             "italic": False,
             "bufferSize": 1.2,
@@ -61,19 +63,51 @@ def build_layer_defs():
                      {"name": "BH02", "depth": 8.0}),
         ],
         style_map={
-            "__default__": {
+            "type": "single",
+            "style": {
                 "kind": "point", "shape": "circle", "radius": 6,
                 "color": "#333333", "weight": 1, "opacity": 1.0,
                 "fillColor": "#e63329", "fillOpacity": 0.9,
-            }
+            },
         },
         label=True,
     )
+    # Cased line (blue casing under a yellow core) with a curved line label.
     lines = _vector_layer_def(
         "Routes", "line",
         [_feature(3, {"type": "LineString",
                       "coordinates": [[-0.12, 51.49], [-0.1, 51.5], [-0.09, 51.52]]},
-                  {"name": "Route A", "length_m": 3400})],
+                  {"name": "M4 Pencoed", "length_m": 3400})],
+        style_map={
+            "type": "single",
+            "style": {
+                "kind": "line", "color": "#ffd400", "weight": 4, "opacity": 1.0,
+                "strokes": [
+                    {"color": "#1552d8", "weight": 8, "opacity": 1.0},
+                    {"color": "#ffd400", "weight": 4, "opacity": 1.0},
+                ],
+            },
+        },
+        label=True,
+    )
+    # Marker / hashed line (ticks along the line).
+    tick_line = _vector_layer_def(
+        "Boundary ticks", "line",
+        [_feature(30, {"type": "LineString",
+                       "coordinates": [[-0.14, 51.465], [-0.10, 51.47]]},
+                  {"name": "M4 Ruthin"})],
+        style_map={
+            "type": "single",
+            "style": {
+                "kind": "line", "color": "#a020f0", "weight": 2, "opacity": 1.0,
+                "strokes": [
+                    {"color": "#a020f0", "weight": 2, "opacity": 1.0},
+                    {"tick": True, "color": "#a020f0", "weight": 2,
+                     "opacity": 1.0, "interval": 8, "tickLen": 8},
+                ],
+            },
+        },
+        label=True,
     )
     polys = _vector_layer_def(
         "Site boundary", "polygon",
@@ -105,13 +139,14 @@ def build_layer_defs():
         "url": "https://blob.example.com/ortho.tif",
         "bounds": [[51.4, -0.2], [51.6, 0.0]], "opacity": 1.0, "bands": 3,
     }
-    return [points, lines, polys, wms, raster, cog]
+    return [points, lines, tick_line, polys, wms, raster, cog]
 
 
 LAYER_TREE = [
     {"type": "group", "name": "Investigations", "children": [
         {"type": "layer", "name": "Boreholes"},
         {"type": "layer", "name": "Routes"},
+        {"type": "layer", "name": "Boundary ticks"},
     ]},
     {"type": "layer", "name": "Site boundary"},
     {"type": "group", "name": "Background", "children": [
@@ -124,7 +159,7 @@ LAYER_TREE = [
 MAP_VIEWS = [
     {"name": "Overview", "notes": "<b>Whole site</b> overview",
      "extent": [[51.4, -0.2], [51.6, 0.0]],
-     "layerIds": ["Boreholes", "Site boundary"]},
+     "layerIds": ["Boreholes", "Site boundary", "Routes", "Boundary ticks"]},
     {"name": "North detail", "notes": "",
      "extent": [[51.5, -0.12], [51.53, -0.08]],
      "theme": "north-theme"},

@@ -517,27 +517,101 @@
   }
 
   // ── Layer builder ────────────────────────────────────────────────────────
+  // Highest number of stroke layers across a line layer's styleMap entries —
+  // determines how many casing underlays we need to stack.
+  function _maxStrokeLevels(styleMap) {
+    var max = 0;
+    function consider(s) {
+      if (s && s.strokes && s.strokes.length > max) max = s.strokes.length;
+    }
+    if (!styleMap) return 0;
+    consider(styleMap.style);
+    consider(styleMap.default);
+    (styleMap.entries || []).forEach(function(e) { consider(e.style); });
+    return max;
+  }
+
+  // Style for one stroke level of a feature (level 0 = bottom casing). Returns
+  // null when this feature has no stroke at that level (drawn invisibly).
+  function _strokeLevelStyle(featStyle, level) {
+    var strokes = featStyle && featStyle.strokes;
+    if (!strokes || !strokes.length) {
+      // single-stroke line: only the top level carries the flat style
+      return null;
+    }
+    var s = strokes[level];
+    if (!s) return { stroke: false, fill: false };
+    if (s.tick) return { stroke: false, fill: false };  // ticks drawn separately
+    return {
+      color: s.color || '#3388ff',
+      weight: s.weight != null ? s.weight : 2,
+      opacity: s.opacity != null ? s.opacity : 1,
+      dashArray: s.dashArray || null,
+      fill: false, lineCap: 'round', lineJoin: 'round'
+    };
+  }
+
   function buildVectorLayer(item) {
     var ld = item.ld;
+    var featFilter = function(feature) {
+      if (item.filterFn && !item.filterFn(feature)) return false;
+      if (item.layerFilterFn && !item.layerFilterFn(feature)) return false;
+      if (item.hiddenClasses && item.hiddenClasses.length) {
+        var idx = resolveEntryIndex(item.ld.styleMap, feature.properties || {});
+        if (item.hiddenClasses.indexOf(idx) !== -1) return false;
+      }
+      return true;
+    };
     var opts = {
       pane: item.paneName,
       onEachFeature: onEachFeature,
-      filter: function(feature) {
-        if (item.filterFn && !item.filterFn(feature)) return false;
-        if (item.layerFilterFn && !item.layerFilterFn(feature)) return false;
-        if (item.hiddenClasses && item.hiddenClasses.length) {
-          var idx = resolveEntryIndex(item.ld.styleMap, feature.properties || {});
-          if (item.hiddenClasses.indexOf(idx) !== -1) return false;
-        }
-        return true;
-      }
+      filter: featFilter
     };
+    // Cased / multi-stroke lines: stack one non-interactive geoJSON per lower
+    // stroke level beneath the interactive top layer, so casing + core (and
+    // any tick overlay) reproduce QGIS's layered line symbology.
+    item.casings = [];
+    item.tickStrokes = null;
+    if (ld.geomType === 'line') {
+      var levels = _maxStrokeLevels(ld.styleMap);
+      if (levels > 1) {
+        // levels-1 underlays (bottom→top); the top level is the interactive layer
+        for (var lv = 0; lv < levels - 1; lv++) (function(lv) {
+          var casing = L.geoJSON(ld.geojson, {
+            pane: item.paneName,
+            interactive: false,
+            filter: featFilter,
+            renderer: L.canvas({ pane: item.paneName }),
+            style: function(feature) {
+              return _strokeLevelStyle(
+                resolveStyle(ld.styleMap, feature.properties || {}), lv);
+            }
+          });
+          item.casings.push(casing);
+        })(lv);
+      }
+      item.tickStrokes = true;  // let the tick overlay pass inspect this layer
+    }
     if (ld.geomType === 'point') {
       opts.pointToLayer = function(feature, latlng) {
         var mkr = makeMarker(latlng, resolveStyle(ld.styleMap, feature.properties || {}), item.paneName);
         mkr._origLatLng = latlng;
         return mkr;
       };
+    } else if (ld.geomType === 'line') {
+      // Top (core) stroke is the interactive layer.
+      opts.style = function(feature) {
+        var fs = resolveStyle(ld.styleMap, feature.properties || {});
+        if (fs && fs.strokes && fs.strokes.length) {
+          var top = _strokeLevelStyle(fs, fs.strokes.length - 1);
+          if (top) return top;
+          // top level is a tick stroke with no core — draw an invisible hit line
+          return { color: fs.color || '#3388ff', weight: Math.max(6, fs.weight || 2),
+                   opacity: 0, fill: false };
+        }
+        return polygonPathStyle(fs);
+      };
+      opts.renderer = L.canvas({ pane: item.paneName });
     } else {
       opts.style = function(feature) {
         return polygonPathStyle(resolveStyle(ld.styleMap, feature.properties || {}));
@@ -679,12 +753,23 @@
     return buildRasterLayer(item);
   }
 
+  // Add/remove a layer together with its line casing underlays. Casings are
+  // added first so the interactive core stroke draws on top of them.
+  function addItemLayer(item) {
+    (item.casings || []).forEach(function(c) { c.addTo(map); });
+    item.lfl.addTo(map);
+  }
+  function removeItemLayer(item) {
+    if (item.lfl) map.removeLayer(item.lfl);
+    (item.casings || []).forEach(function(c) { map.removeLayer(c); });
+  }
+
   // Rebuild a layer in place (used after a filter change), preserving visibility.
   function rebuildLayer(item) {
     var wasVisible = item.visible;
-    if (item.lfl) map.removeLayer(item.lfl);
+    removeItemLayer(item);
     item.lfl = buildLayer(item);
-    if (wasVisible) item.lfl.addTo(map);
+    if (wasVisible) addItemLayer(item);
     // Repopulate spreadMarkers from the newly-built layer so the explode system
     // always references live markers, not the old detached ones.
     if (item.ld.geomType === 'point' && item.ld.kind === 'vector') {
@@ -694,6 +779,10 @@
     if (item.ld.labelConfig) {
       buildLabels(item);
       setLayerLabels(item, item.labelsVisible);
+    }
+    if (item.ld.geomType === 'line') {
+      setTimeout(renderLineTicks, 0);
+      setTimeout(renderLineLabels, 0);
     }
   }
 
@@ -715,6 +804,8 @@
   // uniformly (works for vector markers, paths, rasters and WMS alike).
   var legendItems = [];
   var _allLabelItems = [];
+  var _lineLabelItems = [];   // line layers whose labels follow the line path
+  var _lineLabelPathId = 0;
   var _labelPlacementMode = 'candidate';
   var _labelSvg = document.getElementById('label-svg');
   for (var i = 0; i < LAYERS.length; i++) {
@@ -734,7 +825,7 @@
     };
     try {
       item.lfl = buildLayer(item);
-      item.lfl.addTo(map);
+      addItemLayer(item);
       // collect point markers for de-overlap spread
       if (item.ld.geomType === 'point' && item.ld.kind === 'vector') {
         item.lfl.eachLayer(function(lyr) { if (lyr._origLatLng) item.spreadMarkers.push(lyr); });
@@ -2072,12 +2163,14 @@
 
   function setLayerVisible(item, visible) {
     item.visible = visible;
-    if (visible) item.lfl.addTo(map);
-    else map.removeLayer(item.lfl);
+    if (visible) addItemLayer(item);
+    else removeItemLayer(item);
     if (item.checkbox) item.checkbox.checked = visible;
     if (item.layerDiv) item.layerDiv.classList.toggle('hidden', !visible);
     if (item.labelGroup) item.labelGroup.style.display = (visible && item.labelsVisible) ? '' : 'none';
     setTimeout(layoutAllLabels, 100);
+    setTimeout(renderLineLabels, 100);
+    setTimeout(renderLineTicks, 100);
   }
 
   function setLayerOpacity(item, factor) {
@@ -2089,6 +2182,7 @@
     item.labelsVisible = visible;
     if (item.labelGroup) item.labelGroup.style.display = (item.visible && visible) ? '' : 'none';
     setTimeout(layoutAllLabels, 100);
+    if (item.ld.geomType === 'line') setTimeout(renderLineLabels, 100);
   }
 
   // ── Label placement helpers ───────────────────────────────────────────────
@@ -2296,7 +2390,88 @@
   // the brief disappearance is less jarring than labels drifting behind the map.
   map.on('movestart zoomstart', function() {
     if (_labelSvg) _labelSvg.style.opacity = '0';
+    if (_lineDecoSvg) _lineDecoSvg.style.opacity = '0';
   });
+
+  // ── Marker / hashed line ticks ────────────────────────────────────────────
+  // QGIS marker-lines and hashed-lines (repeated ticks/markers along a line)
+  // are exported as 'tick' strokes; they can't be a Leaflet polyline dash, so
+  // they are drawn as perpendicular hash marks in a container-space SVG,
+  // re-projected on every move/zoom like the labels.
+  var _lineDecoSvg = document.getElementById('line-deco-svg');
+
+  function _tickStrokesOf(featStyle) {
+    var out = [];
+    if (featStyle && featStyle.strokes) {
+      featStyle.strokes.forEach(function(s) { if (s.tick) out.push(s); });
+    }
+    return out;
+  }
+
+  function _drawTicksAlong(pts, ts, w, h, frag, NS) {
+    var interval = Math.max(4, ts.interval || 8);
+    var half = (ts.tickLen || 6) / 2;
+    var color = ts.color || '#000';
+    var width = ts.weight || 1.5;
+    var opacity = ts.opacity != null ? ts.opacity : 1;
+    var next = interval * 0.5;   // first tick half an interval in
+    var run = 0;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var a = pts[i], b = pts[i + 1];
+      var dx = b.x - a.x, dy = b.y - a.y;
+      var segLen = Math.sqrt(dx * dx + dy * dy);
+      if (segLen < 0.001) continue;
+      var ux = dx / segLen, uy = dy / segLen;   // unit along segment
+      var nx = -uy, ny = ux;                     // unit perpendicular
+      while (next <= run + segLen) {
+        var d = next - run;
+        var px = a.x + ux * d, py = a.y + uy * d;
+        next += interval;
+        if (px < -20 || px > w + 20 || py < -20 || py > h + 20) continue; // cull
+        var line = document.createElementNS(NS, 'line');
+        line.setAttribute('x1', (px - nx * half).toFixed(1));
+        line.setAttribute('y1', (py - ny * half).toFixed(1));
+        line.setAttribute('x2', (px + nx * half).toFixed(1));
+        line.setAttribute('y2', (py + ny * half).toFixed(1));
+        line.setAttribute('stroke', color);
+        line.setAttribute('stroke-width', width);
+        line.setAttribute('stroke-opacity', opacity);
+        frag.appendChild(line);
+      }
+      run += segLen;
+    }
+  }
+
+  function renderLineTicks() {
+    if (!_lineDecoSvg) return;
+    _lineDecoSvg.style.opacity = '1';
+    _lineDecoSvg.innerHTML = '';
+    var NS = 'http://www.w3.org/2000/svg';
+    var size = map.getSize(), w = size.x, h = size.y;
+    var frag = document.createDocumentFragment();
+    legendItems.forEach(function(item) {
+      if (!item.visible || item.ld.kind !== 'vector' || item.ld.geomType !== 'line') return;
+      if (!item.lfl || !item.lfl.eachLayer) return;
+      item.lfl.eachLayer(function(fl) {
+        if (!fl.getLatLngs) return;
+        var props = fl.feature && fl.feature.properties || {};
+        var ticks = _tickStrokesOf(resolveStyle(item.ld.styleMap, props));
+        if (!ticks.length) return;
+        var raw = fl.getLatLngs();
+        // normalise to an array of coordinate lists (handle multi-part lines)
+        var lines = (raw.length && raw[0] && raw[0].lat !== undefined) ? [raw] : raw;
+        lines.forEach(function(latlngs) {
+          if (!latlngs || !latlngs.length) return;
+          var pts = latlngs.map(function(ll) { return map.latLngToContainerPoint(ll); });
+          ticks.forEach(function(ts) { _drawTicksAlong(pts, ts, w, h, frag, NS); });
+        });
+      });
+    });
+    _lineDecoSvg.appendChild(frag);
+  }
+
+  map.on('moveend zoomend viewreset', renderLineTicks);
+  setTimeout(renderLineTicks, 300);
 
   // ── SVG label render pass ─────────────────────────────────────────────────
   function layoutAllLabels() {
@@ -2419,10 +2594,140 @@
     });
   }
 
+  // ── Curved line labels (SVG textPath) ─────────────────────────────────────
+  // Line labels are rendered as one self-contained pass over all line layers
+  // into a dedicated group, cleared and rebuilt each time — deliberately
+  // independent of the point-label group lifecycle so a layer rebuild or a
+  // point-label relayout can never wipe them.
+  function buildLineLabels(item) {
+    item.labelCfg = item.ld.labelConfig;
+    if (_lineLabelItems.indexOf(item) === -1) _lineLabelItems.push(item);
+    map.off('moveend zoomend viewreset', renderLineLabels);
+    map.on('moveend zoomend viewreset', renderLineLabels);
+    setTimeout(renderLineLabels, 150);
+  }
+
+  function _projectLine(latlngs) {
+    var pts = [];
+    for (var i = 0; i < latlngs.length; i++) {
+      pts.push(map.latLngToContainerPoint(latlngs[i]));
+    }
+    return pts;
+  }
+
+  function _polylineLenPx(pts) {
+    var d = 0;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+      d += Math.sqrt(dx * dx + dy * dy);
+    }
+    return d;
+  }
+
+  var _lineLabelGroup = null;
+  function renderLineLabels() {
+    if (!_labelSvg) return;
+    _labelSvg.style.opacity = '1';  // restore after pan/zoom (may be line-only map)
+    var NS = 'http://www.w3.org/2000/svg';
+    // One dedicated group, rebuilt each pass and kept last so line labels
+    // paint above point labels; never touched by the point-label relayout.
+    if (!_lineLabelGroup) {
+      _lineLabelGroup = document.createElementNS(NS, 'g');
+      _lineLabelGroup.setAttribute('id', 'line-label-layer');
+    }
+    _lineLabelGroup.innerHTML = '';
+    _labelSvg.appendChild(_lineLabelGroup);  // (re)attach and keep last = on top
+    var g = _lineLabelGroup;
+    var size = map.getSize(), W = size.x, H = size.y;
+    _lineLabelItems.forEach(function(item) {
+      if (!item.visible || !item.labelsVisible || !item.lfl || !item.lfl.eachLayer) return;
+      var cfg = item.labelCfg || item.ld.labelConfig || {};
+      var fsz = cfg.fontSize || 11;
+      // Scale-based visibility (same rule as point labels)
+      if (cfg.labelScaleMin || cfg.labelScaleMax) {
+        var zoom = map.getZoom(), LOG2 = Math.log(2);
+        var maxZ = cfg.labelScaleMin ? Math.log(559082264 / cfg.labelScaleMin) / LOG2 : 24;
+        var minZ = cfg.labelScaleMax ? Math.log(559082264 / cfg.labelScaleMax) / LOG2 : 0;
+        if (zoom < minZ || zoom > maxZ) return;
+      }
+      var side = cfg.linePlacement || 'above';
+      item.lfl.eachLayer(function(fl) {
+        if (!fl.getLatLngs) return;
+        var props = fl.feature && fl.feature.properties;
+        if (!props) return;
+        var val = props[cfg.field];
+        if (val == null || val === '') return;
+        var text = String(val);
+        var raw = fl.getLatLngs();
+        var lines = (raw.length && raw[0] && raw[0].lat !== undefined) ? [raw] : raw;
+        // Label the longest part only, to avoid repeating on every segment
+        var best = null, bestLen = -1;
+        lines.forEach(function(ll) {
+          var pts = _projectLine(ll);
+          var len = _polylineLenPx(pts);
+          if (len > bestLen) { bestLen = len; best = pts; }
+        });
+        if (!best || best.length < 2) return;
+        // Cull if the whole line is off-screen
+        var onScreen = best.some(function(p) { return p.x > -40 && p.x < W + 40 && p.y > -40 && p.y < H + 40; });
+        if (!onScreen) return;
+        // Need room for the text along the line
+        var textLen = text.length * fsz * 0.6;
+        if (bestLen < textLen * 0.8) return;
+        // Ensure left-to-right reading direction
+        var pts = best;
+        if (pts[pts.length - 1].x < pts[0].x) pts = pts.slice().reverse();
+        var dPath = 'M' + pts.map(function(p) { return p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(' L');
+        var pid = 'llp' + (++_lineLabelPathId);
+        var path = document.createElementNS(NS, 'path');
+        path.setAttribute('id', pid);
+        path.setAttribute('d', dPath);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'none');
+        g.appendChild(path);
+        var t = document.createElementNS(NS, 'text');
+        t.setAttribute('font-size', fsz);
+        t.setAttribute('font-family', cfg.fontFamily || 'sans-serif');
+        if (cfg.bold) t.setAttribute('font-weight', 'bold');
+        if (cfg.italic) t.setAttribute('font-style', 'italic');
+        t.setAttribute('fill', cfg.fontColor || '#222');
+        if (cfg.fontOpacity != null) t.setAttribute('fill-opacity', cfg.fontOpacity);
+        // Buffer / halo via paint-order stroke behind the fill
+        if (cfg.bufferSize) {
+          t.setAttribute('stroke', cfg.bufferColor || '#fff');
+          t.setAttribute('stroke-width', cfg.bufferSize * 2);
+          t.setAttribute('stroke-linejoin', 'round');
+          t.setAttribute('paint-order', 'stroke');
+        }
+        // above / on / below → vertical shift relative to the path
+        var dy = 0;
+        if (side === 'above') dy = -Math.round(fsz * 0.35);
+        else if (side === 'below') dy = Math.round(fsz * 0.9);
+        else dy = Math.round(fsz * 0.35);
+        t.setAttribute('dy', dy);
+        var tp = document.createElementNS(NS, 'textPath');
+        tp.setAttribute('href', '#' + pid);
+        tp.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#' + pid);
+        tp.setAttribute('startOffset', '50%');
+        tp.setAttribute('text-anchor', 'middle');
+        tp.textContent = text;
+        t.appendChild(tp);
+        g.appendChild(t);
+      });
+    });
+  }
+
   function buildLabels(item) {
     var ld = item.ld;
     if (!ld.labelConfig || ld.kind !== 'vector') return;
     var cfg = ld.labelConfig;
+
+    // Line layers: labels follow the line via SVG textPath (see
+    // renderLineLabels) rather than being placed as horizontal text.
+    if (ld.geomType === 'line') {
+      buildLineLabels(item);
+      return;
+    }
 
     // Collect label anchor points — store lyr reference so labels follow spread markers
     var labelData = [];

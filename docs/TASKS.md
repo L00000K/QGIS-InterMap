@@ -13,6 +13,13 @@
 
 ## Completed ✅
 
+### Line symbology & curved labels (2026-07-22)
+
+- [x] Cased / multi-stroke lines: walk all line symbol layers into `strokes[]`, stack casing underlays in the web app
+- [x] Marker / hashed (tick) lines exported as `tick` strokes → perpendicular hash-mark overlay
+- [x] Curved line labels following the line via SVG `textPath` (above/on/below, halo, reading direction)
+- [x] Unit tests for stroke extraction + payload survival; headless-browser verification
+
 ### PDF report mode (2026-07-17)
 
 - [x] Vendor PDF.js legacy build (`pdfjs.min.js` + worker) for offline rendering
