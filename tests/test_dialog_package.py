@@ -32,6 +32,20 @@ class DialogPackageTests(unittest.TestCase):
                       "ExportTabMixin"):
             self.assertIn(mixin, names)
 
+    def test_scrollable_wraps_tab_pages(self):
+        # Every tab page must be made scrollable so a tall page can never hide
+        # the export/close bar (the "can't reach the Export button" bug).
+        from qgis.PyQt.QtWidgets import QScrollArea, QWidget
+        wrapped = self.dlg._scrollable(QWidget())
+        self.assertIsInstance(wrapped, QScrollArea)
+
+    def test_scrollable_passes_through_existing_scrollarea(self):
+        # Pages that already provide their own scroll area (Map Info, Map
+        # Views) are returned unchanged — no double scrollbars.
+        from qgis.PyQt.QtWidgets import QScrollArea
+        sa = QScrollArea()
+        self.assertIs(self.dlg._scrollable(sa), sa)
+
     def test_no_method_shadowing_between_mixins(self):
         seen = {}
         for klass in self.dlg.__mro__:

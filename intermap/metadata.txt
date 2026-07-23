@@ -2,7 +2,7 @@
 name=InterMap
 qgisMinimumVersion=3.2
 description=Export QGIS layers to a self-contained interactive map package (HTML)
-version=1.6.0
+version=1.6.1
 author=InterMap
 email=
 about=InterMap exports your QGIS project to a self-contained HTML interactive map package. Preserves symbology, labels with collision detection, layer groups, and rich interactive features including map views, attribute tables, per-layer filters, feature info panels, and explode/group for point layers. Based on Leaflet.js — no server required.
@@ -10,6 +10,7 @@ tracker=
 repository=
 hasProcessingProvider=no
 changelog=
+    1.6.1 - Fix: dialog tabs now always scroll, so the Export/Close buttons can never be pushed off-screen on short docks or small displays
     1.6.0 - Line symbology fidelity: cased/multi-stroke lines (e.g. coloured core with a casing), marker/hashed 'tick' lines, and curved labels that follow the line via SVG textPath
     1.5.0 - PDF report mode: scroll a PDF beside the map with page-to-view bindings that fly the map as you read (self-contained via bundled PDF.js); dialog gains PDF picker and bindings table
     1.4.0 - Bottom-up rebuild: exporter split into a package with the web app as real HTML/CSS/JS template files; report mode fixed (embedded marked.js was corrupted by over-eager escaping); dead code removed; tests now exercise the real modules

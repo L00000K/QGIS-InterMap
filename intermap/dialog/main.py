@@ -3,7 +3,7 @@ import os
 import datetime
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QProgressBar, QWidget, QFrame, QStackedWidget,
+    QProgressBar, QWidget, QFrame, QStackedWidget, QScrollArea,
 )
 from qgis.PyQt.QtGui import QPixmap
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QSettings
@@ -371,6 +371,21 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
 
         return header
 
+    @staticmethod
+    def _scrollable(page):
+        """Wrap a tab page in a vertical scroll area so it can never grow taller
+        than the dock and hide the export/close bar. Pages that already provide
+        their own scroll area are returned unchanged (no double scrollbars)."""
+        if isinstance(page, QScrollArea):
+            return page
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setWidget(page)
+        return scroll
+
     def _build_ui(self):
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -548,7 +563,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
             btn.clicked.connect(lambda _checked, idx=i: self._switch_tab(idx))
             self._nav_btns.append(btn)
             nav_hl.addWidget(btn)
-            self._tab_stack.addWidget(page_widget)
+            self._tab_stack.addWidget(self._scrollable(page_widget))
 
         nav_hl.addStretch()
         # Hide Lite button and its separator initially (Pro mode default)
