@@ -197,7 +197,10 @@
               (ms.h || 24) / 2 - (ms.ay || 0)
             )),
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            heightReference: clampRef
+            heightReference: clampRef,
+            // Ground-clamped markers otherwise disappear behind the globe's
+            // curvature / terrain; keep them drawn on top like a 2D overlay.
+            disableDepthTestDistance: new Cesium.ConstantProperty(Number.POSITIVE_INFINITY)
           });
           entity.point = undefined;
           return;
@@ -214,7 +217,8 @@
           style.markerStrokeOpacity !== undefined ? style.markerStrokeOpacity : 1.0
         )),
         outlineWidth:    new Cesium.ConstantProperty(style.markerStrokeWidth || 1),
-        heightReference: clampRef
+        heightReference: clampRef,
+        disableDepthTestDistance: new Cesium.ConstantProperty(Number.POSITIVE_INFINITY)
       });
     }
   }
@@ -609,6 +613,10 @@
     // Blue fallback colour — shown while tiles load, or when basemap is off
     _viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a69b0');
     _viewer.scene.globe.enableLighting = false;
+    // Keep ground-clamped features drawn over the terrain surface instead of
+    // being culled into it (default, set explicitly so flat/draped data with
+    // no Z is reliably visible with or without a terrain provider).
+    _viewer.scene.globe.depthTestAgainstTerrain = false;
     _viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a2e');
     _viewer.scene.skyBox.show    = false;
     _viewer.scene.sun.show       = false;
