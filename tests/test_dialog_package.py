@@ -28,7 +28,7 @@ class DialogPackageTests(unittest.TestCase):
     def test_mixin_composition(self):
         names = [c.__name__ for c in self.dlg.__mro__]
         for mixin in ("RichTextMixin", "ConfigsMixin", "MapInfoTabMixin",
-                      "MapViewsTabMixin", "LayersTabMixin", "LiteModeMixin",
+                      "MapViewsTabMixin", "LayersTabMixin",
                       "ExportTabMixin"):
             self.assertIn(mixin, names)
 
@@ -60,18 +60,43 @@ class DialogPackageTests(unittest.TestCase):
                 seen[name] = klass.__name__
 
     def test_core_entry_points_present(self):
-        for name in ("_export", "_export_lite", "_build_ui", "_load_settings",
+        for name in ("_export", "_build_ui", "_load_settings",
                      "_save_settings", "_collect_state", "_apply_state",
-                     "_capture_canvas_extent", "_switch_tab", "_set_mode"):
+                     "_capture_canvas_extent", "_switch_tab",
+                     "_build_setup_tab", "_build_3d_tab", "_build_report_tab",
+                     "_update_capability_tabs"):
             self.assertTrue(callable(getattr(self.dlg, name, None)), name)
 
     def test_tab_constants(self):
-        self.assertEqual(self.dlg._MAP_VIEWS_TAB, 1)
-        self.assertEqual(self.dlg._LITE_TAB, 4)
+        self.assertEqual(self.dlg._MAP_VIEWS_TAB, 3)
 
     def test_plugin_entry_module_imports(self):
         import intermap.plugin
         self.assertTrue(hasattr(intermap.plugin, "WebMapExporterPlugin"))
+
+    def test_dialog_builds_headless_with_capability_tabs(self):
+        # Build the whole dock against the mock to prove the capability-builder
+        # restructure constructs: 6 tabs (Setup, Layers + 4 capability tabs),
+        # capability→tab map wired, no Lite/Pro mode machinery.
+        class _Canvas:
+            def __getattr__(self, n): return lambda *a, **k: _Canvas()
+
+        class _Iface:
+            def mainWindow(self): return None
+            def mapCanvas(self): return _Canvas()
+            def __getattr__(self, n): return lambda *a, **k: None
+
+        dlg = self.dlg(_Iface())
+        self.assertEqual(len(dlg._nav_btns), 6)
+        self.assertEqual([idx for _cb, idx in dlg._cap_tab_map], [2, 3, 4, 5])
+        # Lite/Pro mode machinery is gone — check the real classes' own dicts
+        # (hasattr is unreliable through the permissive placeholder base).
+        own = set()
+        for klass in type(dlg).__mro__:
+            if klass.__module__.startswith("intermap."):
+                own |= set(vars(klass))
+        self.assertNotIn("_set_mode", own)
+        self.assertNotIn("_build_lite_layers_tab", own)
 
 
 if __name__ == "__main__":

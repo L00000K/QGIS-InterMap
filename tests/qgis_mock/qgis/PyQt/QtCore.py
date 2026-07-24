@@ -67,9 +67,27 @@ def pyqtSignal(*_args, **_kwargs):
     return _Signal()
 
 
-class _Placeholder:
+def _noop(*args, **kwargs):
+    return None
+
+
+class _PlaceholderMeta(type):
+    # Class-level constants/methods (QStandardPaths.DownloadLocation,
+    # .writableLocation, …) resolve to placeholders so headless UI build works.
+    def __getattr__(cls, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _noop
+
+
+class _Placeholder(metaclass=_PlaceholderMeta):
     def __init__(self, *args, **kwargs):
         pass
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _noop
 
 
 _placeholder_cache = {}
@@ -79,5 +97,5 @@ def __getattr__(name):
     if name.startswith("__"):
         raise AttributeError(name)
     if name not in _placeholder_cache:
-        _placeholder_cache[name] = type(name, (_Placeholder,), {})
+        _placeholder_cache[name] = _PlaceholderMeta(name, (_Placeholder,), {})
     return _placeholder_cache[name]

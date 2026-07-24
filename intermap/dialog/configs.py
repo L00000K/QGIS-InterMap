@@ -236,6 +236,12 @@ class ConfigsMixin:
             "map_views":             self._map_views,
             "output_path":           self.path_edit.text().strip(),
             "info":                  info,
+            "capabilities": {
+                "title":  self.cap_title_cb.isChecked(),
+                "views":  self.cap_views_cb.isChecked(),
+                "report": self.cap_report_cb.isChecked(),
+                "3d":     self.feat_3d_cb.isChecked(),
+            },
             "theme":                 self.export_theme_combo.currentData(),
             "features": {
                 "identify":     self.feat_identify_cb.isChecked(),
@@ -362,6 +368,22 @@ class ConfigsMixin:
             self.report_pdf_edit.setText(feats["report_pdf_path"])
         if "report_pdf_bindings" in feats:
             self._pdf_bindings_apply(feats["report_pdf_bindings"])
+
+        # Capability switches (which map profile / tabs are active). Falls back
+        # to inferring from content for configs saved before capabilities.
+        caps = state.get("capabilities")
+        if caps is None:
+            caps = {
+                "title":  bool(info.get("enabled", True)),
+                "views":  bool(state.get("map_views")),
+                "report": bool(feats.get("report_md_path") or feats.get("report_pdf_path")),
+                "3d":     bool(feats.get("feat_3d")),
+            }
+        self.cap_title_cb.setChecked(bool(caps.get("title", True)))
+        self.cap_views_cb.setChecked(bool(caps.get("views", False)))
+        self.cap_report_cb.setChecked(bool(caps.get("report", False)))
+        self.feat_3d_cb.setChecked(bool(caps.get("3d", False)))
+        self._update_capability_tabs()
 
     def _instance_save(self):
         name = self._loaded_instance_name

@@ -3,7 +3,7 @@ import os
 import datetime
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLineEdit,
-    QMessageBox, QCheckBox, QGroupBox, QFormLayout, QWidget,
+    QMessageBox, QCheckBox, QGroupBox, QFormLayout, QWidget, QLabel,
     QComboBox, QDoubleSpinBox, QTreeWidget,
 )
 from qgis.PyQt.QtGui import QDesktopServices
@@ -12,9 +12,28 @@ from qgis.core import QgsProject, QgsLayerTreeGroup, QgsLayerTreeLayer
 
 
 class ExportTabMixin:
-    def _build_export_tab(self):
+    def _build_setup_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
+
+        # ── Map profile: capabilities that reveal their own tabs ──────────
+        cap_group = QGroupBox("Map profile — switch on what this map needs")
+        cap_group.setObjectName("greyBox")
+        cap_vl = QVBoxLayout(cap_group)
+        cap_vl.setSpacing(5)
+        self.cap_title_cb = QCheckBox("Title block  ·  client, project no., document control & revisions")
+        self.cap_views_cb = QCheckBox("Map views  ·  named preset extents & layer sets")
+        self.cap_report_cb = QCheckBox("Report  ·  scrolling story panel (Markdown or PDF)")
+        self.feat_3d_cb = QCheckBox("3D view  ·  Cesium globe, extrusion & terrain")
+        self.feat_3d_cb.setChecked(False)
+        for _cb in (self.cap_title_cb, self.cap_views_cb, self.cap_report_cb, self.feat_3d_cb):
+            _cb.toggled.connect(self._update_capability_tabs)
+            _cb.toggled.connect(self._mark_unsaved)
+            cap_vl.addWidget(_cb)
+        _simple_lbl = QLabel("Leave everything off for a simple single-page map.")
+        _simple_lbl.setStyleSheet("color:#6B7280; font-size:10px; padding-left:2px;")
+        cap_vl.addWidget(_simple_lbl)
+        layout.addWidget(cap_group)
 
         theme_group = QGroupBox("Export colour theme")
         theme_form = QFormLayout(theme_group)
@@ -26,7 +45,7 @@ class ExportTabMixin:
         theme_form.addRow("Theme:", self.export_theme_combo)
         layout.addWidget(theme_group)
 
-        tools_group = QGroupBox("Features")
+        tools_group = QGroupBox("Interactive tools")
         tools_layout = QVBoxLayout(tools_group)
         tools_layout.setSpacing(4)
 
@@ -84,14 +103,58 @@ class ExportTabMixin:
         self.feat_sketch_cb.setChecked(False)
         tools_layout.addWidget(self.feat_sketch_cb)
 
-        self.feat_3d_cb = QCheckBox("3D view toggle (Cesium.js — loads from CDN on demand)")
-        self.feat_3d_cb.setChecked(False)
-        tools_layout.addWidget(self.feat_3d_cb)
-
         layout.addWidget(tools_group)
 
+        # ── Remote raster sources (COG on blob storage) ──────────────────
+        self.cog_group = QGroupBox("Remote raster sources (optional)")
+        cog_form = QFormLayout(self.cog_group)
+        cog_form.setContentsMargins(8, 6, 8, 8)
+        cog_form.setSpacing(6)
+        self.cog_proxy_edit = QLineEdit()
+        self.cog_proxy_edit.setPlaceholderText("e.g. https://my-worker.workers.dev/?url={url}")
+        self.cog_proxy_edit.setToolTip(
+            "Optional CORS proxy for remote Cloud Optimized GeoTIFFs (COGs)\n"
+            "whose blob storage does not send CORS headers.\n\n"
+            "Put {url} where the (URL-encoded) COG URL should be inserted; if\n"
+            "{url} is omitted, the encoded URL is appended to the end.\n\n"
+            "The proxy MUST forward HTTP Range requests — public proxies that\n"
+            "buffer the whole response will not work for large COGs. A small\n"
+            "Cloudflare Worker is the recommended option."
+        )
+        cog_form.addRow("COG CORS proxy:", self.cog_proxy_edit)
+        layout.addWidget(self.cog_group)
+
+        self.save_config_on_export_cb = QCheckBox("Save configuration on export")
+        self.save_config_on_export_cb.setChecked(True)
+        self.save_config_on_export_cb.setToolTip(
+            "Automatically save the current settings to the active named config after each export"
+        )
+        layout.addWidget(self.save_config_on_export_cb)
+
+        path_group = QGroupBox("Output file")
+        path_vl = QVBoxLayout(path_group)
+        path_row = QHBoxLayout()
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("Select output HTML file…")
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse)
+        path_row.addWidget(self.path_edit)
+        path_row.addWidget(browse_btn)
+        path_vl.addLayout(path_row)
+        downloads_btn = QPushButton("Save to downloads folder")
+        downloads_btn.setToolTip("Reset to the default filename in your Downloads folder")
+        downloads_btn.clicked.connect(self._save_to_downloads)
+        path_vl.addWidget(downloads_btn)
+        layout.addWidget(path_group)
+
+        layout.addStretch()
+        return widget
+
+    def _build_3d_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
         # ── 3D settings ───────────────────────────────────────────────────
-        self.d3_group = QGroupBox("3D View Settings (optional)")
+        self.d3_group = QGroupBox("3D view settings")
         d3_group = self.d3_group
         d3_form  = QFormLayout(d3_group)
         d3_form.setContentsMargins(8, 6, 8, 8)
@@ -139,11 +202,14 @@ class ExportTabMixin:
         d3_form.addRow("Elevation raster:", self.elevation_raster_combo)
 
         layout.addWidget(d3_group)
-        self.feat_3d_cb.toggled.connect(d3_group.setEnabled)
-        d3_group.setEnabled(self.feat_3d_cb.isChecked())
+        layout.addStretch()
+        return widget
 
+    def _build_report_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
         # ── Report / story mode ───────────────────────────────────────────
-        self.report_group = QGroupBox("Report / story mode (optional)")
+        self.report_group = QGroupBox("Report / story mode")
         report_form = QFormLayout(self.report_group)
         report_form.setContentsMargins(8, 6, 8, 8)
         report_form.setSpacing(6)
@@ -219,49 +285,6 @@ class ExportTabMixin:
         report_form.addRow("Page bindings:", pdf_bind_col)
 
         layout.addWidget(self.report_group)
-
-        # ── Remote raster sources (COG on blob storage) ──────────────────
-        self.cog_group = QGroupBox("Remote raster sources (optional)")
-        cog_form = QFormLayout(self.cog_group)
-        cog_form.setContentsMargins(8, 6, 8, 8)
-        cog_form.setSpacing(6)
-        self.cog_proxy_edit = QLineEdit()
-        self.cog_proxy_edit.setPlaceholderText("e.g. https://my-worker.workers.dev/?url={url}")
-        self.cog_proxy_edit.setToolTip(
-            "Optional CORS proxy for remote Cloud Optimized GeoTIFFs (COGs)\n"
-            "whose blob storage does not send CORS headers.\n\n"
-            "Put {url} where the (URL-encoded) COG URL should be inserted; if\n"
-            "{url} is omitted, the encoded URL is appended to the end.\n\n"
-            "The proxy MUST forward HTTP Range requests — public proxies that\n"
-            "buffer the whole response will not work for large COGs. A small\n"
-            "Cloudflare Worker is the recommended option."
-        )
-        cog_form.addRow("COG CORS proxy:", self.cog_proxy_edit)
-        layout.addWidget(self.cog_group)
-
-        self.save_config_on_export_cb = QCheckBox("Save configuration on export")
-        self.save_config_on_export_cb.setChecked(True)
-        self.save_config_on_export_cb.setToolTip(
-            "Automatically save the current settings to the active named config after each export"
-        )
-        layout.addWidget(self.save_config_on_export_cb)
-
-        path_group = QGroupBox("Output file")
-        path_vl = QVBoxLayout(path_group)
-        path_row = QHBoxLayout()
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("Select output HTML file…")
-        browse_btn = QPushButton("Browse…")
-        browse_btn.clicked.connect(self._browse)
-        path_row.addWidget(self.path_edit)
-        path_row.addWidget(browse_btn)
-        path_vl.addLayout(path_row)
-        downloads_btn = QPushButton("Save to downloads folder")
-        downloads_btn.setToolTip("Reset to the default filename in your Downloads folder")
-        downloads_btn.clicked.connect(self._save_to_downloads)
-        path_vl.addWidget(downloads_btn)
-        layout.addWidget(path_group)
-
         layout.addStretch()
         return widget
 
@@ -385,10 +408,6 @@ class ExportTabMixin:
             QMessageBox.warning(self, "No output file", "Please select an output file path.")
             return
 
-        if self._is_lite:
-            self._export_lite(output_path)
-            return
-
         selected_ids = []
 
         def collect_checked(parent_item):
@@ -472,7 +491,7 @@ class ExportTabMixin:
         try:
             from ..exporter import WebMapExporter
             info_panel = None
-            if self.include_info_cb.isChecked():
+            if self.cap_title_cb.isChecked() and self.include_info_cb.isChecked():
                 today = datetime.datetime.now().strftime("%d/%m/%Y")
                 inc_dc   = self.include_doc_control_cb.isChecked()
                 inc_proj = self.include_project_info_cb.isChecked()
@@ -521,7 +540,7 @@ class ExportTabMixin:
                 progress_callback=lambda v: self.progress.setValue(v),
                 layer_tree=tree_nodes,
                 initial_extent=self._initial_extent,
-                map_views=self._map_views,
+                map_views=(self._map_views if self.cap_views_cb.isChecked() else []),
                 info_panel=info_panel,
                 theme=self.export_theme_combo.currentData(),
                 feat_identify=self.feat_identify_cb.isChecked(),
@@ -542,9 +561,9 @@ class ExportTabMixin:
                 feat_3d_extrude_field=self.extrude_field_edit.text().strip(),
                 feat_3d_extrude_scale=self.extrude_scale_spin.value(),
                 feat_3d_elevation_raster=self.elevation_raster_combo.currentData(),
-                report_md_path=self.report_md_edit.text().strip(),
+                report_md_path=(self.report_md_edit.text().strip() if self.cap_report_cb.isChecked() else ""),
                 report_figures_dir=self.report_figures_edit.text().strip(),
-                report_pdf_path=self.report_pdf_edit.text().strip(),
+                report_pdf_path=(self.report_pdf_edit.text().strip() if self.cap_report_cb.isChecked() else ""),
                 report_pdf_bindings=self._pdf_bindings_collect(),
                 cog_proxy=self.cog_proxy_edit.text().strip(),
             )

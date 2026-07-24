@@ -3,7 +3,7 @@ import os
 import datetime
 from qgis.PyQt.QtWidgets import (
     QDockWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QProgressBar, QWidget, QFrame, QStackedWidget, QScrollArea,
+    QProgressBar, QWidget, QStackedWidget, QScrollArea,
 )
 from qgis.PyQt.QtGui import QPixmap
 from qgis.PyQt.QtCore import Qt, QStandardPaths, QSettings
@@ -17,7 +17,6 @@ from .configs import ConfigsMixin
 from .info_tab import MapInfoTabMixin
 from .views_tab import MapViewsTabMixin
 from .layers_tab import LayersTabMixin
-from .lite import LiteModeMixin
 from .export_tab import ExportTabMixin
 
 
@@ -29,13 +28,12 @@ from .constants import _SETTINGS_KEY, _PURPLE, _PURPLE_DARK, _PURPLE_LIGHT
 
 
 class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
-                         MapViewsTabMixin, LayersTabMixin, LiteModeMixin,
+                         MapViewsTabMixin, LayersTabMixin,
                          ExportTabMixin, QDockWidget):
     """Dockable InterMap export panel."""
 
-    # tab indices used by _switch_tab / _set_mode
-    _MAP_VIEWS_TAB = 1
-    _LITE_TAB = 4
+    # index of the Map Views tab in the nav bar (used by _switch_tab)
+    _MAP_VIEWS_TAB = 3
 
     def __init__(self, iface, parent=None):
         super().__init__("InterMap", parent or iface.mainWindow())
@@ -45,8 +43,6 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         self._initial_extent = self._capture_canvas_extent()
         self._map_views = []
         self._changelog = []
-        self._is_lite = False
-        self._lite_extent = None
         self._editing_map_view_idx = None
         self._editing_map_view_extent = None
         self._loaded_instance_name = None
@@ -197,10 +193,15 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         except Exception:
             self._changelog = []
         self._changelog_refresh_list()
-        mode_val = s.value(f"{_SETTINGS_KEY}/mode", "pro")
-        if mode_val not in ("lite", "pro", "3d"):
-            mode_val = "lite" if s.value(f"{_SETTINGS_KEY}/lite_mode", False, type=bool) else "pro"
-        self._set_mode(mode_val)
+        # Restore capability switches (which map profile is active)
+        self.cap_title_cb.setChecked(
+            s.value(f"{_SETTINGS_KEY}/cap_title", True, type=bool))
+        self.cap_views_cb.setChecked(
+            s.value(f"{_SETTINGS_KEY}/cap_views", False, type=bool))
+        self.cap_report_cb.setChecked(
+            s.value(f"{_SETTINGS_KEY}/cap_report", False, type=bool))
+        self._update_capability_tabs()
+        self._switch_tab(0)
 
     def _save_settings(self):
         s = QSettings()
@@ -248,8 +249,9 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         s.setValue(f"{_SETTINGS_KEY}/cog_proxy",           self.cog_proxy_edit.text().strip())
         import json as _json
         s.setValue(f"{_SETTINGS_KEY}/changelog", _json.dumps(self._changelog))
-        mode = "lite" if self._is_lite else ("3d" if self.feat_3d_cb.isChecked() else "pro")
-        s.setValue(f"{_SETTINGS_KEY}/mode", mode)
+        s.setValue(f"{_SETTINGS_KEY}/cap_title",  self.cap_title_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/cap_views",  self.cap_views_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/cap_report", self.cap_report_cb.isChecked())
 
     def _build_header(self):
         header = QWidget()
@@ -290,57 +292,6 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         name_lbl.setObjectName("icName")
         title_row.addWidget(name_lbl)
         title_row.addStretch()
-        toggle_frame = QFrame()
-        toggle_frame.setObjectName("icModeToggle")
-        toggle_frame.setStyleSheet(
-            "#icModeToggle { background: rgba(255,255,255,0.12); "
-            "border: 1px solid rgba(255,255,255,0.35); border-radius: 11px; padding: 1px; }"
-        )
-        toggle_layout = QHBoxLayout(toggle_frame)
-        toggle_layout.setContentsMargins(2, 1, 2, 1)
-        toggle_layout.setSpacing(0)
-
-        _btn_base = (
-            "QPushButton { background: transparent; color: rgba(255,255,255,0.65); "
-            "border: none; border-radius: 9px; font-size: 10px; font-weight: 600; padding: 2px 9px; } "
-            "QPushButton:hover { color: rgba(255,255,255,0.9); }"
-        )
-        _btn_active = (
-            f"QPushButton {{ background: rgba(255,255,255,0.9); color: {_PURPLE}; "
-            "border: none; border-radius: 9px; font-size: 10px; font-weight: 700; padding: 2px 9px; }"
-        )
-        _btn_disabled = (
-            "QPushButton { background: transparent; color: rgba(255,255,255,0.22); "
-            "border: none; border-radius: 9px; font-size: 10px; font-weight: 600; padding: 2px 9px; }"
-        )
-
-        self._btn_lite = QPushButton("Lite")
-        self._btn_lite.setObjectName("icModeLite")
-        self._btn_lite.setToolTip("Lite mode — simplified single-layer map")
-        self._btn_lite.setStyleSheet(_btn_base)
-        self._btn_lite.clicked.connect(lambda: self._set_mode("lite"))
-
-        self._btn_pro = QPushButton("Pro")
-        self._btn_pro.setObjectName("icModePro")
-        self._btn_pro.setToolTip("Pro mode — full project with info tab, views and metadata")
-        self._btn_pro.setStyleSheet(_btn_active)  # default active
-        self._btn_pro.clicked.connect(lambda: self._set_mode("pro"))
-
-        self._btn_3d = QPushButton("3D")
-        self._btn_3d.setObjectName("icMode3D")
-        self._btn_3d.setToolTip(
-            "3D mode — Pro export with Cesium.js 3D view enabled.\n"
-            "Requires a Cesium Ion token and an internet connection."
-        )
-        self._btn_3d.setStyleSheet(_btn_base)
-        self._btn_3d.clicked.connect(lambda: self._set_mode("3d"))
-
-        self._toggle_btn_styles = (_btn_base, _btn_active, _btn_disabled)
-
-        toggle_layout.addWidget(self._btn_lite)
-        toggle_layout.addWidget(self._btn_pro)
-        toggle_layout.addWidget(self._btn_3d)
-        title_row.addWidget(toggle_frame)
         top_vl.addLayout(title_row)
         outer.addWidget(top)
 
@@ -543,12 +494,16 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         self._nav_btns = []
         self._nav_seps = []
 
+        # Setup + Layers are always present; the four capability tabs
+        # (Title block / Map Views / Report / 3D) are revealed by their
+        # switches on the Setup tab — see _update_capability_tabs.
         _tab_defs = [
-            ("Map Info",     self._build_map_info_tab()),
-            ("Map Views",    self._build_map_views_tab()),
+            ("Setup",        self._build_setup_tab()),
             ("Layers",       self._build_layers_tab()),
-            ("Export",       self._build_export_tab()),
-            ("Layers Lite",  self._build_lite_layers_tab()),
+            ("Title block",  self._build_map_info_tab()),
+            ("Map Views",    self._build_map_views_tab()),
+            ("Report",       self._build_report_tab()),
+            ("3D",           self._build_3d_tab()),
         ]
         for i, (label, page_widget) in enumerate(_tab_defs):
             if i > 0:
@@ -566,9 +521,14 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
             self._tab_stack.addWidget(self._scrollable(page_widget))
 
         nav_hl.addStretch()
-        # Hide Lite button and its separator initially (Pro mode default)
-        self._nav_btns[4].setVisible(False)
-        self._nav_seps[3].setVisible(False)
+        # capability switch → tab index; controls which capability tabs show
+        self._cap_tab_map = [
+            (self.cap_title_cb, 2),
+            (self.cap_views_cb, 3),
+            (self.cap_report_cb, 4),
+            (self.feat_3d_cb, 5),
+        ]
+        self._update_capability_tabs()
         inner_layout.addWidget(nav_bar)
 
         # _content_stack: page 0 = tabs, page 1 = expanded rich-text editor
@@ -623,47 +583,18 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         elif idx == self._MAP_VIEWS_TAB and prev != self._MAP_VIEWS_TAB:
             self._mv_update_rubber_bands()
 
-    def _set_mode(self, mode: str):
-        """mode is one of 'lite', 'pro', '3d'."""
-        self._is_lite = (mode == "lite")
-        _btn_base, _btn_active, _ = self._toggle_btn_styles
-        self._btn_lite.setStyleSheet(_btn_active if mode == "lite" else _btn_base)
-        self._btn_pro.setStyleSheet(_btn_active  if mode == "pro"  else _btn_base)
-        self._btn_3d.setStyleSheet(_btn_active   if mode == "3d"   else _btn_base)
-
-        if mode == "lite":
-            self._header_desc1.setText(
-                "Lite: creates a simplified interactive web map with no project "
-                "information tab and a single set of layers."
-            )
-        elif mode == "3d":
-            self._header_desc1.setText(
-                "3D: Pro export with Cesium.js 3D view enabled. "
-                "Requires a Cesium Ion token and an internet connection at viewing time."
-            )
-        else:
-            self._header_desc1.setText(
-                "Pro: creates interactive map packages with a project information tab, "
-                "multiple preset views and document control metadata."
-            )
-
-        is_lite = (mode == "lite")
-        for i in range(3):
-            self._nav_btns[i].setEnabled(not is_lite)
-        self._nav_btns[self._LITE_TAB].setVisible(is_lite)
-        self._nav_seps[self._LITE_TAB - 1].setVisible(is_lite)
-        if is_lite:
-            self._lite_populate_layers()
-            self._switch_tab(self._LITE_TAB)
-        else:
-            self._switch_tab(0)
-
-        # Automatically check/uncheck the 3D feature toggle
-        try:
-            self.feat_3d_cb.setChecked(mode == "3d")
-            self.d3_group.setEnabled(mode == "3d")
-        except AttributeError:
-            pass
+    def _update_capability_tabs(self, *_args):
+        """Show/hide the four capability tabs from their Setup switches.
+        The map's profile is simply which switches are on — no separate
+        Lite/Pro mode. All off = a plain single-page map."""
+        if not hasattr(self, "_cap_tab_map"):
+            return
+        for cb, tab_idx in self._cap_tab_map:
+            on = cb.isChecked()
+            self._nav_btns[tab_idx].setVisible(on)
+            self._nav_seps[tab_idx - 1].setVisible(on)
+            if not on and self._tab_stack.currentIndex() == tab_idx:
+                self._switch_tab(0)
 
     def _update_initial_extent_label(self):
         pass  # label removed; _initial_extent still used in export

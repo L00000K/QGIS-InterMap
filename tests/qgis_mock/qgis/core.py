@@ -45,15 +45,38 @@ class _StubMapThemeCollection:
         return []
 
 
+class _StubRoot:
+    def children(self):
+        return []
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return lambda *a, **k: []
+
+
 class _StubProject:
     def mapLayer(self, _layer_id):
         return None
 
+    def mapLayers(self):
+        return {}
+
     def mapThemeCollection(self):
         return _StubMapThemeCollection()
 
+    def layerTreeRoot(self):
+        return _StubRoot()
+
     def transformContext(self):
         return None
+
+    def __getattr__(self, name):
+        # Anything else the dialog asks of the project is a harmless no-op,
+        # so the whole UI can be built headless for smoke tests.
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return lambda *a, **k: None
 
 
 class QgsProject:
