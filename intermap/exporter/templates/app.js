@@ -423,6 +423,39 @@
     return ps;
   }
 
+  // ── Data export helpers (shared by the attribute table & the toolbar) ─────
+  function _downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+  function _safeName(name) {
+    return String(name || 'layer').replace(/[^\w.-]+/g, '_');
+  }
+  function _layerCSV(item) {
+    var feats = item.ld.geojson && item.ld.geojson.features;
+    if (!feats || !feats.length) return null;
+    var cols = [], seen = {};
+    feats.forEach(function(f) {
+      var p = f.properties || {};
+      Object.keys(p).forEach(function(k) { if (!(k in seen)) { seen[k] = 1; cols.push(k); } });
+    });
+    var esc = function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; };
+    var lines = [cols.map(esc).join(',')];
+    feats.forEach(function(f) {
+      var p = f.properties || {};
+      lines.push(cols.map(function(c) { return p[c] == null ? '' : esc(p[c]); }).join(','));
+    });
+    return lines.join('\n');
+  }
+
+  // Vector layers currently on the map, in legend order.
+  function _vectorItems() {
+    return legendItems.filter(function(it) { return it.ld && it.ld.kind === 'vector'; });
+  }
+
   // ── Swatch SVG ───────────────────────────────────────────────────────────
   var _swatchPatternId = 0;
   function swatchSvg(geomType, style, rasterLegend) {
@@ -1009,30 +1042,11 @@
 
     if (FEAT.attrCsv) {
       document.getElementById('attr-table-csv').addEventListener('click', function() {
-        var idx = parseInt(attrTableLayer.value, 10);
-        var item = legendItems[idx];
+        var item = legendItems[parseInt(attrTableLayer.value, 10)];
         if (!item || item.ld.kind !== 'vector') return;
-        var feats = item.ld.geojson.features;
-        if (!feats || !feats.length) return;
-        var cols = [], seen = {};
-        for (var i = 0; i < feats.length; i++) {
-          var p = feats[i].properties || {};
-          Object.keys(p).forEach(function(k) { if (!(k in seen)) { seen[k]=1; cols.push(k); } });
-        }
-        var lines = [cols.map(function(c) { return '"' + c.replace(/"/g,'""') + '"'; }).join(',')];
-        feats.forEach(function(f) {
-          var p = f.properties || {};
-          lines.push(cols.map(function(c) {
-            var v = p[c]; if (v == null) return '';
-            return '"' + String(v).replace(/"/g,'""') + '"';
-          }).join(','));
-        });
-        var blob = new Blob([lines.join('\n')], {type:'text/csv'});
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url; a.download = (item.ld.name || 'attributes') + '.csv';
-        document.body.appendChild(a); a.click();
-        document.body.removeChild(a); URL.revokeObjectURL(url);
+        var csv = _layerCSV(item);
+        if (csv == null) return;
+        _downloadBlob(new Blob([csv], {type: 'text/csv'}), _safeName(item.ld.name) + '.csv');
       });
     }
 
@@ -1040,17 +1054,12 @@
       var _gjBtn = document.getElementById('attr-table-geojson');
       if (_gjBtn) {
         _gjBtn.addEventListener('click', function() {
-          var idx = parseInt(attrTableLayer.value, 10);
-          var item = legendItems[idx];
+          var item = legendItems[parseInt(attrTableLayer.value, 10)];
           if (!item || item.ld.kind !== 'vector') return;
           var gj = item.ld.geojson;
           if (!gj || !gj.features) return;
-          var blob = new Blob([JSON.stringify(gj, null, 2)], {type:'application/json'});
-          var url = URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = url; a.download = (item.ld.name || 'features') + '.geojson';
-          document.body.appendChild(a); a.click();
-          document.body.removeChild(a); URL.revokeObjectURL(url);
+          _downloadBlob(new Blob([JSON.stringify(gj, null, 2)], {type: 'application/json'}),
+                        _safeName(item.ld.name) + '.geojson');
         });
       }
     }
@@ -3121,6 +3130,82 @@
       if (btn) btn.classList.remove('measure-active');
       map.getContainer().style.cursor = '';
     });
+  }
+
+  // ── Data export ───────────────────────────────────────────────────────────
+  // Toolbar button that lets the viewer download the underlying layer data as
+  // GeoJSON or CSV (per layer, or all vector layers combined as GeoJSON).
+  if (FEAT.dataExport && _vectorItems().length) {
+    var DataExportBtn = L.Control.extend({
+      onAdd: function() {
+        var wrap = L.DomUtil.create('div', 'leaflet-bar leaflet-control data-export-wrap');
+        var btn = L.DomUtil.create('button', '', wrap);
+        btn.id = 'data-export-btn';
+        btn.title = 'Download layer data (GeoJSON / CSV)';
+        btn.setAttribute('aria-label', 'Download layer data');
+        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:#fff;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg">'
+          + '<path d="M10 2v9m0 0 3.2-3.2M10 11 6.8 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>'
+          + '<path d="M3.5 13.5v2A1.5 1.5 0 0 0 5 17h10a1.5 1.5 0 0 0 1.5-1.5v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>'
+          + '</svg>';
+
+        var panel = L.DomUtil.create('div', 'data-export-panel', wrap);
+        panel.style.display = 'none';
+
+        function build() {
+          var items = _vectorItems();
+          var html = '<div class="de-hdr">Download data</div>';
+          html += '<button class="de-all" data-all="1">All layers · GeoJSON</button>';
+          items.forEach(function(it) {
+            var i = legendItems.indexOf(it);
+            var n = (it.ld.geojson && it.ld.geojson.features || []).length;
+            html += '<div class="de-row"><span class="de-name" title="' + escHtml(it.ld.name) + '">'
+                  + escHtml(it.ld.name) + ' <em>(' + n + ')</em></span>'
+                  + '<button class="de-fmt" data-i="' + i + '" data-fmt="geojson">GeoJSON</button>'
+                  + '<button class="de-fmt" data-i="' + i + '" data-fmt="csv">CSV</button></div>';
+          });
+          panel.innerHTML = html;
+        }
+
+        L.DomEvent.disableClickPropagation(wrap);
+        L.DomEvent.on(btn, 'click', function() {
+          var open = panel.style.display !== 'none';
+          if (!open) build();
+          panel.style.display = open ? 'none' : 'block';
+          btn.classList.toggle('active', !open);
+        });
+        L.DomEvent.on(panel, 'click', function(e) {
+          var t = e.target.closest ? e.target.closest('button') : null;
+          if (!t) return;
+          if (t.getAttribute('data-all')) {
+            var fc = { type: 'FeatureCollection', features: [] };
+            _vectorItems().forEach(function(it) {
+              (it.ld.geojson && it.ld.geojson.features || []).forEach(function(f) {
+                var g = JSON.parse(JSON.stringify(f));
+                g.properties = g.properties || {};
+                g.properties._layer = it.ld.name;
+                fc.features.push(g);
+              });
+            });
+            _downloadBlob(new Blob([JSON.stringify(fc, null, 2)], {type: 'application/json'}),
+                          'all-layers.geojson');
+            return;
+          }
+          var item = legendItems[parseInt(t.getAttribute('data-i'), 10)];
+          if (!item) return;
+          if (t.getAttribute('data-fmt') === 'csv') {
+            var csv = _layerCSV(item);
+            if (csv != null) _downloadBlob(new Blob([csv], {type: 'text/csv'}), _safeName(item.ld.name) + '.csv');
+          } else {
+            var gj = item.ld.geojson;
+            if (gj) _downloadBlob(new Blob([JSON.stringify(gj, null, 2)], {type: 'application/json'}),
+                                  _safeName(item.ld.name) + '.geojson');
+          }
+        });
+        return wrap;
+      }
+    });
+    new DataExportBtn({position: 'topleft'}).addTo(map);
   }
 
   // ── Map Views ────────────────────────────────────────────────────────────────

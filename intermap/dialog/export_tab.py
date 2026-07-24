@@ -75,6 +75,10 @@ class ExportTabMixin:
         _sub_vl.addWidget(self.feat_attr_geojson_cb)
         tools_layout.addWidget(_sub)
 
+        self.feat_data_export_cb = QCheckBox("Data export button (download layers as GeoJSON / CSV)")
+        self.feat_data_export_cb.setChecked(True)
+        tools_layout.addWidget(self.feat_data_export_cb)
+
         self.feat_measure_cb = QCheckBox("Measure tool")
         self.feat_measure_cb.setChecked(True)
         tools_layout.addWidget(self.feat_measure_cb)
@@ -547,6 +551,7 @@ class ExportTabMixin:
                 feat_attr_table=self.feat_attr_table_cb.isChecked(),
                 feat_attr_csv=self.feat_attr_csv_cb.isChecked(),
                 feat_attr_geojson=self.feat_attr_geojson_cb.isChecked(),
+                feat_data_export=self.feat_data_export_cb.isChecked(),
                 feat_measure=self.feat_measure_cb.isChecked(),
                 feat_filter=self.feat_filter_cb.isChecked(),
                 feat_search=self.feat_search_cb.isChecked(),

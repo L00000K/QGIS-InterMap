@@ -841,6 +841,38 @@
   /* ── Drag-select / measure button active states */
   .select-btn-active { background: rgba(255,255,255,0.25) !important; color: #fff !important; outline: 2px solid rgba(255,255,255,0.7); }
   .measure-active { background: @@_th_acc@@ !important; color: #fff !important; }
+  /* ── Data export control */
+  .data-export-wrap { position: relative; }
+  #data-export-btn.active { background: @@_th_acc@@ !important; color: #fff !important; }
+  .data-export-panel {
+    position: absolute; top: 0; left: 36px; z-index: 1000;
+    background: #fff; border: 1px solid #d0d0d0; border-radius: 6px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18); padding: 6px; min-width: 220px; max-width: 300px;
+    max-height: 60vh; overflow-y: auto; font-size: 12px;
+  }
+  .data-export-panel .de-hdr {
+    font-weight: 700; color: @@_th_acc@@; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; padding: 2px 4px 6px;
+  }
+  .data-export-panel .de-all {
+    display: block; width: 100%; text-align: left; margin-bottom: 6px;
+    background: @@_th_acc_lt@@; color: @@_th_acc@@; border: none; border-radius: 4px;
+    padding: 6px 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .data-export-panel .de-all:hover { background: @@_th_acc_md@@; }
+  .data-export-panel .de-row {
+    display: flex; align-items: center; gap: 4px; padding: 3px 4px;
+    border-top: 1px solid #f0f0f0;
+  }
+  .data-export-panel .de-name {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333;
+  }
+  .data-export-panel .de-name em { color: #999; font-style: normal; }
+  .data-export-panel .de-fmt {
+    background: #f4f4f6; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;
+    font-size: 10.5px; padding: 3px 6px; color: #444; flex-shrink: 0;
+  }
+  .data-export-panel .de-fmt:hover { background: @@_th_acc_lt@@; color: @@_th_acc@@; border-color: @@_th_acc_md@@; }
   /* ── Measure distance label */
   .measure-label {
     background: rgba(0,0,0,0.72); color: #fff;

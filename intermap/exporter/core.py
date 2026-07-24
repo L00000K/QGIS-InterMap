@@ -30,6 +30,7 @@ class WebMapExporter:
                  info_panel=None, theme=None,
                  feat_identify=True, feat_attr_table=True,
                  feat_attr_csv=True, feat_attr_geojson=True,
+                 feat_data_export=True,
                  feat_measure=True, feat_filter=True,
                  feat_search=True, feat_minimap=True, feat_fancy_labels=True,
                  feat_changelog=True, changelog=None,
@@ -54,6 +55,7 @@ class WebMapExporter:
         self.feat_attr_table = feat_attr_table
         self.feat_attr_csv = feat_attr_csv
         self.feat_attr_geojson = feat_attr_geojson
+        self.feat_data_export = feat_data_export
         self.feat_measure = feat_measure
         self.feat_filter = feat_filter
         self.feat_search = feat_search
@@ -574,6 +576,7 @@ class WebMapExporter:
             "attrTable":   self.feat_attr_table,
             "attrCsv":     self.feat_attr_csv,
             "attrGeojson": self.feat_attr_geojson,
+            "dataExport":  self.feat_data_export,
             "measure":     self.feat_measure,
             "filter":      self.feat_filter,
             "search":      self.feat_search,
