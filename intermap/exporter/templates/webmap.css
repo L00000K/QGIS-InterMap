@@ -1025,12 +1025,55 @@
     background: @@_th_acc@@; color: #fff;
   }
   #report-title { flex: 1; font-size: 15px; font-weight: 700; letter-spacing: 0.01em; }
-  #report-collapse {
+  #report-header-btns { display: flex; gap: 6px; flex-shrink: 0; }
+  #report-pdf, #report-collapse {
     background: rgba(255,255,255,0.15); color: #fff;
     border: 1px solid rgba(255,255,255,0.35); border-radius: 4px;
-    cursor: pointer; font-size: 12px; padding: 2px 8px; line-height: 1.5;
+    cursor: pointer; font-size: 12px; padding: 3px 9px; line-height: 1.4;
+    white-space: nowrap; display: flex; align-items: center; gap: 4px;
   }
-  #report-collapse:hover { background: rgba(255,255,255,0.3); }
+  #report-pdf:hover, #report-collapse:hover { background: rgba(255,255,255,0.3); }
+  /* ── Report collapsed to a page-thumbnail strip (PDF-viewer style) ── */
+  body.report-mini #report-pane { width: 128px !important; min-width: 128px; }
+  body.report-mini #report-scroll,
+  body.report-mini #report-toc,
+  body.report-mini #report-header-btns { display: none; }
+  body.report-mini #report-title { font-size: 11px; }
+  #report-thumbs {
+    flex: 1; overflow-y: auto; padding: 8px; gap: 8px;
+    flex-direction: column; align-items: center; background: #f4f4f6;
+  }
+  .rp-thumb {
+    position: relative; width: 100%; border: 1px solid #d5d5d5; border-radius: 4px;
+    background: #fff; cursor: pointer; padding: 0; overflow: hidden; display: block;
+  }
+  .rp-thumb:hover { border-color: @@_th_acc@@; box-shadow: 0 0 0 2px @@_th_acc_lt@@; }
+  .rp-thumb img { display: block; width: 100%; height: auto; }
+  .rp-thumb-n {
+    position: absolute; top: 3px; left: 3px; background: @@_th_acc@@; color: #fff;
+    font-size: 10px; font-weight: 700; border-radius: 3px; padding: 1px 5px;
+  }
+  .rp-thumb-chapter { padding: 8px 8px 8px 26px; text-align: left; min-height: 34px; }
+  .rp-thumb-chapter .rp-thumb-n { top: 8px; }
+  .rp-thumb-t { font-size: 11px; color: #333; display: block; line-height: 1.3; }
+  #report-expand {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: @@_th_acc@@; color: #fff; border: none; border-radius: 16px;
+    cursor: pointer; font-size: 13px; padding: 5px 14px; z-index: 5;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  }
+  /* ── Chapters hosted inside the title block (left panel) ── */
+  #report-toc.in-titleblock {
+    max-height: none; border-bottom: none; border-top: 1px solid #e4e4e4;
+    margin-top: 8px;
+  }
+  #report-toc.in-titleblock summary { border-radius: 4px; }
+  @media print {
+    body:not(.report-printing) { }
+    body.report-printing #map-wrap, body.report-printing #left-panel,
+    body.report-printing #report-divider, body.report-printing #report-header-btns { display: none !important; }
+    body.report-printing #report-pane { width: 100% !important; }
+  }
   #report-toc {
     border-bottom: 1px solid #e4e4e4; font-size: 12px;
     max-height: 32%; overflow-y: auto; flex-shrink: 0;

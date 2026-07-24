@@ -22,10 +22,24 @@
   if (titleEl) titleEl.textContent = REPORT.title || 'Report';
   (REPORT.warnings || []).forEach(function(w) { console.warn('Report:', w); });
 
-  // The report replaces the project-info panel as "the document" — collapse
-  // it through its own button so the reopen chip behaviour stays intact.
-  var _lpClose = document.getElementById('left-panel-close');
-  if (_lpClose) _lpClose.click();
+  // Title block: when the export includes one (#left-panel), keep it open to
+  // the left of the report and host the chapter list (Contents) inside it, so
+  // the reader gets project info + navigation together. Without a title block
+  // the Contents stays in the report pane header as before.
+  var leftPanel = document.getElementById('left-panel');
+  var tocDetails = document.getElementById('report-toc');
+  if (leftPanel) {
+    document.body.classList.add('report-has-titleblock');
+    var lpBody = document.getElementById('left-panel-body') || leftPanel;
+    if (tocDetails && lpBody) {
+      tocDetails.classList.add('in-titleblock');
+      lpBody.appendChild(tocDetails);
+    }
+  } else {
+    // No title block — collapse the (map-views-only) panel as before.
+    var _lpClose = document.getElementById('left-panel-close');
+    if (_lpClose) _lpClose.click();
+  }
 
   // ── Markdown preprocessing: directives → placeholder HTML ────────────────
   function _parseAttrs(s) {
@@ -547,10 +561,10 @@
           content.appendChild(holder);
           pageEls.push(holder);
           holder._render = function() {
-            if (holder._rendered) return;
-            holder._rendered = true;
-            page.render({canvasContext: canvas.getContext('2d'),
-                         viewport: vp});
+            if (holder._rendered) return holder._rendered;
+            holder._rendered = page.render({canvasContext: canvas.getContext('2d'),
+                                            viewport: vp}).promise;
+            return holder._rendered;
           };
         });
       })(n);
@@ -658,14 +672,100 @@
     divider.addEventListener('pointerup', function() { _dragging = false; });
   }
 
-  var collapseBtn = document.getElementById('report-collapse');
-  var restoreBtn  = document.getElementById('report-restore');
-  if (collapseBtn) collapseBtn.addEventListener('click', function() {
-    document.body.classList.add('report-collapsed');
-    if (map) map.invalidateSize();
+  // ── PDF download / print ──────────────────────────────────────────────────
+  var pdfBtn = document.getElementById('report-pdf');
+  if (pdfBtn) pdfBtn.addEventListener('click', function() {
+    if (REPORT.pdf) {
+      // PDF report — hand back the original document.
+      var raw = atob(REPORT.pdf);
+      var bytes = new Uint8Array(raw.length);
+      for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      var blob = new Blob([bytes], {type: 'application/pdf'});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = ((REPORT.title || 'report').replace(/[^\w.-]+/g, '_')) + '.pdf';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } else {
+      // Markdown report — the browser's print dialog offers "Save as PDF".
+      document.body.classList.add('report-printing');
+      window.print();
+      setTimeout(function() { document.body.classList.remove('report-printing'); }, 500);
+    }
   });
+
+  // ── Collapse the report to a page-thumbnail strip (PDF-viewer style) ───────
+  var collapseBtn = document.getElementById('report-collapse');
+  var expandBtn   = document.getElementById('report-expand');
+  var thumbs      = document.getElementById('report-thumbs');
+  var restoreBtn  = document.getElementById('report-restore');
+
+  function buildThumbs() {
+    if (!thumbs) return;
+    thumbs.innerHTML = '';
+    var frag = document.createDocumentFragment();
+    if (REPORT.pdf) {
+      // one thumbnail per rendered PDF page
+      var pages = content.querySelectorAll('.rp-pdf-page');
+      Array.prototype.forEach.call(pages, function(pg, i) {
+        var src = pg.querySelector('canvas');
+        var th = document.createElement('button');
+        th.className = 'rp-thumb';
+        th.title = 'Page ' + (i + 1);
+        var img = document.createElement('img');
+        th.appendChild(img);
+        var num = document.createElement('span');
+        num.className = 'rp-thumb-n'; num.textContent = i + 1;
+        th.appendChild(num);
+        th.addEventListener('click', function() { expand(); scrollToEl(pg); });
+        frag.appendChild(th);
+        // Ensure the page is painted (lazy render may have skipped far pages)
+        // before capturing its thumbnail, so no page shows up blank.
+        function fill() { try { img.src = src.toDataURL('image/jpeg', 0.6); } catch (e) {} }
+        if (src && pg._render) { Promise.resolve(pg._render()).then(fill); }
+        else if (src) { fill(); }
+      });
+    } else {
+      // one card per top-level chapter (h1/h2)
+      var heads = content.querySelectorAll('h1, h2');
+      Array.prototype.forEach.call(heads, function(h, i) {
+        var th = document.createElement('button');
+        th.className = 'rp-thumb rp-thumb-chapter';
+        th.innerHTML = '<span class="rp-thumb-n">' + (i + 1) + '</span><span class="rp-thumb-t">'
+                     + escHtml(h.textContent) + '</span>';
+        th.addEventListener('click', function() { expand(); scrollToEl(h); });
+        frag.appendChild(th);
+      });
+    }
+    thumbs.appendChild(frag);
+  }
+
+  function scrollToEl(el) {
+    if (el) setTimeout(function() {
+      scroller.scrollTo({top: el.offsetTop - 8, behavior: 'smooth'});
+    }, 60);
+  }
+
+  function collapse() {
+    buildThumbs();
+    document.body.classList.add('report-mini');
+    if (thumbs) thumbs.style.display = 'flex';
+    if (expandBtn) expandBtn.style.display = 'block';
+    if (map) setTimeout(function() { map.invalidateSize(); }, 30);
+  }
+  function expand() {
+    document.body.classList.remove('report-mini');
+    if (thumbs) thumbs.style.display = 'none';
+    if (expandBtn) expandBtn.style.display = 'none';
+    if (map) setTimeout(function() { map.invalidateSize(); }, 30);
+  }
+
+  if (collapseBtn) collapseBtn.addEventListener('click', collapse);
+  if (expandBtn)   expandBtn.addEventListener('click', expand);
+  // legacy full-map restore chip still expands the report if present
   if (restoreBtn) restoreBtn.addEventListener('click', function() {
     document.body.classList.remove('report-collapsed');
-    if (map) map.invalidateSize();
+    expand();
   });
 })();

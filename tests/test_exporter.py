@@ -511,6 +511,13 @@ class RenderedPageTests(unittest.TestCase):
         # the container the curved labels / ticks render into
         self.assertIn('id="line-deco-svg"', self.pages["full"])
 
+    def test_report_pane_has_pdf_and_thumbnail_controls(self):
+        html = self.pages["report"]
+        self.assertIn('id="report-pdf"', html)       # PDF export button
+        self.assertIn('id="report-thumbs"', html)    # thumbnail strip
+        self.assertIn('id="report-collapse"', html)  # collapse to thumbnails
+        self.assertIn('id="report-expand"', html)
+
     def test_report_scenario_embeds_marked_and_payload(self):
         html = self.pages["report"]
         self.assertIn("REPORT", html)
