@@ -25,6 +25,7 @@ from .utils import _richtext_body
 class WebMapExporter:
     def __init__(self, layers, output_path,
                  include_layer_control=True, include_basemap=True,
+                 basemap_greyscale=False,
                  progress_callback=None,
                  layer_tree=None, initial_extent=None, map_views=None,
                  info_panel=None, theme=None,
@@ -45,6 +46,7 @@ class WebMapExporter:
         self.output_path = output_path
         self.include_layer_control = include_layer_control
         self.include_basemap = include_basemap
+        self.basemap_greyscale = basemap_greyscale
         self.progress = progress_callback or (lambda v: None)
         self.layer_tree = layer_tree or []
         self.initial_extent = initial_extent
@@ -183,6 +185,7 @@ class WebMapExporter:
         initial_bounds_json = json.dumps(initial_bounds)
         include_legend = "true" if self.include_layer_control else "false"
         include_basemap_json = "true" if self.include_basemap else "false"
+        basemap_greyscale_json = "true" if self.basemap_greyscale else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
         _cesium_ion_token    = str(self.cesium_ion_token or '').replace('"', '').replace('\\', '')
         _google_maps_key     = str(self.google_maps_key  or '').replace('"', '').replace('\\', '')
@@ -666,6 +669,7 @@ class WebMapExporter:
             "initial_bounds_json": initial_bounds_json,
             "include_legend": include_legend,
             "include_basemap_json": include_basemap_json,
+            "basemap_greyscale_json": basemap_greyscale_json,
             "tree_json": tree_json,
             "themes_json": themes_json,
             "brand_content_json": brand_content_json,

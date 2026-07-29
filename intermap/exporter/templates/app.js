@@ -162,12 +162,35 @@
   // ── Basemap (optional) ───────────────────────────────────────────────────
   var INCLUDE_BASEMAP = @@include_basemap_json@@;
   var basemap = null;
+  var _basemapGreyscale = @@basemap_greyscale_json@@;
   if (INCLUDE_BASEMAP) {
     basemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxNativeZoom: 19,
-      maxZoom: 23
+      maxZoom: 23,
+      className: 'basemap-tiles'
     }).addTo(map);
+  }
+
+  // Greyscale is a property of the basemap, not a one-off style tweak: applying
+  // it to the tile container alone gets wiped whenever Leaflet rebuilds that
+  // container (theme switches, opacity changes, re-adds), which is why the
+  // basemap kept reverting to colour. Keep the flag and re-assert it.
+  function setBasemapGreyscale(on) {
+    _basemapGreyscale = !!on;
+    var cls = 'basemap-greyscale';
+    if (_basemapGreyscale) map.getContainer().classList.add(cls);
+    else map.getContainer().classList.remove(cls);
+    var cb = document.getElementById('basemap-greyscale');
+    if (cb && cb.checked !== _basemapGreyscale) cb.checked = _basemapGreyscale;
+  }
+  if (basemap) {
+    setBasemapGreyscale(_basemapGreyscale);
+    // Re-assert after any event that can rebuild or replace the tile container.
+    basemap.on('add load', function() { setBasemapGreyscale(_basemapGreyscale); });
+    map.on('baselayerchange overlayadd overlayremove zoomend', function() {
+      setBasemapGreyscale(_basemapGreyscale);
+    });
   }
 
   // ── Scale bar (built-in) ──────────────────────────────────────────────────
@@ -2021,6 +2044,24 @@
       bOpRow.appendChild(bOpLbl);
       bOpRow.appendChild(bSlider);
       bSettingsDiv.appendChild(bOpRow);
+
+      var bGsRow = document.createElement('div');
+      bGsRow.className = 'layer-settings-row';
+      var bGsLbl = document.createElement('label');
+      bGsLbl.className = 'layer-settings-label';
+      bGsLbl.textContent = 'Greyscale';
+      bGsLbl.htmlFor = 'basemap-greyscale';
+      var bGs = document.createElement('input');
+      bGs.type = 'checkbox';
+      bGs.id = 'basemap-greyscale';
+      bGs.checked = _basemapGreyscale;
+      bGs.title = 'Render the basemap in greyscale so data layers read more clearly';
+      bGs.addEventListener('change', function() {
+        setBasemapGreyscale(bGs.checked);
+      });
+      bGsRow.appendChild(bGsLbl);
+      bGsRow.appendChild(bGs);
+      bSettingsDiv.appendChild(bGsRow);
 
       bRow.appendChild(bSwatch);
       bRow.appendChild(bName);

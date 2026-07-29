@@ -401,6 +401,14 @@
     background: #dde8ff;
   }
 
+  /* ── Greyscale basemap ────────────────────────────────────────
+     Scoped to the basemap tile layer only, so data layers, markers and
+     labels keep their colour. */
+  .basemap-greyscale .basemap-tiles {
+    filter: grayscale(1);
+    -webkit-filter: grayscale(1);
+  }
+
   /* ── Minimap toggle / close icon ──────────────────────────────
      minimap.min.css points its toggle at images/toggle.svg, which does not
      exist in a single-file export — the button rendered as a blank corner.
@@ -563,7 +571,9 @@
     font-weight: 700;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: @@_th_acc@@;
+    /* Neutral, not the theme accent: these are CAD title-block box captions
+       and should read as drawing furniture, matching the rest of the block. */
+    color: #4a4a4a;
     line-height: 1.2;
     pointer-events: none;
   }

@@ -112,6 +112,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         for flag, attr in (
             ("include_layer_control", "layer_control_cb"),
             ("include_basemap",       "basemap_cb"),
+            ("basemap_greyscale",     "basemap_greyscale_cb"),
             ("include_info",          "include_info_cb"),
             ("include_project_info",  "include_project_info_cb"),
             ("include_doc_metadata",  "include_doc_metadata_cb"),
@@ -208,6 +209,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         s = QSettings()
         s.setValue(f"{_SETTINGS_KEY}/include_layer_control", self.layer_control_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_basemap",       self.basemap_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/basemap_greyscale",     self.basemap_greyscale_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_info",          self.include_info_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_project_info",  self.include_project_info_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_doc_metadata",  self.include_doc_metadata_cb.isChecked())

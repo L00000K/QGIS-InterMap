@@ -60,6 +60,16 @@ class LayersTabMixin:
         self.basemap_cb.setChecked(False)
         layers_layout.addWidget(self.basemap_cb)
 
+        self.basemap_greyscale_cb = QCheckBox("↳ Render basemap in greyscale")
+        self.basemap_greyscale_cb.setChecked(False)
+        self.basemap_greyscale_cb.setToolTip(
+            "Desaturate the basemap so data layers read more clearly.\n"
+            "Viewers can still toggle this from the layers panel."
+        )
+        self.basemap_greyscale_cb.setEnabled(self.basemap_cb.isChecked())
+        self.basemap_cb.toggled.connect(self.basemap_greyscale_cb.setEnabled)
+        layers_layout.addWidget(self.basemap_greyscale_cb)
+
         return widget
 
     def _get_required_layer_names(self):

@@ -567,6 +567,7 @@ class ExportTabMixin:
                 output_path=output_path,
                 include_layer_control=self.layer_control_cb.isChecked(),
                 include_basemap=self.basemap_cb.isChecked(),
+                basemap_greyscale=self.basemap_greyscale_cb.isChecked(),
                 progress_callback=lambda v: self.progress.setValue(v),
                 layer_tree=tree_nodes,
                 initial_extent=self._initial_extent,
