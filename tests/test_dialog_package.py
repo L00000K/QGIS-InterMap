@@ -63,8 +63,9 @@ class DialogPackageTests(unittest.TestCase):
         for name in ("_export", "_build_ui", "_load_settings",
                      "_save_settings", "_collect_state", "_apply_state",
                      "_capture_canvas_extent", "_switch_tab",
-                     "_build_setup_tab", "_build_3d_tab", "_build_report_tab",
-                     "_update_capability_tabs"):
+                     "_build_project_tab", "_build_export_settings_tab",
+                     "_build_3d_tab", "_build_report_tab",
+                     "_update_capability_tabs", "_update_config_caps_label"):
             self.assertTrue(callable(getattr(self.dlg, name, None)), name)
 
     def test_tab_constants(self):
@@ -76,8 +77,8 @@ class DialogPackageTests(unittest.TestCase):
 
     def test_dialog_builds_headless_with_capability_tabs(self):
         # Build the whole dock against the mock to prove the capability-builder
-        # restructure constructs: 6 tabs (Setup, Layers + 4 capability tabs),
-        # capability→tab map wired, no Lite/Pro mode machinery.
+        # restructure constructs: 7 tabs (Project, Layers, 4 capability tabs,
+        # Export settings), capability→tab map wired, no Lite/Pro machinery.
         class _Canvas:
             def __getattr__(self, n): return lambda *a, **k: _Canvas()
 
@@ -87,7 +88,8 @@ class DialogPackageTests(unittest.TestCase):
             def __getattr__(self, n): return lambda *a, **k: None
 
         dlg = self.dlg(_Iface())
-        self.assertEqual(len(dlg._nav_btns), 6)
+        self.assertEqual(len(dlg._nav_btns), 7)
+        # Export settings is last so the capability indices stay stable.
         self.assertEqual([idx for _cb, idx in dlg._cap_tab_map], [2, 3, 4, 5])
         # Lite/Pro mode machinery is gone — check the real classes' own dicts
         # (hasattr is unreliable through the permissive placeholder base).

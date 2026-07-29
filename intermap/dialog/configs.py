@@ -54,8 +54,49 @@ class ConfigsMixin:
         loaded_hl.addWidget(self.config_menu_btn)
         bar_hl.addWidget(self._config_loaded_widget)
 
+        # Live summary of the ticked map-profile capabilities, as "name - number"
+        # where the number is the capability's tab position in the nav bar.
+        self.config_caps_label = QLabel("")
+        self.config_caps_label.setObjectName("icConfigCaps")
+        self.config_caps_label.setTextFormat(Qt.RichText)
+        self.config_caps_label.setToolTip("Map profile features switched on for this map")
+        bar_hl.addWidget(self.config_caps_label)
+
         self._update_config_bar()
+        self._update_config_caps_label()
         return bar
+
+    # Capability label text -> the checkbox attribute that switches it on.
+    _CAP_RIBBON = (
+        ("Title block", "cap_title_cb"),
+        ("Map views",   "cap_views_cb"),
+        ("Report",      "cap_report_cb"),
+        ("3D",          "feat_3d_cb"),
+    )
+
+    def _update_config_caps_label(self):
+        """Refresh the ribbon's 'Title block - 3 · Report - 5' capability summary."""
+        # Look widgets up in __dict__: they are always set as instance attributes,
+        # and this stays correct under the permissive test double used by the
+        # headless dialog tests, where getattr() never raises.
+        label = self.__dict__.get("config_caps_label")
+        if label is None:
+            return
+        import html as _h
+        parts = []
+        cap_tabs = {}
+        for cb, idx in (self.__dict__.get("_cap_tab_map") or []):
+            cap_tabs[id(cb)] = idx
+        for name, attr in self._CAP_RIBBON:
+            cb = self.__dict__.get(attr)
+            if cb is None or not cb.isChecked():
+                continue
+            num = cap_tabs.get(id(cb))
+            parts.append(f"{_h.escape(name)} - {num}" if num is not None else _h.escape(name))
+        if parts:
+            label.setText("<span style='color:#6B7280;'>" + "  ·  ".join(parts) + "</span>")
+        else:
+            label.setText("<span style='color:#9CA3AF;'>Simple map</span>")
 
     def _update_config_bar(self):
         import html as _h

@@ -12,7 +12,8 @@ from qgis.core import QgsProject, QgsLayerTreeGroup, QgsLayerTreeLayer
 
 
 class ExportTabMixin:
-    def _build_setup_tab(self):
+    def _build_project_tab(self):
+        """First tab: project configuration + the map profile capability switches."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -35,6 +36,38 @@ class ExportTabMixin:
         cap_vl.addWidget(_simple_lbl)
         layout.addWidget(cap_group)
 
+        # ── Project configuration ─────────────────────────────────────────
+        proj_group = QGroupBox("Project configuration")
+        proj_vl = QVBoxLayout(proj_group)
+        proj_vl.setSpacing(5)
+
+        self.save_config_on_export_cb = QCheckBox("Save configuration on export")
+        self.save_config_on_export_cb.setChecked(True)
+        self.save_config_on_export_cb.setToolTip(
+            "Automatically save the current settings to the active named config after each export"
+        )
+        proj_vl.addWidget(self.save_config_on_export_cb)
+
+        cfg_row = QHBoxLayout()
+        cfg_import_btn = QPushButton("Import config…")
+        cfg_import_btn.setToolTip("Load settings from a .intermap.json file")
+        cfg_import_btn.clicked.connect(self._config_import)
+        cfg_row.addWidget(cfg_import_btn)
+        cfg_export_btn = QPushButton("Export config…")
+        cfg_export_btn.setToolTip("Save the current settings to a .intermap.json file")
+        cfg_export_btn.clicked.connect(self._config_export)
+        cfg_row.addWidget(cfg_export_btn)
+        proj_vl.addLayout(cfg_row)
+        layout.addWidget(proj_group)
+
+        layout.addStretch()
+        return widget
+
+    def _build_export_settings_tab(self):
+        """Last tab: everything about how and where the map gets written out."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
         theme_group = QGroupBox("Export colour theme")
         theme_form = QFormLayout(theme_group)
         self.export_theme_combo = QComboBox()
@@ -45,7 +78,7 @@ class ExportTabMixin:
         theme_form.addRow("Theme:", self.export_theme_combo)
         layout.addWidget(theme_group)
 
-        tools_group = QGroupBox("Interactive tools")
+        tools_group = QGroupBox("Map tools")
         tools_layout = QVBoxLayout(tools_group)
         tools_layout.setSpacing(4)
 
@@ -127,13 +160,6 @@ class ExportTabMixin:
         )
         cog_form.addRow("COG CORS proxy:", self.cog_proxy_edit)
         layout.addWidget(self.cog_group)
-
-        self.save_config_on_export_cb = QCheckBox("Save configuration on export")
-        self.save_config_on_export_cb.setChecked(True)
-        self.save_config_on_export_cb.setToolTip(
-            "Automatically save the current settings to the active named config after each export"
-        )
-        layout.addWidget(self.save_config_on_export_cb)
 
         path_group = QGroupBox("Output file")
         path_vl = QVBoxLayout(path_group)

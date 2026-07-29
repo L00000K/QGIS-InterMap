@@ -496,16 +496,18 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         self._nav_btns = []
         self._nav_seps = []
 
-        # Setup + Layers are always present; the four capability tabs
-        # (Title block / Map Views / Report / 3D) are revealed by their
-        # switches on the Setup tab — see _update_capability_tabs.
+        # Project, Layers and Export settings are always present; the four
+        # capability tabs (Title block / Map Views / Report / 3D) sit between
+        # them and are revealed by their switches on the Project tab — see
+        # _update_capability_tabs.
         _tab_defs = [
-            ("Setup",        self._build_setup_tab()),
-            ("Layers",       self._build_layers_tab()),
-            ("Title block",  self._build_map_info_tab()),
-            ("Map Views",    self._build_map_views_tab()),
-            ("Report",       self._build_report_tab()),
-            ("3D",           self._build_3d_tab()),
+            ("Project",         self._build_project_tab()),
+            ("Layers",          self._build_layers_tab()),
+            ("Title block",     self._build_map_info_tab()),
+            ("Map Views",       self._build_map_views_tab()),
+            ("Report",          self._build_report_tab()),
+            ("3D",              self._build_3d_tab()),
+            ("Export settings", self._build_export_settings_tab()),
         ]
         for i, (label, page_widget) in enumerate(_tab_defs):
             if i > 0:
@@ -586,7 +588,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
             self._mv_update_rubber_bands()
 
     def _update_capability_tabs(self, *_args):
-        """Show/hide the four capability tabs from their Setup switches.
+        """Show/hide the four capability tabs from their Project switches.
         The map's profile is simply which switches are on — no separate
         Lite/Pro mode. All off = a plain single-page map."""
         if not hasattr(self, "_cap_tab_map"):
@@ -597,6 +599,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
             self._nav_seps[tab_idx - 1].setVisible(on)
             if not on and self._tab_stack.currentIndex() == tab_idx:
                 self._switch_tab(0)
+        self._update_config_caps_label()
 
     def _update_initial_extent_label(self):
         pass  # label removed; _initial_extent still used in export
