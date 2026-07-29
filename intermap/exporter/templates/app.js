@@ -1064,26 +1064,109 @@
       }
     }
 
+    // ── Attribute table state ────────────────────────────────────────────
+    // Large layers used to build every row into one HTML string and then
+    // attach a click handler per row, and the search filtered by walking
+    // every <tr> on each keystroke. Both scale linearly with feature count
+    // and fall over on big datasets. Instead: filter and sort the data,
+    // render only the current page, and use delegated listeners.
+    var _attrSortCol = null, _attrSortAsc = true;
+    var _attrPage = 0;
+    var _ATTR_PAGE_SIZE = 200;
+    var _attrFeats = null;        // features of the layer on show
+    var _attrCols = [];           // column names currently rendered
+    var _attrRows = [];           // filtered + sorted {fi, f} pairs
+    var _attrHay = null;          // lowercase search haystack per feature
+    var _attrHayIdx = -1;         // layer index _attrHay was built for
+    var _attrSearchTimer = null;
+
+    // One lowercase string per feature, built once per layer and reused for
+    // every keystroke.
+    function _attrHaystacks(idx, feats) {
+      if (_attrHayIdx === idx && _attrHay) return _attrHay;
+      var hay = new Array(feats.length);
+      for (var i = 0; i < feats.length; i++) {
+        var p = feats[i].properties || {}, parts = [];
+        for (var k in p) { if (p[k] != null) parts.push(String(p[k])); }
+        hay[i] = parts.join(' ').toLowerCase();
+      }
+      _attrHay = hay; _attrHayIdx = idx;
+      return hay;
+    }
+
     function filterAttrTable() {
-      var q = attrTableSearch ? attrTableSearch.value.trim().toLowerCase() : '';
-      attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {
-        tr.style.display = (!q || tr.textContent.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+      _attrPage = 0;
+      populateAttrTable();
+    }
+    if (attrTableSearch) {
+      attrTableSearch.addEventListener('input', function() {
+        // Debounce so typing does not re-filter a large layer per keystroke.
+        if (_attrSearchTimer) clearTimeout(_attrSearchTimer);
+        _attrSearchTimer = setTimeout(filterAttrTable, 160);
       });
     }
-    if (attrTableSearch) attrTableSearch.addEventListener('input', filterAttrTable);
 
-    var _attrSortCol = null, _attrSortAsc = true;
+    // Delegated listeners — attached once, and they keep working across
+    // re-renders, so no per-row handlers are ever created.
+    attrTableBody.addEventListener('click', function(ev) {
+      var th = ev.target.closest && ev.target.closest('th[data-col]');
+      if (th && attrTableBody.contains(th)) {
+        var col = th.getAttribute('data-col');
+        if (_attrSortCol === col) { _attrSortAsc = !_attrSortAsc; }
+        else { _attrSortCol = col; _attrSortAsc = true; }
+        _attrPage = 0;
+        populateAttrTable();
+        return;
+      }
+
+      var pg = ev.target.closest && ev.target.closest('[data-attr-page]');
+      if (pg && attrTableBody.contains(pg)) {
+        var to = parseInt(pg.getAttribute('data-attr-page'), 10);
+        if (!isNaN(to)) { _attrPage = to; populateAttrTable(); }
+        return;
+      }
+
+      var tr = ev.target.closest && ev.target.closest('tr[data-fi]');
+      if (!tr || !attrTableBody.contains(tr)) return;
+      var prev = attrTableBody.querySelector('tr.selected');
+      if (prev) prev.classList.remove('selected');
+      tr.classList.add('selected');
+      var fi = parseInt(tr.getAttribute('data-fi'), 10);
+      var feat = _attrFeats && _attrFeats[fi];
+      if (!feat) return;
+      if (feat.properties) {
+        var rws = Object.entries(feat.properties)
+          .filter(function(e){ return e[1]!=null; })
+          .map(function(e){ return '<tr><th>'+escHtml(e[0])+'</th><td>'+escHtml(String(e[1]))+'</td></tr>'; }).join('');
+        infoPanelBody.innerHTML = '<table>'+rws+'</table>';
+        infoPanel.classList.add('open');
+      }
+      highlightFeatureOnMap(feat);
+      if (feat.geometry) {
+        try {
+          var geo = L.geoJSON(feat);
+          var b = geo.getBounds();
+          if (b.isValid()) map.fitBounds(b, {maxZoom: 16, padding: [40,40]});
+        } catch(e) {}
+      }
+    });
 
     populateAttrTable = function() {
     var idx = parseInt(attrTableLayer.value, 10);
     var item = legendItems[idx];
     if (!item || item.ld.kind !== 'vector') return;
     var feats = item.ld.geojson.features;
+    _attrFeats = feats;
     if (!feats || !feats.length) { attrTableBody.innerHTML = '<p style="padding:8px;color:#888">No features.</p>'; return; }
 
     // Apply drag-select filter: build {fi, f} pairs preserving original indices
     var pairs = feats.map(function(f, fi) { return {fi: fi, f: f}; });
-    if (_attrSelectSet !== null) pairs = pairs.filter(function(p) { return _attrSelectSet.indexOf(p.fi) !== -1; });
+    if (_attrSelectSet !== null) {
+      // Set lookup, not indexOf — a linear scan per feature is quadratic.
+      var selLookup = {};
+      for (var s = 0; s < _attrSelectSet.length; s++) selLookup[_attrSelectSet[s]] = 1;
+      pairs = pairs.filter(function(p) { return selLookup[p.fi] === 1; });
+    }
 
     // Update selection badge
     var badge = document.getElementById('attr-select-badge');
@@ -1091,23 +1174,39 @@
     if (badge) { badge.textContent = _attrSelectSet !== null ? pairs.length + ' selected' : ''; badge.style.display = _attrSelectSet !== null ? '' : 'none'; }
     if (clearBtn) clearBtn.style.display = _attrSelectSet !== null ? '' : 'none';
 
-    // Collect columns from first 100 filtered features
+    // Text search, applied to the data rather than to rendered rows
+    var q = attrTableSearch ? attrTableSearch.value.trim().toLowerCase() : '';
+    var total = pairs.length;
+    if (q) {
+      var hay = _attrHaystacks(idx, feats);
+      pairs = pairs.filter(function(p) { return hay[p.fi].indexOf(q) !== -1; });
+    }
+
+    // Collect columns from the first 100 filtered features
     var cols = [], seen = {};
     for (var i = 0; i < Math.min(pairs.length, 100); i++) {
       var p = pairs[i].f.properties || {};
       Object.keys(p).forEach(function(k) { if (!(k in seen)) { seen[k]=1; cols.push(k); } });
     }
+    _attrCols = cols;
 
     // Sort pairs preserving original feature index
-    var sorted = pairs.slice();
     if (_attrSortCol !== null && cols.indexOf(_attrSortCol) !== -1) {
-      sorted.sort(function(a, b) {
+      pairs.sort(function(a, b) {
         var va = (a.f.properties || {})[_attrSortCol], vb = (b.f.properties || {})[_attrSortCol];
         var na = parseFloat(va), nb = parseFloat(vb);
         var cmp = (!isNaN(na) && !isNaN(nb)) ? (na-nb) : (String(va) < String(vb) ? -1 : String(va) > String(vb) ? 1 : 0);
         return _attrSortAsc ? cmp : -cmp;
       });
     }
+    _attrRows = pairs;
+
+    // Page the render — only this slice reaches the DOM
+    var pageCount = Math.max(1, Math.ceil(pairs.length / _ATTR_PAGE_SIZE));
+    if (_attrPage >= pageCount) _attrPage = pageCount - 1;
+    if (_attrPage < 0) _attrPage = 0;
+    var from = _attrPage * _ATTR_PAGE_SIZE;
+    var to = Math.min(from + _ATTR_PAGE_SIZE, pairs.length);
 
     var html = '<table><thead><tr>';
     cols.forEach(function(c) {
@@ -1115,53 +1214,37 @@
       html += '<th class="'+cls+'" data-col="'+escHtml(c)+'">'+escHtml(c)+'</th>';
     });
     html += '</tr></thead><tbody>';
-    sorted.forEach(function(pair) {
-      var p = pair.f.properties || {};
+    for (var r = from; r < to; r++) {
+      var pair = pairs[r], pp = pair.f.properties || {};
       html += '<tr data-fi="'+pair.fi+'">';
-      cols.forEach(function(c) {
-        var v = p[c]; html += '<td title="'+(v!=null?escHtml(String(v)):'')+'">'+escHtml(v!=null?String(v):'')+'</td>';
-      });
+      for (var ci = 0; ci < cols.length; ci++) {
+        var v = pp[cols[ci]];
+        var sv = v != null ? escHtml(String(v)) : '';
+        html += '<td title="'+sv+'">'+sv+'</td>';
+      }
       html += '</tr>';
-    });
+    }
     html += '</tbody></table>';
+
+    // Pager / result count
+    if (pairs.length === 0) {
+      html += '<p style="padding:8px;color:#888">No features match "'+escHtml(q)+'".</p>';
+    } else {
+      html += '<div class="attr-pager">';
+      html += '<span class="attr-pager-count">' + (from+1) + '–' + to + ' of ' + pairs.length
+            + (q ? ' (filtered from ' + total + ')' : '') + '</span>';
+      if (pageCount > 1) {
+        html += '<span class="attr-pager-btns">';
+        html += '<button data-attr-page="0"'+(_attrPage===0?' disabled':'')+' title="First page">&#171;</button>';
+        html += '<button data-attr-page="'+(_attrPage-1)+'"'+(_attrPage===0?' disabled':'')+' title="Previous page">&#8249;</button>';
+        html += '<span class="attr-pager-pos">' + (_attrPage+1) + ' / ' + pageCount + '</span>';
+        html += '<button data-attr-page="'+(_attrPage+1)+'"'+(_attrPage>=pageCount-1?' disabled':'')+' title="Next page">&#8250;</button>';
+        html += '<button data-attr-page="'+(pageCount-1)+'"'+(_attrPage>=pageCount-1?' disabled':'')+' title="Last page">&#187;</button>';
+        html += '</span>';
+      }
+      html += '</div>';
+    }
     attrTableBody.innerHTML = html;
-
-    // Sort on header click
-    attrTableBody.querySelectorAll('th').forEach(function(th) {
-      th.addEventListener('click', function() {
-        var col = th.getAttribute('data-col');
-        if (_attrSortCol === col) { _attrSortAsc = !_attrSortAsc; }
-        else { _attrSortCol = col; _attrSortAsc = true; }
-        populateAttrTable();
-      });
-    });
-
-    // Click row → show in info panel + highlight on map
-    attrTableBody.querySelectorAll('tr[data-fi]').forEach(function(tr) {
-      tr.addEventListener('click', function() {
-        attrTableBody.querySelectorAll('tr.selected').forEach(function(r){ r.classList.remove('selected'); });
-        tr.classList.add('selected');
-        var fi = parseInt(tr.getAttribute('data-fi'), 10);
-        var feat = feats[fi];
-        if (!feat) return;
-        if (feat.properties) {
-          var rws = Object.entries(feat.properties)
-            .filter(function(e){ return e[1]!=null; })
-            .map(function(e){ return '<tr><th>'+escHtml(e[0])+'</th><td>'+escHtml(String(e[1]))+'</td></tr>'; }).join('');
-          infoPanelBody.innerHTML = '<table>'+rws+'</table>';
-          infoPanel.classList.add('open');
-        }
-        highlightFeatureOnMap(feat);
-        if (feat.geometry) {
-          try {
-            var geo = L.geoJSON(feat);
-            var b = geo.getBounds();
-            if (b.isValid()) map.fitBounds(b, {maxZoom: 16, padding: [40,40]});
-          } catch(e) {}
-        }
-      });
-    });
-      filterAttrTable();
     }
   }  // end if (FEAT.attrTable)
 
