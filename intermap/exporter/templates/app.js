@@ -3061,6 +3061,18 @@
   // ── Measure tool ─────────────────────────────────────────────────────────────
   if (FEAT.measure) {
     var _measureMode = false, _measurePoints = [], _measureLayer = null, _measureMarkers = [];
+    // Own panes above every data/label pane, so measurements are never buried
+    // under the basemap, an overlay raster or the label layer.
+    if (!map.getPane('measurePane')) {
+      map.createPane('measurePane');
+      map.getPane('measurePane').style.zIndex = 900;
+      map.getPane('measurePane').style.pointerEvents = 'none';
+    }
+    if (!map.getPane('measureLabelPane')) {
+      map.createPane('measureLabelPane');
+      map.getPane('measureLabelPane').style.zIndex = 901;
+      map.getPane('measureLabelPane').style.pointerEvents = 'none';
+    }
     var MeasureBtn = L.Control.extend({
       onAdd: function() {
         var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
@@ -3106,7 +3118,8 @@
       _measurePoints.push(e.latlng);
       if (_measureLayer) map.removeLayer(_measureLayer);
       _measureLayer = L.polyline(_measurePoints, {
-        color: '#e63329', weight: 2, dashArray: '6 4', interactive: false
+        color: '#e63329', weight: 2, dashArray: '6 4', interactive: false,
+        pane: 'measurePane'
       }).addTo(map);
       var dist = 0;
       for (var i = 1; i < _measurePoints.length; i++) {
@@ -3117,7 +3130,8 @@
           html: '<div class="measure-label">' + _fmtDist(dist) + '</div>',
           className: '', iconAnchor: [0, -6]
         }),
-        interactive: false
+        interactive: false,
+        pane: 'measureLabelPane'
       }).addTo(map);
       _measureMarkers.push(lbl);
     });
@@ -3350,15 +3364,29 @@
   new HelpControl({position: 'topleft'}).addTo(map);
 
   // ── Brand watermark (bottomleft Leaflet control, above scale bar) ─────────
-  var BrandControl = L.Control.extend({
-    onAdd: function() {
-      var div = L.DomUtil.create('div', 'brand-watermark leaflet-control');
-      div.style.pointerEvents = 'none';  // don't absorb map mouse events
-      div.innerHTML = @@brand_content_json@@;
-      return div;
-    }
-  });
-  new BrandControl({position: 'bottomleft'}).addTo(map);
+  var _brandHtml = @@brand_content_json@@;
+  // Only add the control when there is something to show — an empty watermark
+  // still paints its background, border and padding, which reads as a blank
+  // square in the bottom-left corner of the map.
+  if (_brandHtml && String(_brandHtml).replace(/\s+/g, '') !== '') {
+    var BrandControl = L.Control.extend({
+      onAdd: function() {
+        var div = L.DomUtil.create('div', 'brand-watermark leaflet-control');
+        div.style.pointerEvents = 'none';  // don't absorb map mouse events
+        div.innerHTML = _brandHtml;
+        // A logo SVG that carries only a viewBox collapses to zero width in a
+        // flex row; pin its height and let the width follow the aspect ratio.
+        var _bsvg = div.querySelector('svg');
+        if (_bsvg) {
+          if (!_bsvg.getAttribute('height')) _bsvg.setAttribute('height', '22');
+          _bsvg.style.height = '22px';
+          _bsvg.style.width = 'auto';
+        }
+        return div;
+      }
+    });
+    new BrandControl({position: 'bottomleft'}).addTo(map);
+  }
 
   // ── Sketch / annotation (Geoman) ─────────────────────────────────────────
   if (FEAT.sketch && typeof L.PM !== 'undefined') {
@@ -3468,25 +3496,8 @@
     }
     _parseHash();
 
-    var plBtn = document.getElementById('permalink-btn');
-    if (plBtn) {
-      plBtn.addEventListener('click', function() {
-        var c = map.getCenter(), z = map.getZoom();
-        var vis = legendItems.map(function(it) { return it.visible ? '1' : '0'; }).join(',');
-        var thIdx = '';
-        var mvSection = document.getElementById('map-views-section');
-        if (mvSection) {
-          var active = mvSection.querySelector('.mv-item.active');
-          if (active) thIdx = active.dataset.mvIdx || '';
-        }
-        var hash = '#' + c.lat.toFixed(5) + ',' + c.lng.toFixed(5) + ',' + z
-          + ';' + vis + ';' + thIdx;
-        var url = location.href.split('#')[0] + hash;
-        try { navigator.clipboard.writeText(url); } catch(x) {}
-        plBtn.textContent = '✓ Copied!';
-        setTimeout(function() { plBtn.innerHTML = '&#128279; Link'; }, 1800);
-      });
-    }
+    // The permalink button was removed; #-hash views are still readable via
+    // _parseHash above, so hand-shared links keep working.
   })();
 
   // ── Print button ─────────────────────────────────────────────────────────

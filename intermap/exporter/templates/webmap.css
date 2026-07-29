@@ -401,6 +401,28 @@
     background: #dde8ff;
   }
 
+  /* ── Minimap toggle / close icon ──────────────────────────────
+     minimap.min.css points its toggle at images/toggle.svg, which does not
+     exist in a single-file export — the button rendered as a blank corner.
+     Inline both states as data URIs instead: a chevron to expand when the
+     minimap is minimised, an ✕ to close it when open. */
+  /* Open state: an ✕ that closes the minimap. The plugin rotates this button
+     by position, so every glyph here is chosen to be rotation-symmetric. */
+  .leaflet-control-minimap-toggle-display {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath stroke='%23333' stroke-width='1.8' stroke-linecap='round' d='M4.5 4.5l7 7M11.5 4.5l-7 7'/%3E%3C/svg%3E") !important;
+    background-size: 15px 15px !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-color: rgba(255,255,255,0.92) !important;
+    width: 19px !important; height: 19px !important;
+    cursor: pointer;
+  }
+  /* Minimised: a map-thumbnail square marking what the button re-opens. The
+     plugin adds .minimized-<position> to the anchor itself. */
+  .leaflet-control-minimap-toggle-display[class*="minimized-"] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2.5' y='2.5' width='11' height='11' rx='1.5' fill='none' stroke='%23333' stroke-width='1.6'/%3E%3Cpath stroke='%23333' stroke-width='1.2' d='M2.5 8h11M8 2.5v11'/%3E%3C/svg%3E") !important;
+  }
+
   /* ── Brand watermark (Leaflet control at bottomleft) ─────────── */
   .brand-watermark {
     display: flex;
@@ -413,7 +435,10 @@
     pointer-events: none;
     user-select: none;
   }
-  .brand-watermark svg { display: block; flex-shrink: 0; max-height: 22px; }
+  /* height + width:auto, not max-height: a viewBox-only SVG has no intrinsic
+     size and collapses to a zero-width blank box inside the flex row. */
+  .brand-watermark svg { display: block; flex-shrink: 0; height: 22px; width: auto; }
+  .brand-watermark:empty { display: none; }
   .brand-watermark span {
     font-family: Arial, sans-serif;
     font-size: 11px;
@@ -990,21 +1015,7 @@
     display: none;
   }
   #print-btn:hover { background: rgba(60,60,60,0.92); }
-  #permalink-btn {
-    position: absolute;
-    bottom: 56px; right: 10px;
-    z-index: 500;
-    background: rgba(40,40,40,0.82);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.25);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    backdrop-filter: blur(4px);
-  }
-  #permalink-btn:hover { background: rgba(60,60,60,0.92); }
+  #print-btn svg { vertical-align: -1px; }
   /* ── Report / story mode ──────────────────────────────────────────── */
   #report-pane {
     width: 50%;
@@ -1173,10 +1184,46 @@
   }
   body.report-collapsed #report-restore { display: block; }
   @media print {
-    #left-panel, #legend, #filterbar, #searchbar,
+    #filterbar, #searchbar,
     #info-panel, #attr-table-panel, #help-overlay,
-    #print-btn, #permalink-btn,
-    .leaflet-control-container { display: none !important; }
+    #print-btn { display: none !important; }
+    /* Keep the control container so the scale bar and brand can print, but
+       drop every interactive control inside it. */
+    .leaflet-control-container { display: block !important; }
+    .leaflet-control-zoom, .leaflet-control-minimap, .leaflet-control-fullscreen,
+    .leaflet-control-search, .leaflet-control-filter, .leaflet-pm-toolbar,
+    .data-export-wrap, #measure-btn, #identify-btn, #select-btn,
+    .view-toggle-ctrl, .help-ctrl {
+      display: none !important;
+    }
+    /* Scale bar: always printed, solid so it survives greyscale printers. */
+    .leaflet-control-scale {
+      display: block !important;
+      background: #fff; border: 1px solid #333; padding: 1px 3px;
+    }
+    .leaflet-control-scale-line {
+      border-color: #333 !important; color: #000 !important; background: #fff !important;
+    }
+    .brand-watermark { background: #fff !important; border-color: #333 !important; }
+    /* Legend prints as a static block in the top-right of the map. */
+    #legend {
+      display: block !important;
+      position: absolute !important; top: 8mm; right: 8mm; left: auto !important;
+      max-height: none !important; overflow: visible !important;
+      width: 62mm; z-index: 9999;
+      box-shadow: none; border: 1px solid #333;
+      page-break-inside: avoid;
+    }
+    #legend-toggle-all, #legend-tools-btn, .layer-actions,
+    #legend .layer-opacity, #legend .legend-expand { display: none !important; }
+    #legend .legend-body { max-height: none !important; overflow: visible !important; }
+    /* Title block, when the map has one, prints above the map. */
+    #left-panel {
+      position: static !important; width: 100% !important; height: auto !important;
+      max-height: none !important; overflow: visible !important;
+      border: none !important; page-break-after: avoid;
+    }
+    #left-panel-close, #left-panel-resize-h, #map-title-chip { display: none !important; }
     body { display: block; overflow: visible; }
     #map-wrap { width: 100vw !important; height: 100vh !important; position: relative; }
     #map { width: 100% !important; height: 100% !important; }
