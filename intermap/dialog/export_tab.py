@@ -116,6 +116,14 @@ class ExportTabMixin:
         self.feat_measure_cb.setChecked(True)
         tools_layout.addWidget(self.feat_measure_cb)
 
+        self.feat_print_cb = QCheckBox("Print tool (prints map with legend, scale bar & north arrow)")
+        self.feat_print_cb.setChecked(True)
+        self.feat_print_cb.setToolTip(
+            "Adds a print button to the map toolbar. Printed output includes the\n"
+            "legend, scale bar, north arrow, title and data attribution."
+        )
+        tools_layout.addWidget(self.feat_print_cb)
+
         self.feat_filter_cb = QCheckBox("Filter toolbar + layer filters")
         self.feat_filter_cb.setChecked(True)
         tools_layout.addWidget(self.feat_filter_cb)
@@ -580,6 +588,7 @@ class ExportTabMixin:
                 feat_attr_geojson=self.feat_attr_geojson_cb.isChecked(),
                 feat_data_export=self.feat_data_export_cb.isChecked(),
                 feat_measure=self.feat_measure_cb.isChecked(),
+                feat_print=self.feat_print_cb.isChecked(),
                 feat_filter=self.feat_filter_cb.isChecked(),
                 feat_search=self.feat_search_cb.isChecked(),
                 feat_minimap=self.feat_minimap_cb.isChecked(),

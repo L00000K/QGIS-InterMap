@@ -1026,23 +1026,9 @@
   #attr-table-csv:hover, #attr-table-geojson:hover { background: rgba(255,255,255,0.28); }
 
   /* ── Print layout ─────────────────────────────────────────────────── */
-  #print-btn {
-    position: absolute;
-    bottom: 28px; right: 10px;
-    z-index: 500;
-    background: rgba(40,40,40,0.82);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.25);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    backdrop-filter: blur(4px);
-    display: none;
-  }
-  #print-btn:hover { background: rgba(60,60,60,0.92); }
-  #print-btn svg { vertical-align: -1px; }
+  /* Map decorations — north arrow, title, scale/centre note and data credit.
+     Hidden on screen; only the printed sheet shows them. */
+  #print-decor { display: none; }
   /* ── Report / story mode ──────────────────────────────────────────── */
   #report-pane {
     width: 50%;
@@ -1219,10 +1205,36 @@
     .leaflet-control-container { display: block !important; }
     .leaflet-control-zoom, .leaflet-control-minimap, .leaflet-control-fullscreen,
     .leaflet-control-search, .leaflet-control-filter, .leaflet-pm-toolbar,
-    .data-export-wrap, #measure-btn, #identify-btn, #select-btn,
+    .data-export-wrap, #measure-btn, #identify-btn, #select-btn, #print-btn,
     .view-toggle-ctrl, .help-ctrl {
       display: none !important;
     }
+    /* ── Map decorations ─────────────────────────────────────────── */
+    /* Only when the print tool is enabled — see app.js 'print-tool-on'. */
+    body.print-tool-on #print-decor { display: block !important; }
+    /* An unpopulated decoration would otherwise print as an empty framed box. */
+    #print-decor-title:empty, #print-decor-meta:empty,
+    #print-decor-credit:empty { display: none !important; }
+    #print-decor-north {
+      position: absolute; top: 8mm; left: 8mm; z-index: 9999;
+      background: #fff; border: 1px solid #333; border-radius: 2px;
+      padding: 2px 5px; line-height: 0;
+    }
+    #print-decor-title {
+      position: absolute; top: 8mm; left: 50%; transform: translateX(-50%);
+      z-index: 9999; max-width: 55%;
+      background: #fff; border: 1px solid #333;
+      padding: 3px 10px; text-align: center;
+      font-family: Arial, sans-serif; font-size: 13px; font-weight: 700; color: #000;
+    }
+    #print-decor-meta, #print-decor-credit {
+      position: absolute; left: 8mm; z-index: 9999;
+      background: #fff; border: 1px solid #333; padding: 2px 6px;
+      font-family: Arial, sans-serif; font-size: 8px; color: #222;
+    }
+    /* Sits above the scale bar, which Leaflet keeps in the bottom-left. */
+    #print-decor-meta   { bottom: 16mm; }
+    #print-decor-credit { bottom: 8mm; max-width: 60%; }
     /* Scale bar: always printed, solid so it survives greyscale printers. */
     .leaflet-control-scale {
       display: block !important;

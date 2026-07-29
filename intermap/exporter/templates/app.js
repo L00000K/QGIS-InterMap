@@ -3642,12 +3642,74 @@
     // _parseHash above, so hand-shared links keep working.
   })();
 
-  // ── Print button ─────────────────────────────────────────────────────────
-  (function() {
-    var printBtn = document.getElementById('print-btn');
-    if (!printBtn) return;
-    printBtn.style.display = 'block';
-    printBtn.addEventListener('click', function() { window.print(); });
+  // ── Print tool ───────────────────────────────────────────────────────────
+  // Lives in the map toolbar alongside the other tools rather than floating
+  // over the corner of the map.
+  if (FEAT.print) (function() {
+    var PrintBtn = L.Control.extend({
+      onAdd: function() {
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control leaflet-control-filter');
+        btn.id = 'print-btn';
+        btn.title = 'Print map (with legend, scale bar and north arrow)';
+        btn.setAttribute('aria-label', 'Print map');
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">'
+          + '<rect x="5.5" y="2.5" width="9" height="4" fill="none" stroke="#444" stroke-width="1.6"/>'
+          + '<rect x="2.5" y="6.5" width="15" height="7" rx="1.2" fill="none" stroke="#444" stroke-width="1.6"/>'
+          + '<rect x="5.5" y="11.5" width="9" height="6" fill="#fff" stroke="#444" stroke-width="1.6"/>'
+          + '<circle cx="14.8" cy="9" r="1" fill="#444"/></svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.on(btn, 'click', function() {
+          _fillPrintDecor();
+          window.print();
+        });
+        return btn;
+      }
+    });
+    new PrintBtn({position: 'topleft'}).addTo(map);
+    // Decorations belong to the print tool: only mark them printable when the
+    // tool is enabled, so an export without it never emits empty framed boxes.
+    document.body.classList.add('print-tool-on');
+    // Also populate for a browser-initiated print (Ctrl+P), not just the button.
+    window.addEventListener('beforeprint', function() { _fillPrintDecor(); });
+
+    // Populate the print-only decorations (title, date, scale note, credit)
+    // just before printing, so they reflect the view actually being printed.
+    function _fillPrintDecor() {
+      var t = document.getElementById('print-decor-title');
+      if (t) {
+        var src = document.getElementById('map-title-chip-text');
+        var title = (src && src.textContent.trim())
+          || (document.title || '').trim();
+        t.textContent = title;
+        t.style.display = title ? '' : 'none';
+      }
+      var m = document.getElementById('print-decor-meta');
+      if (m) {
+        var c = map.getCenter();
+        m.textContent = 'Printed ' + new Date().toLocaleDateString()
+          + '  ·  Scale 1:' + Math.round(_printScaleDenominator())
+          + '  ·  Centre ' + c.lat.toFixed(4) + ', ' + c.lng.toFixed(4)
+          + '  ·  WGS 84';
+      }
+      var cr = document.getElementById('print-decor-credit');
+      if (cr) {
+        // Reuse whatever attribution Leaflet is already showing.
+        var att = document.querySelector('.leaflet-control-attribution');
+        cr.textContent = att ? att.textContent.replace(/^\s*\|?\s*/, '') : '';
+        cr.style.display = cr.textContent ? '' : 'none';
+      }
+    }
+
+    // Approximate representative fraction for the current view, from the
+    // metres-per-pixel at the map centre and a nominal 96dpi screen.
+    function _printScaleDenominator() {
+      try {
+        var c = map.getCenter();
+        var mPerPx = 40075016.686 * Math.abs(Math.cos(c.lat * Math.PI / 180))
+                   / Math.pow(2, map.getZoom() + 8);
+        return mPerPx * 96 / 0.0254;
+      } catch (e) { return 0; }
+    }
   })();
 
 })();

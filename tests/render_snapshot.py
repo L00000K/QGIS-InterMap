@@ -235,7 +235,7 @@ def build_scenarios(tmpdir):
             include_layer_control=False, include_basemap=True,
             feat_identify=False, feat_attr_table=False, feat_attr_csv=False,
             feat_attr_geojson=False, feat_data_export=False,
-            feat_measure=False, feat_filter=False,
+            feat_measure=False, feat_print=False, feat_filter=False,
             feat_search=False, feat_minimap=False, feat_fancy_labels=False,
             feat_changelog=False, feat_3d=False, feat_sketch=False,
         ),

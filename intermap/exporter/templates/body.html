@@ -19,7 +19,18 @@
   <div style="font-size:11px;opacity:0.8;">Drag left/right to slice</div>
 </div>
 <canvas id="cesium-slicer-canvas" style="display:none;position:absolute;top:0;left:0;z-index:250;pointer-events:none;"></canvas>
-<button id="print-btn" title="Print map"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4 1h8v3H4V1zm-2 4h12a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1v-2H3v2H2a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm2 5h8v5H4v-5z"/></svg> Print</button>
+<div id="print-decor" aria-hidden="true">
+  <div id="print-decor-north">
+    <svg viewBox="0 0 40 52" width="34" height="44" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="20,3 28,34 20,27 12,34" fill="#222" stroke="#222" stroke-width="1"/>
+      <polygon points="20,3 20,27 12,34" fill="#fff" stroke="#222" stroke-width="1"/>
+      <text x="20" y="49" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#222">N</text>
+    </svg>
+  </div>
+  <div id="print-decor-title"></div>
+  <div id="print-decor-meta"></div>
+  <div id="print-decor-credit"></div>
+</div>
 <div id="select-rect"></div>
 <div id="label-overlay"><svg id="label-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;"></svg></div>
 @@_filterbar_html@@
