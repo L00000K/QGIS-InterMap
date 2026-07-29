@@ -2980,10 +2980,17 @@
       if (!attr || (selected.length === 0 && !search)) {
         item.filterFn = null;
       } else {
+        // Lookup object, not indexOf: the predicate runs once per feature, so a
+        // linear scan of the selected values makes filtering quadratic.
+        var selLookup = null;
+        if (selected.length) {
+          selLookup = {};
+          for (var si = 0; si < selected.length; si++) selLookup['v' + selected[si]] = 1;
+        }
         item.filterFn = function(feature) {
           var v = (feature.properties || {})[attr];
           var sv = (v == null ? '' : String(v));
-          if (selected.length) return selected.indexOf(sv) !== -1;
+          if (selLookup) return selLookup['v' + sv] === 1;
           return sv.toLowerCase().indexOf(search) !== -1;
         };
       }
@@ -3032,7 +3039,6 @@
         lab.className = 'filter-value-item';
         var c = document.createElement('input');
         c.type = 'checkbox'; c.value = val;
-        c.addEventListener('change', function() { applyFilter(); updateValuesBtn(); });
         var s = document.createElement('span');
         s.textContent = (val === '' ? '(empty)' : val);
         s.title = val;
@@ -3043,6 +3049,13 @@
     }
 
     // Events
+    // One delegated listener on the value list, rather than one per checkbox —
+    // populateValues can render up to 2000 of them for a large layer.
+    valuesList.addEventListener('change', function(ev) {
+      if (!ev.target || ev.target.type !== 'checkbox') return;
+      applyFilter();
+      updateValuesBtn();
+    });
     layerSel.addEventListener('change', function() {
       var item = currentItem();
       clearOtherFilters(item);
@@ -3054,13 +3067,18 @@
       populateValues();
       applyFilter();
     });
+    // Narrowing the value list is cheap and should stay immediate; re-applying
+    // the filter rebuilds the whole layer, so that part is debounced — without
+    // it, every keystroke rebuilt a large layer and the filter appeared to hang.
+    var _filterSearchTimer = null;
     valuesSearch.addEventListener('input', function() {
       var q = valuesSearch.value.trim().toLowerCase();
       Array.prototype.forEach.call(valuesList.children, function(el) {
         el.style.display = el.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
       });
-      applyFilter();
       updateValuesBtn();
+      if (_filterSearchTimer) clearTimeout(_filterSearchTimer);
+      _filterSearchTimer = setTimeout(applyFilter, 200);
     });
     valuesBtn.addEventListener('click', function() {
       valuesPanel.classList.toggle('open');
