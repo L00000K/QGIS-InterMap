@@ -2408,9 +2408,12 @@
   // true positions. Only activates at zoom >= SPREAD_MIN_ZOOM.
   var SPREAD_MIN_ZOOM   = 14;   // below this zoom, icons stay at true positions
   var SPREAD_THRESHOLD  = 38;   // px — icons closer than this get spread
-  var SPREAD_MAX_GROUP  = 12;   // skip groups larger than this (too many to spread)
+  // Upper bound only — groups too tall for one column wrap into extra columns
+  // rather than being skipped, so this no longer has to be small.
+  var SPREAD_MAX_GROUP  = 60;   // beyond this, warn and leave the stack alone
   var SPREAD_OFFSET_X   = 62;   // px right of group centroid for stack anchor
   var SPREAD_ICON_GAP   = 30;   // px vertical spacing between stacked icons
+  var SPREAD_COL_GAP    = 54;   // px horizontal spacing between stacked columns
 
   var _spreadLeaderSvg = document.getElementById('spread-leader-svg');
 
@@ -2466,22 +2469,41 @@
     var NS = 'http://www.w3.org/2000/svg';
     var leaderFrag = _spreadLeaderSvg ? document.createDocumentFragment() : null;
 
+    // How many icons fit in one column at the current map height. A single
+    // column taller than the map would push markers off-screen, so wide
+    // groups wrap into further columns to the right instead of being skipped.
+    var _mapH = map.getSize().y;
+    var _perCol = Math.max(2, Math.floor((_mapH - SPREAD_ICON_GAP) / SPREAD_ICON_GAP));
+
     groups.forEach(function(g) {
-      if (g.length < 2 || g.length > SPREAD_MAX_GROUP) return;
+      if (g.length < 2) return;
+      if (g.length > SPREAD_MAX_GROUP) {
+        // Still bounded, so a pathological stack cannot lock up the browser,
+        // but say so rather than silently doing nothing.
+        console.warn('Explode/spread: ' + g.length + ' overlapping points at this '
+          + 'location exceeds the limit of ' + SPREAD_MAX_GROUP
+          + ' — zoom in to separate them.');
+        return;
+      }
 
       // Centroid of original positions
       var cx = 0, cy = 0;
       g.forEach(function(i) { cx += all[i].px; cy += all[i].py; });
       cx /= g.length; cy /= g.length;
 
+      var nCols   = Math.ceil(g.length / _perCol);
+      var perCol  = Math.ceil(g.length / nCols);   // balance the columns
       var anchorX = cx + SPREAD_OFFSET_X;
-      var totalH  = g.length * SPREAD_ICON_GAP;
-      var startY  = cy - totalH / 2 + SPREAD_ICON_GAP / 2;
 
       g.forEach(function(i, idx) {
         var m = all[i];
-        var newPx = anchorX;
-        var newPy = startY + idx * SPREAD_ICON_GAP;
+        var col = Math.floor(idx / perCol);
+        var row = idx % perCol;
+        // Height of this column (the last one may be short) so each is centred.
+        var colCount = Math.min(perCol, g.length - col * perCol);
+        var startY = cy - (colCount * SPREAD_ICON_GAP) / 2 + SPREAD_ICON_GAP / 2;
+        var newPx = anchorX + col * SPREAD_COL_GAP;
+        var newPy = startY + row * SPREAD_ICON_GAP;
         var newLatLng = map.containerPointToLatLng([newPx, newPy]);
         m.mkr.setLatLng(newLatLng);
 
