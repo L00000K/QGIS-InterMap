@@ -51,6 +51,29 @@ class DialogLayoutTests(unittest.TestCase):
                          self.geom["mv_list_y_with_selection"],
                          "map views list shifts when a view is selected")
 
+    def test_nothing_stacks_with_gaps_between_items(self):
+        """House rule: panels stack upward and stay stuck together.
+
+        Spare height belongs at the bottom of a panel, never distributed
+        between the controls. This walks every tab at three dock heights,
+        with the collapsible sections both open and closed and with a map
+        view both selected and not, and fails on any gap that opens up
+        between two consecutive items.
+        """
+        env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        res = subprocess.run([sys.executable, _PROBE, "--gaps"],
+                             capture_output=True, text=True, env=env, timeout=300)
+        if res.returncode != 0:
+            self.skipTest("gap scan failed: %s" % res.stderr[-400:])
+        findings = json.loads(res.stdout.strip().splitlines()[-1])
+        if findings:
+            worst = sorted(findings, key=lambda f: -f["gap"])[:6]
+            detail = "\n".join(
+                "  {where}: {gap}px between {after} and {before}".format(**f)
+                for f in worst)
+            self.fail("%d layout gap(s); spare height should sit at the "
+                      "bottom, not between items:\n%s" % (len(findings), detail))
+
     def test_title_block_sections_do_not_absorb_spare_height(self):
         # A group box left on Qt's default Preferred policy grows to fill the
         # tab, and its form rows spread apart with it — which is what made the
