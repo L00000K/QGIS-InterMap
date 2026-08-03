@@ -3468,41 +3468,130 @@
     { sel: '[title="Drag to select features"]',  name: 'Select &amp; Highlight', text: 'Click and drag a rectangle to select features. Selected rows are highlighted in the attribute table.' },
     { sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' },
     { sel: '[title="Search all layers"]',        name: 'Smart Search',      text: 'Type a term and press Enter to search all layers at once. Non-matching features are greyed out. Click the lightning bolt to activate.' },
+    { sel: '#measure-btn',                       name: 'Measure',           text: 'Measure distance along a path: click each point, then double-click to finish. Running totals are labelled on the map. Click the button again to clear.' },
+    { sel: '#print-btn',                         name: 'Print',             text: 'Print the current map. The printed sheet includes the legend, scale bar, north arrow, title and data credit; the on-screen tool buttons are left off.' },
+    { sel: '#data-export-btn',                   name: 'Data Export',       text: 'Download layers as GeoJSON or CSV, either individually or all at once.' },
     { sel: '.leaflet-control-fullscreen-button', name: 'Full Screen',       text: 'Toggle full-screen mode.' },
     { sel: '.leaflet-control-minimap',           name: 'Minimap',           text: 'Overview minimap showing your current extent. Click to toggle.' },
+    { sel: '.view-toggle-ctrl',                  name: '2D / 3D',           text: 'Switch between the flat map and the 3D globe view.' },
+    { sel: '.leaflet-pm-toolbar',                name: 'Sketch Tools',      text: 'Draw and annotate on the map: lines, shapes, markers and text. Sketches are not saved with the file.' },
+    // ── Left panel sections
+    { sel: '#map-views-section',                 name: 'Map Views',         text: 'Saved views of the map. Click one to jump to its extent and switch to its layer set. The active view is highlighted.', side:'right' },
+    { sel: '.cad-block-hdr',                     name: 'Title Block',       text: 'Drawing title block: client, project number, document number, revision and sign-off. Click the header to collapse or expand it.', side:'right' },
+    { sel: '#changelog-hdr',                     name: 'Changelog',         text: 'Revision history for this map. Click the header to collapse or expand the list.', side:'right' },
   ];
 
   var _helpBtn;
 
   function buildHelpTips() {
     helpOverlay.innerHTML = '';
+    var tipW = 240;
+    var GAP  = 6;      // px between neighbouring tips
+    var placed = [];
+
+    // Pass 1 — create every tip at its preferred position. Heights are not
+    // known until the tips are in the DOM, so nothing is deconflicted yet.
     _helpTools.forEach(function(tool) {
       var el = document.querySelector(tool.sel);
       if (!el) return;
       var r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
+      // Skip anything scrolled or collapsed out of view.
+      if (r.bottom < 0 || r.top > window.innerHeight) return;
       var tip = document.createElement('div');
       tip.className = 'help-tip';
       tip.innerHTML = '<div class="help-tip-name">' + tool.name + '</div>'
                     + '<div class="help-tip-text">' + escHtml(tool.text) + '</div>';
       var side = tool.side || 'right';
       // Check if placing right would overflow; fall back to left of element
-      var tipW = 240;
       if (side === 'right' && r.right + 10 + tipW > window.innerWidth) side = 'left';
+      var left;
       if (side === 'right') {
-        tip.style.left = (r.right + 10) + 'px';
+        left = r.right + 10;
       } else {
-        tip.style.left = Math.max(4, r.left - tipW - 10) + 'px';
+        left = Math.max(4, r.left - tipW - 10);
         tip.style.setProperty('--arrow-side', 'right');
       }
-      tip.style.top = Math.max(4, Math.min(window.innerHeight - 80, r.top + r.height / 2 - 24)) + 'px';
+      tip.style.left = left + 'px';
+      tip.style.top = Math.max(4, r.top + r.height / 2 - 24) + 'px';
       helpOverlay.appendChild(tip);
+      placed.push({ tip: tip, left: left, want: Math.max(4, r.top + r.height / 2 - 24) });
+    });
+
+    // Pass 2 — measure, then lay the tips out so none overlap. Tips anchored
+    // to the same toolbar sit ~30px apart while each tip is far taller than
+    // that, so without this they pile up and become unreadable. Grouping by
+    // column is not enough: tips are ~240px wide, so ones with quite different
+    // anchors still collide. Test real rectangles instead.
+    var vh = window.innerHeight, vw = window.innerWidth;
+    placed.forEach(function(p) {
+      p.h = p.tip.offsetHeight || 48;
+      p.w = p.tip.offsetWidth || tipW;
+    });
+    placed.sort(function(a, b) { return a.want - b.want; });
+
+    var done = [];
+
+    function firstFreeTop(left, p, from) {
+      // Slide down from `from` until the rectangle clears everything placed.
+      var top = Math.max(4, from), guard = 0;
+      while (guard++ < 80) {
+        var hit = null;
+        for (var i = 0; i < done.length; i++) {
+          var q = done[i];
+          if (left < q.left + q.w && q.left < left + p.w &&
+              top  < q.top  + q.h && q.top  < top  + p.h) { hit = q; break; }
+        }
+        if (!hit) return top;
+        top = hit.top + hit.h + GAP;
+      }
+      return top;
+    }
+
+    placed.forEach(function(p) {
+      // Candidate columns: the anchor's own, then alternating outwards. A tip
+      // that cannot fit beside its control moves to the next column over
+      // rather than being stacked on top of another tip.
+      var cands = [p.left];
+      for (var k = 1; k <= 4; k++) {
+        var rx = p.left + k * (p.w + 12);
+        if (rx + p.w <= vw - 4) cands.push(rx);
+        var lx = p.left - k * (p.w + 12);
+        if (lx >= 4) cands.push(lx);
+      }
+      var best = null;
+      for (var c = 0; c < cands.length; c++) {
+        var top = firstFreeTop(cands[c], p, p.want);
+        if (top + p.h <= vh - 4) { best = { left: cands[c], top: top }; break; }
+        // Retry this column from the very top before giving up on it.
+        top = firstFreeTop(cands[c], p, 4);
+        if (top + p.h <= vh - 4) { best = { left: cands[c], top: top }; break; }
+      }
+      // Nothing fits in the columns derived from the anchor (a narrow window
+      // with the report pane open, say) — sweep the whole width on a finer
+      // grid before accepting an overlap.
+      if (!best) {
+        var step = Math.max(40, Math.round(p.w / 3));
+        for (var x = 4; x + p.w <= vw - 4; x += step) {
+          var t2 = firstFreeTop(x, p, 4);
+          if (t2 + p.h <= vh - 4) { best = { left: x, top: t2 }; break; }
+        }
+      }
+      // Last resort: keep it on screen even if it has to overlap.
+      if (!best) best = { left: p.left, top: Math.max(4, vh - 4 - p.h) };
+      p.left = best.left;
+      p.top = best.top;
+      p.tip.style.left = Math.round(p.left) + 'px';
+      p.tip.style.top  = Math.round(p.top) + 'px';
+      done.push(p);
     });
   }
 
   function toggleHelp() {
     _helpActive = !_helpActive;
-    if (_helpActive) { buildHelpTips(); helpOverlay.classList.add('active'); }
+    // Show the overlay *before* building: it is display:none until .active,
+    // and tips measure zero height while hidden, which breaks the layout.
+    if (_helpActive) { helpOverlay.classList.add('active'); buildHelpTips(); }
     else { helpOverlay.classList.remove('active'); }
     if (_helpBtn) _helpBtn.classList.toggle('help-btn-active', _helpActive);
   }
