@@ -2411,6 +2411,7 @@
   // Upper bound only — groups too tall for one column wrap into extra columns
   // rather than being skipped, so this no longer has to be small.
   var SPREAD_MAX_GROUP  = 60;   // beyond this, warn and leave the stack alone
+  var SPREAD_MAX_MARKERS = 8000; // total visible spreadable markers before bailing
   var SPREAD_OFFSET_X   = 62;   // px right of group centroid for stack anchor
   var SPREAD_ICON_GAP   = 30;   // px vertical spacing between stacked icons
   var SPREAD_COL_GAP    = 54;   // px horizontal spacing between stacked columns
@@ -2418,15 +2419,40 @@
   var _spreadLeaderSvg = document.getElementById('spread-leader-svg');
 
   function _spreadGroupByProximity(pts, threshold) {
-    var groups = [], assigned = {};
-    for (var i = 0; i < pts.length; i++) {
+    // Bucket the markers into a grid of threshold-sized cells, so each marker
+    // only has to be compared against the nine cells around it rather than
+    // against every other marker. The previous all-pairs scan was quadratic,
+    // which is why a marker cap existed — and that cap silently switched the
+    // whole feature off on any reasonably sized layer.
+    var grid = {}, i, j, key;
+    for (i = 0; i < pts.length; i++) {
+      key = Math.floor(pts[i].px / threshold) + ':' + Math.floor(pts[i].py / threshold);
+      if (grid[key]) grid[key].push(i);
+      else grid[key] = [i];
+    }
+
+    var groups = [], assigned = {}, t2 = threshold * threshold;
+    for (i = 0; i < pts.length; i++) {
       if (assigned[i]) continue;
-      var g = [i]; assigned[i] = true;
-      for (var j = i + 1; j < pts.length; j++) {
-        if (assigned[j]) continue;
-        var dx = pts[i].px - pts[j].px, dy = pts[i].py - pts[j].py;
-        if (Math.sqrt(dx*dx + dy*dy) < threshold) { g.push(j); assigned[j] = true; }
+      var g = [i];
+      assigned[i] = true;
+      var cx = Math.floor(pts[i].px / threshold), cy = Math.floor(pts[i].py / threshold);
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          var bucket = grid[(cx + dx) + ':' + (cy + dy)];
+          if (!bucket) continue;
+          for (var b = 0; b < bucket.length; b++) {
+            j = bucket[b];
+            // Same seed-point semantics as before: only pair against later,
+            // still-unassigned markers.
+            if (j <= i || assigned[j]) continue;
+            var ddx = pts[i].px - pts[j].px, ddy = pts[i].py - pts[j].py;
+            if (ddx * ddx + ddy * ddy < t2) { g.push(j); assigned[j] = true; }
+          }
+        }
       }
+      // Keep index order so the stacking order matches the old behaviour.
+      if (g.length > 1) g.sort(function(a, c) { return a - c; });
       groups.push(g);
     }
     return groups;
@@ -2459,8 +2485,17 @@
       });
     });
     if (!all.length) { setTimeout(layoutAllLabels, 0); return; }
-    // O(n²) proximity check — skip if too many markers to avoid UI freeze
-    if (all.length > 400) { setTimeout(layoutAllLabels, 0); return; }
+    // Grouping is now linear (see _spreadGroupByProximity), so this bound only
+    // guards against the cost of repositioning a very large number of markers.
+    // It says so rather than failing silently, which is what the old limit of
+    // 400 did — that switched spreading off on any sizeable layer with no
+    // indication why.
+    if (all.length > SPREAD_MAX_MARKERS) {
+      console.warn('Explode/spread: ' + all.length + ' points visible exceeds the '
+        + 'limit of ' + SPREAD_MAX_MARKERS + ' — filter the layer or zoom in.');
+      setTimeout(layoutAllLabels, 0);
+      return;
+    }
 
     // 3. Group overlapping markers
     var groups = _spreadGroupByProximity(all, SPREAD_THRESHOLD);
