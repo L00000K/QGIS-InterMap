@@ -299,6 +299,22 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         name_lbl.setObjectName("icName")
         title_row.addWidget(name_lbl)
         title_row.addStretch()
+
+        # ── Version / changelog button (top right) ────────────────────────────
+        from ..version_info import version_label, build_stamp
+        self.version_btn = QPushButton(version_label())
+        self.version_btn.setObjectName("icVersion")
+        self.version_btn.setFlat(True)
+        self.version_btn.setCursor(Qt.PointingHandCursor)
+        _stamp = build_stamp()
+        self.version_btn.setToolTip(
+            "InterMap {}{}\n\nClick to see what's changed.".format(
+                version_label(),
+                "\nBuilt {}".format(_stamp["date"]) if _stamp and _stamp.get("date") else "")
+        )
+        self.version_btn.clicked.connect(self._show_changelog)
+        title_row.addWidget(self.version_btn)
+
         top_vl.addLayout(title_row)
         outer.addWidget(top)
 
@@ -328,6 +344,14 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         outer.addWidget(desc_strip)
 
         return header
+
+    def _show_changelog(self):
+        """Open the changelog from the header version button."""
+        try:
+            from ..whats_new import show_changelog
+            show_changelog(self)
+        except Exception:
+            pass
 
     @staticmethod
     def _scrollable(page):
@@ -385,6 +409,19 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
                 font-size: 11px;
             }}
             QPushButton#icConfigSaveRed:hover {{ background: #B91C1C; }}
+            QPushButton#icVersion {{
+                color: rgba(255,255,255,0.82);
+                background: rgba(255,255,255,0.13);
+                border: 1px solid rgba(255,255,255,0.25);
+                border-radius: 10px;
+                padding: 2px 10px;
+                font-size: 10px;
+                font-weight: 600;
+            }}
+            QPushButton#icVersion:hover {{
+                background: rgba(255,255,255,0.26);
+                color: #fff;
+            }}
             QLabel#icName {{
                 color: #FFFFFF;
                 font-size: 22px;

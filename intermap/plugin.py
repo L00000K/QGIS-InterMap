@@ -32,6 +32,8 @@ class WebMapExporterPlugin:
     def run(self):
         from .version_check import warn_if_unsupported
         warn_if_unsupported(self.iface)
+        from .whats_new import check_for_update
+        check_for_update(self.iface.mainWindow())
         from .dialog import WebMapExportDialog
         if self._dlg is None:
             self._dlg = WebMapExportDialog(self.iface)
