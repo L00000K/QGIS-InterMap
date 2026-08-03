@@ -53,6 +53,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         self._update_initial_extent_label()
         self.path_edit.setText(self._default_output_path())
         self._populate_layers()
+        self._connect_project_layer_signals()
         self._load_settings()
 
     def closeEvent(self, event):

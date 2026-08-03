@@ -115,6 +115,16 @@ class MapViewsTabMixin:
         mv_layers_layout_btn.setToolTip("Import layer list from a QGIS print layout's map item")
         mv_layers_layout_btn.clicked.connect(self._mv_layers_from_layout)
         layers_panel_vl.addWidget(mv_layers_layout_btn)
+        mv_layers_copy_btn = QPushButton("copy from other map view")
+        mv_layers_copy_btn.setToolTip("Copy the layer set from another map view in this list")
+        mv_layers_copy_btn.clicked.connect(self._mv_copy_layers_from_view)
+        layers_panel_vl.addWidget(mv_layers_copy_btn)
+        mv_layers_show_btn = QPushButton("🗺  show in canvas")
+        mv_layers_show_btn.setToolTip(
+            "Apply this view's layer set to the QGIS canvas so you can see what it captures"
+        )
+        mv_layers_show_btn.clicked.connect(self._mv_show_layers_in_canvas)
+        layers_panel_vl.addWidget(mv_layers_show_btn)
         self.mv_layers_panel.setVisible(False)
         box_vl.addWidget(self.mv_layers_panel)
 
@@ -154,6 +164,14 @@ class MapViewsTabMixin:
         set_layer_ext_btn.clicked.connect(self._mv_set_from_layer_extent)
         layer_ext_row.addWidget(set_layer_ext_btn)
         extent_panel_vl.addLayout(layer_ext_row)
+        mv_ext_copy_btn = QPushButton("copy from other map view")
+        mv_ext_copy_btn.setToolTip("Copy the extent from another map view in this list")
+        mv_ext_copy_btn.clicked.connect(self._mv_copy_extent_from_view)
+        extent_panel_vl.addWidget(mv_ext_copy_btn)
+        mv_ext_show_btn = QPushButton("🗺  show in canvas")
+        mv_ext_show_btn.setToolTip("Zoom the QGIS canvas to this view's extent")
+        mv_ext_show_btn.clicked.connect(self._mv_view_in_canvas)
+        extent_panel_vl.addWidget(mv_ext_show_btn)
         self.mv_extent_panel.setVisible(False)
         box_vl.addWidget(self.mv_extent_panel)
 
@@ -224,6 +242,128 @@ class MapViewsTabMixin:
             self.iface.mapCanvas().refresh()
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
+
+    def _mv_show_layers_in_canvas(self):
+        """Apply this map view's layer set to the QGIS canvas."""
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select a map view first.")
+            return
+        mv = self._map_views[idx]
+        root = QgsProject.instance().layerTreeRoot()
+
+        theme = mv.get("theme")
+        if theme:
+            try:
+                model = self.iface.layerTreeView().layerTreeModel()
+                QgsProject.instance().mapThemeCollection().applyTheme(theme, root, model)
+                self.iface.mapCanvas().refresh()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+            return
+
+        names = mv.get("layerIds")
+        if not names:
+            QMessageBox.information(
+                self, "No layers",
+                "This map view has no layer set yet. Use 'from canvas', 'from theme',\n"
+                "'from layout' or 'copy from other map view' to give it one."
+            )
+            return
+
+        wanted = set(names)
+        missing = set(wanted)
+        try:
+            for node in root.findLayers():
+                layer = node.layer()
+                if layer is None:
+                    continue
+                on = layer.name() in wanted
+                missing.discard(layer.name())
+                # setItemVisibilityChecked is the modern API; fall back for older QGIS.
+                try:
+                    node.setItemVisibilityChecked(on)
+                except AttributeError:
+                    node.setVisible(Qt.Checked if on else Qt.Unchecked)
+            self.iface.mapCanvas().refresh()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+            return
+        if missing:
+            self.iface.messageBar().pushInfo(
+                "InterMap",
+                "Applied '%s'. Not in this project: %s" % (
+                    mv.get("name", "map view"), ", ".join(sorted(missing)))
+            )
+
+    def _mv_pick_other_view(self, title, label):
+        """Ask the user to choose a different map view. Returns its index or None."""
+        idx = self._editing_map_view_idx
+        if idx is None or idx < 0 or idx >= len(self._map_views):
+            QMessageBox.information(self, "No map view", "Select a map view first.")
+            return None
+        others = [(i, mv) for i, mv in enumerate(self._map_views) if i != idx]
+        if not others:
+            QMessageBox.information(
+                self, "No other map views",
+                "There is only one map view. Add another before copying between them."
+            )
+            return None
+        names = ["%d. %s" % (i + 1, mv.get("name") or "(unnamed)") for i, mv in others]
+        choice, ok = QInputDialog.getItem(self, title, label, names, 0, False)
+        if not ok or not choice:
+            return None
+        return others[names.index(choice)][0]
+
+    def _mv_copy_extent_from_view(self):
+        src = self._mv_pick_other_view("Copy extent", "Copy the extent from:")
+        if src is None:
+            return
+        idx = self._editing_map_view_idx
+        ext = self._map_views[src].get("extent")
+        if not ext:
+            QMessageBox.information(
+                self, "No extent",
+                "'%s' has no extent set." % (self._map_views[src].get("name") or "That view")
+            )
+            return
+        # Copy the values, not the list object, so the two views stay independent.
+        ext = [list(ext[0]), list(ext[1])]
+        self._map_views[idx]["extent"] = ext
+        self._editing_map_view_extent = ext
+        self._update_mv_extent_label(ext)
+        self._mv_update_rubber_bands()
+        self._mark_unsaved()
+
+    def _mv_copy_layers_from_view(self):
+        src = self._mv_pick_other_view("Copy layers", "Copy the layer set from:")
+        if src is None:
+            return
+        idx = self._editing_map_view_idx
+        smv, dmv = self._map_views[src], self._map_views[idx]
+        # A view's layers are defined by exactly one of theme / layout / layerIds,
+        # so clear all three before copying whichever the source uses.
+        for key in ("theme", "layout", "layerIds"):
+            dmv.pop(key, None)
+        if smv.get("theme"):
+            dmv["theme"] = smv["theme"]
+            self._update_mv_layers_label(None, theme=dmv["theme"])
+        elif smv.get("layout"):
+            import copy as _copy
+            dmv["layout"] = _copy.deepcopy(smv["layout"])
+            dmv["layerIds"] = list(smv.get("layerIds") or [])
+            self._update_mv_layers_label(dmv.get("layerIds"), layout=dmv["layout"])
+        elif smv.get("layerIds"):
+            dmv["layerIds"] = list(smv["layerIds"])
+            self._update_mv_layers_label(dmv["layerIds"])
+        else:
+            QMessageBox.information(
+                self, "No layers",
+                "'%s' has no layer set to copy." % (smv.get("name") or "That view")
+            )
+            return
+        self._update_required_layers()
+        self._mark_unsaved()
 
     def _mv_start_draw_extent(self):
         idx = self._editing_map_view_idx

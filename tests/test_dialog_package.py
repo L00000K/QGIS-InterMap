@@ -65,7 +65,12 @@ class DialogPackageTests(unittest.TestCase):
                      "_capture_canvas_extent", "_switch_tab",
                      "_build_project_tab", "_build_export_settings_tab",
                      "_build_3d_tab", "_build_report_tab",
-                     "_update_capability_tabs", "_update_config_caps_label"):
+                     "_update_capability_tabs", "_update_config_caps_label",
+                     "_mv_show_layers_in_canvas", "_mv_copy_extent_from_view",
+                     "_mv_copy_layers_from_view", "_mv_pick_other_view",
+                     "_connect_project_layer_signals",
+                     "_refresh_layers_preserving_selection",
+                     "_checked_layer_ids", "_set_checked_layer_ids"):
             self.assertTrue(callable(getattr(self.dlg, name, None)), name)
 
     def test_tab_constants(self):

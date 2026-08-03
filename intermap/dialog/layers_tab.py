@@ -5,7 +5,7 @@ from qgis.PyQt.QtWidgets import (
     QComboBox,
 )
 from qgis.PyQt.QtGui import QColor
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.core import (
     QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer,
 )
@@ -54,6 +54,17 @@ class LayersTabMixin:
         self.layer_tree_widget.itemChanged.connect(self._on_layer_item_changed)
         layer_layout.addWidget(self.layer_tree_widget)
         layers_layout.addWidget(layer_group)
+
+        refresh_row = QHBoxLayout()
+        refresh_row.addStretch()
+        refresh_layers_btn = QPushButton("↻  Refresh from QGIS")
+        refresh_layers_btn.setToolTip(
+            "Rebuild this list from the current QGIS project.\n"
+            "It also updates automatically when layers are added, removed or renamed."
+        )
+        refresh_layers_btn.clicked.connect(self._refresh_layers_preserving_selection)
+        refresh_row.addWidget(refresh_layers_btn)
+        layers_layout.addLayout(refresh_row)
 
         # Basemap option (directly under layer list)
         self.basemap_cb = QCheckBox("Add OpenStreetMap basemap")
@@ -171,6 +182,121 @@ class LayersTabMixin:
         grandparent = item.parent()
         if grandparent:
             self._update_parent_check_state(grandparent)
+
+    # ── Keeping the tree in step with QGIS ────────────────────────────────
+    # The tree used to be built once when the dialog was constructed, so
+    # layers added, removed or renamed in QGIS afterwards never showed up
+    # and the only way to resync was to restart QGIS.
+
+    def _connect_project_layer_signals(self):
+        """Repopulate the layer tree when the QGIS project changes."""
+        # Debounce timer; if it cannot be wired we fall back to refreshing
+        # directly, so signal wiring never blocks the dialog from opening.
+        self._layer_refresh_timer = None
+        try:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(200)  # coalesce bulk add/remove
+            timer.timeout.connect(self._refresh_layers_preserving_selection)
+            self._layer_refresh_timer = timer
+        except Exception:
+            pass
+
+        proj = QgsProject.instance()
+        for signal_name in ("layersAdded", "layersRemoved", "cleared"):
+            sig = getattr(proj, signal_name, None)
+            if sig is None:
+                continue
+            try:
+                sig.connect(self._schedule_layer_refresh)
+            except Exception:
+                pass
+        root = proj.layerTreeRoot()
+        for signal_name in ("addedChildren", "removedChildren"):
+            sig = getattr(root, signal_name, None)
+            if sig is None:
+                continue
+            try:
+                sig.connect(self._schedule_layer_refresh)
+            except Exception:
+                pass
+        self._hook_layer_name_signals()
+
+    def _hook_layer_name_signals(self):
+        """(Re)connect nameChanged on every layer so renames are picked up."""
+        for layer in QgsProject.instance().mapLayers().values():
+            try:
+                layer.nameChanged.disconnect(self._schedule_layer_refresh)
+            except Exception:
+                pass
+            try:
+                layer.nameChanged.connect(self._schedule_layer_refresh)
+            except Exception:
+                pass
+
+    def _schedule_layer_refresh(self, *_args):
+        """Debounced entry point — signals may fire many times in a burst."""
+        timer = getattr(self, "_layer_refresh_timer", None)
+        if timer is None:
+            try:
+                self._refresh_layers_preserving_selection()
+            except Exception:
+                pass
+            return
+        try:
+            timer.start()
+        except RuntimeError:
+            pass  # dialog already destroyed (plugin unloaded)
+
+    def _refresh_layers_preserving_selection(self):
+        """Rebuild the tree from the project, keeping the user's ticks."""
+        try:
+            had_items = self.layer_tree_widget.topLevelItemCount() > 0
+        except RuntimeError:
+            return  # underlying widget is gone
+        keep = self._checked_layer_ids()
+        self._populate_layers()
+        if had_items:
+            self._set_checked_layer_ids(keep)
+        self._hook_layer_name_signals()
+
+    def _checked_layer_ids(self):
+        ids = set()
+
+        def walk(parent):
+            for i in range(parent.childCount()):
+                it = parent.child(i)
+                lid = it.data(0, Qt.UserRole)
+                if lid and it.checkState(0) == Qt.Checked:
+                    ids.add(lid)
+                walk(it)
+
+        walk(self.layer_tree_widget.invisibleRootItem())
+        return ids
+
+    def _set_checked_layer_ids(self, ids):
+        self.layer_tree_widget.blockSignals(True)
+
+        def walk(parent):
+            for i in range(parent.childCount()):
+                it = parent.child(i)
+                lid = it.data(0, Qt.UserRole)
+                if lid:
+                    it.setCheckState(0, Qt.Checked if lid in ids else Qt.Unchecked)
+                walk(it)
+
+        def sync_groups(parent):
+            for i in range(parent.childCount()):
+                it = parent.child(i)
+                sync_groups(it)
+                if it.childCount():
+                    self._update_parent_check_state(it)
+
+        root_item = self.layer_tree_widget.invisibleRootItem()
+        walk(root_item)
+        sync_groups(root_item)
+        self.layer_tree_widget.blockSignals(False)
+        self._update_required_layers()
 
     def _populate_layers(self):
         self.layer_tree_widget.blockSignals(True)
