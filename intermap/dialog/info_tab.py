@@ -3,7 +3,7 @@ import datetime
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
     QLineEdit, QCheckBox, QGroupBox, QTextEdit, QFormLayout,
-    QWidget, QComboBox, QScrollArea, QGridLayout,
+    QWidget, QComboBox, QScrollArea, QGridLayout, QSizePolicy,
 )
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsProject
@@ -284,6 +284,18 @@ class MapInfoTabMixin:
                 self.cl_widget.setVisible(checked),
             )
         )
+
+        # Sections must not absorb spare height. With Qt's default Preferred
+        # policy a group box grows to fill the tab and its form rows spread
+        # apart, so collapsing the sections below left the title and
+        # description boxes drifting toward the bottom of the panel. Pin each
+        # section to its natural height and let the stretch below take the
+        # slack instead.
+        for _i in range(layout.count()):
+            _w = layout.itemAt(_i).widget()
+            if _w is not None:
+                _w.setSizePolicy(_w.sizePolicy().horizontalPolicy(),
+                                 QSizePolicy.Maximum)
 
         layout.addStretch()
 

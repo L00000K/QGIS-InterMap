@@ -174,8 +174,14 @@ class MapViewsTabMixin:
         extent_panel_vl.addWidget(mv_ext_show_btn)
         self.mv_extent_panel.setVisible(False)
         box_vl.addWidget(self.mv_extent_panel)
+        # Absorb spare height at the bottom, so collapsing the layers/extent
+        # panels does not spread the name and description boxes down the box.
+        box_vl.addStretch()
 
-        detail_layout.addWidget(mv_settings_box, 1)
+        # Natural height, not stretch 1: the box should size to its contents
+        # and let the scroll area deal with overflow, rather than growing to
+        # fill and dragging its contents apart.
+        detail_layout.addWidget(mv_settings_box)
 
         # Duplicate + Delete at the bottom (outside grey box)
         dup_btn = QPushButton("Duplicate map view")
@@ -186,9 +192,14 @@ class MapViewsTabMixin:
         del_btn.setObjectName("deleteBtn")
         del_btn.clicked.connect(self._map_view_delete)
         detail_layout.addWidget(del_btn)
+        detail_layout.addStretch()
 
         self.mv_detail_scroll.setWidget(detail_widget)
         mv_layout.addWidget(self.mv_detail_scroll, 1)
+        # With no map view selected the detail pane is hidden and nothing else
+        # can grow, which left the list floating in the middle of the tab.
+        # This takes the spare height so the list stays put at the top.
+        mv_layout.addStretch(0)
         self.mv_detail_scroll.setVisible(False)
 
         self._map_views_list_refresh()
