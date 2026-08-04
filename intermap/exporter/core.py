@@ -533,13 +533,15 @@ class WebMapExporter:
                     f'<span class="cl-text">{e.get("text","")}</span></li>'
                     for e in reversed(self.changelog)
                 )
+                # Collapsed on load: the revision history is reference, not the
+                # first thing a reader needs. It sits below the title block.
                 _changelog_html = (
                     '<div id="changelog-section">'
                     '<div id="changelog-hdr" title="Collapse / expand changelog">'
                     '<span>Changelog</span>'
-                    '<button class="cad-collapse-btn" aria-label="Collapse changelog">&#9650;</button>'
+                    '<button class="cad-collapse-btn" aria-label="Expand changelog">&#9660;</button>'
                     '</div>'
-                    f'<ul id="changelog-list">{_cl_items}</ul>'
+                    f'<ul id="changelog-list" class="collapsed">{_cl_items}</ul>'
                     '</div>'
                 )
             else:
@@ -551,9 +553,9 @@ class WebMapExporter:
                     f'<div class="left-panel-body-top">'
                     f'<div class="left-panel-desc">{_info_text or "&nbsp;"}</div>'
                     f'<div id="map-views-section"></div>'
-                    f'{_changelog_html}'
                     f'</div>'
                     f'{_cad_block_html}'
+                    f'{_changelog_html}'
                     f'</div>'
                     f'{_footer_html}'
                 )
@@ -562,8 +564,8 @@ class WebMapExporter:
                     f'<div id="left-panel-body">'
                     f'<div class="left-panel-body-top">'
                     f'<div id="map-views-section"></div>'
-                    f'{_changelog_html}'
                     f'</div>'
+                    f'{_changelog_html}'
                     f'</div>'
                 )
             left_panel_html = (
