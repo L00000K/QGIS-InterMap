@@ -147,7 +147,9 @@
         var btn  = clHdr.querySelector('.cad-collapse-btn');
         if (!list) return;
         var collapsed = list.classList.toggle('collapsed');
-        btn.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+        // Chevron points the way the click will move the list: up to open it,
+        // down to put it away again.
+        btn.innerHTML = collapsed ? '&#8963;' : '&#8964;';
         btn.setAttribute('aria-label', collapsed ? 'Expand changelog' : 'Collapse changelog');
       });
     }

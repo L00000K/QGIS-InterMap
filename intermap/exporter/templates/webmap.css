@@ -673,6 +673,11 @@
     max-height: 130px; overflow-y: auto; background: #fafafa;
   }
   #changelog-list.collapsed { display: none; }
+  /* Chevron glyphs (U+2303 / U+2304) are drawn small and high in most fonts —
+     size them up and nudge them down so they read as a clear ^ / v. */
+  #changelog-hdr .cad-collapse-btn {
+    font-size: 15px; line-height: 1; position: relative; top: 1px;
+  }
   #changelog-list li {
     display: flex; gap: 6px; padding: 3px 10px;
     font-size: 9px; line-height: 1.35; border-bottom: 1px solid #f0f0f0;

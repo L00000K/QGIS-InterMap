@@ -539,7 +539,7 @@ class WebMapExporter:
                     '<div id="changelog-section">'
                     '<div id="changelog-hdr" title="Collapse / expand changelog">'
                     '<span>Changelog</span>'
-                    '<button class="cad-collapse-btn" aria-label="Expand changelog">&#9660;</button>'
+                    '<button class="cad-collapse-btn" aria-label="Expand changelog">&#8963;</button>'
                     '</div>'
                     f'<ul id="changelog-list" class="collapsed">{_cl_items}</ul>'
                     '</div>'
