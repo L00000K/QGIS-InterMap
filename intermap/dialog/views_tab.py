@@ -1,8 +1,8 @@
 """Map Views tab: named views with extents, layer sets, QGIS theme/layout links."""
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
-    QLineEdit, QMessageBox, QGroupBox, QTextEdit, QWidget, QComboBox,
-    QInputDialog, QScrollArea, QAbstractItemView,
+    QLineEdit, QMessageBox, QTextEdit, QWidget, QComboBox,
+    QInputDialog, QScrollArea, QAbstractItemView, QFrame, QMenu,
 )
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtCore import Qt
@@ -57,141 +57,103 @@ class MapViewsTabMixin:
         detail_layout.setContentsMargins(0, 6, 0, 4)
         detail_layout.setSpacing(6)
 
-        # ── Single grey settings box ──────────────────────────────────────────
-        mv_settings_box = QGroupBox("Map view settings")
-        mv_settings_box.setObjectName("greyBox")
-        box_vl = QVBoxLayout(mv_settings_box)
-        box_vl.setSpacing(6)
+        # ── Settings card: chip header, one row per setting ───────────────
+        card = QFrame()
+        card.setObjectName("mvCard")
+        card_vl = QVBoxLayout(card)
+        card_vl.setContentsMargins(0, 0, 0, 0)
+        card_vl.setSpacing(0)
 
-        # Name + View in canvas on same line
+        chip = QLabel("Map view settings")
+        chip.setObjectName("mvCardChip")
+        card_vl.addWidget(chip)
+
+        body = QWidget()
+        box_vl = QVBoxLayout(body)
+        box_vl.setContentsMargins(12, 10, 12, 10)
+        box_vl.setSpacing(8)
+
+        # Name
         name_row = QHBoxLayout()
-        name_row.setSpacing(6)
-        name_row.addWidget(QLabel("Name:"))
+        name_row.setSpacing(8)
+        _k = QLabel("Name:")
+        _k.setObjectName("mvKey")
+        _k.setFixedWidth(46)
+        name_row.addWidget(_k)
         self.map_view_name_edit = QLineEdit()
         self.map_view_name_edit.setPlaceholderText("Map view name")
         self.map_view_name_edit.textChanged.connect(self._mv_autosave)
         name_row.addWidget(self.map_view_name_edit, 1)
-        view_canvas_btn = QPushButton("🗺  View in canvas")
-        view_canvas_btn.clicked.connect(self._mv_view_in_canvas)
-        name_row.addWidget(view_canvas_btn)
         box_vl.addLayout(name_row)
+        box_vl.addWidget(self._mv_rule())
 
-        # Description (no fixed height — let it grow; scroll handles overflow)
-        box_vl.addWidget(QLabel("Description:"))
+        # Detail — formatting row, two-line rich text, drag handle
+        detail_row = QHBoxLayout()
+        detail_row.setSpacing(8)
+        _k = QLabel("Detail:")
+        _k.setObjectName("mvKey")
+        _k.setFixedWidth(46)
+        detail_row.addWidget(_k, 0, Qt.AlignTop)
+        detail_col = QVBoxLayout()
+        detail_col.setSpacing(0)
         self.map_view_notes_edit = QTextEdit()
         self.map_view_notes_edit.setAcceptRichText(True)
         self.map_view_notes_edit.setPlaceholderText("Description shown in the map viewer")
-        self.map_view_notes_edit.setFixedHeight(80)
+        self.map_view_notes_edit.setFixedHeight(46)
         self.map_view_notes_edit.textChanged.connect(self._mv_autosave)
-        box_vl.addWidget(self._build_richtext_toolbar(self.map_view_notes_edit))
-        box_vl.addWidget(self.map_view_notes_edit)
-        box_vl.addWidget(_VResizeHandle(self.map_view_notes_edit))
+        detail_col.addWidget(self._build_richtext_toolbar(self.map_view_notes_edit))
+        detail_col.addWidget(self.map_view_notes_edit)
+        detail_col.addWidget(_VResizeHandle(self.map_view_notes_edit))
+        detail_row.addLayout(detail_col, 1)
+        box_vl.addLayout(detail_row)
+        box_vl.addWidget(self._mv_rule())
 
-        # Layers: status label (standard text, info bold) + toggle + sub-panel
-        self.map_view_layers_label = QLabel("Layers: <b>(not configured)</b>")
-        self.map_view_layers_label.setTextFormat(Qt.RichText)
-        self.map_view_layers_label.setWordWrap(True)
-        box_vl.addWidget(self.map_view_layers_label)
+        # Layers
+        self.map_view_layers_chip = QLabel("not set")
+        self.map_view_layers_chip.setObjectName("mvSrcNone")
+        self.map_view_layers_label = QLabel("all exported layers")
+        self.map_view_layers_label.setObjectName("mvDetailMuted")
+        box_vl.addLayout(self._mv_setting_row(
+            "Layers", self.map_view_layers_chip, self.map_view_layers_label,
+            [("From canvas", self._map_view_capture_layers),
+             ("From QGIS theme…", self._mv_pick_and_link_theme),
+             ("From print layout…", self._mv_layers_from_layout),
+             ("Copy from another map view…", self._mv_copy_layers_from_view)],
+            self._mv_show_layers_in_canvas,
+            "Apply just this layer set to the QGIS canvas"))
+        box_vl.addWidget(self._mv_rule())
 
-        self._mv_layers_toggle_btn = QPushButton("▶  Set layers")
-        self._mv_layers_toggle_btn.setFlat(True)
-        self._mv_layers_toggle_btn.setStyleSheet("text-align: left; color: #374151; padding: 2px 0;")
-        self._mv_layers_toggle_btn.clicked.connect(self._toggle_mv_layers_panel)
-        box_vl.addWidget(self._mv_layers_toggle_btn)
+        # Extent
+        self.map_view_extent_chip = QLabel("not set")
+        self.map_view_extent_chip.setObjectName("mvSrcNone")
+        self.map_view_extent_label = QLabel("full data extent")
+        self.map_view_extent_label.setObjectName("mvDetailMuted")
+        box_vl.addLayout(self._mv_setting_row(
+            "Extent", self.map_view_extent_chip, self.map_view_extent_label,
+            [("From canvas", self._map_view_capture_extent),
+             ("Draw on canvas", self._mv_start_draw_extent),
+             ("From print layout…", self._mv_extent_from_layout),
+             ("From layer extent…", self._mv_set_from_layer_extent),
+             ("Copy from another map view…", self._mv_copy_extent_from_view)],
+            self._mv_view_in_canvas,
+            "Zoom the QGIS canvas to this extent"))
+        box_vl.addWidget(self._mv_rule())
 
-        self.mv_layers_panel = QWidget()
-        layers_panel_vl = QVBoxLayout(self.mv_layers_panel)
-        layers_panel_vl.setContentsMargins(12, 0, 0, 0)
-        layers_panel_vl.setSpacing(4)
-        copy_layers_btn = QPushButton("from canvas")
-        copy_layers_btn.setToolTip("Snapshot which layers are currently visible in QGIS")
-        copy_layers_btn.clicked.connect(self._map_view_capture_layers)
-        layers_panel_vl.addWidget(copy_layers_btn)
-        link_theme_btn = QPushButton("from theme")
-        link_theme_btn.setToolTip("Link this view to a QGIS map theme")
-        link_theme_btn.clicked.connect(self._mv_pick_and_link_theme)
-        layers_panel_vl.addWidget(link_theme_btn)
-        mv_layers_layout_btn = QPushButton("from layout")
-        mv_layers_layout_btn.setToolTip("Import layer list from a QGIS print layout's map item")
-        mv_layers_layout_btn.clicked.connect(self._mv_layers_from_layout)
-        layers_panel_vl.addWidget(mv_layers_layout_btn)
-        mv_layers_copy_btn = QPushButton("copy from other map view")
-        mv_layers_copy_btn.setToolTip("Copy the layer set from another map view in this list")
-        mv_layers_copy_btn.clicked.connect(self._mv_copy_layers_from_view)
-        layers_panel_vl.addWidget(mv_layers_copy_btn)
-        mv_layers_show_btn = QPushButton("🗺  show in canvas")
-        mv_layers_show_btn.setToolTip(
-            "Apply this view's layer set to the QGIS canvas so you can see what it captures"
-        )
-        mv_layers_show_btn.clicked.connect(self._mv_show_layers_in_canvas)
-        layers_panel_vl.addWidget(mv_layers_show_btn)
-        self.mv_layers_panel.setVisible(False)
-        box_vl.addWidget(self.mv_layers_panel)
-
-        # View extent: status label + toggle + sub-panel
-        self.map_view_extent_label = QLabel("View extent: <b>(not set)</b>")
-        self.map_view_extent_label.setTextFormat(Qt.RichText)
-        self.map_view_extent_label.setWordWrap(True)
-        box_vl.addWidget(self.map_view_extent_label)
-
-        self._mv_extent_toggle_btn = QPushButton("▶  Set extent")
-        self._mv_extent_toggle_btn.setFlat(True)
-        self._mv_extent_toggle_btn.setStyleSheet("text-align: left; color: #374151; padding: 2px 0;")
-        self._mv_extent_toggle_btn.clicked.connect(self._toggle_mv_extent_panel)
-        box_vl.addWidget(self._mv_extent_toggle_btn)
-
-        self.mv_extent_panel = QWidget()
-        extent_panel_vl = QVBoxLayout(self.mv_extent_panel)
-        extent_panel_vl.setContentsMargins(12, 0, 0, 0)
-        extent_panel_vl.setSpacing(4)
-        set_canvas_btn = QPushButton("from canvas")
-        set_canvas_btn.clicked.connect(self._map_view_capture_extent)
-        extent_panel_vl.addWidget(set_canvas_btn)
-        draw_btn = QPushButton("draw on canvas")
-        draw_btn.setToolTip("Click and drag a rectangle on the map canvas")
-        draw_btn.clicked.connect(self._mv_start_draw_extent)
-        extent_panel_vl.addWidget(draw_btn)
-        mv_ext_layout_btn = QPushButton("from layout")
-        mv_ext_layout_btn.setToolTip("Import extent from a QGIS print layout's map item")
-        mv_ext_layout_btn.clicked.connect(self._mv_extent_from_layout)
-        extent_panel_vl.addWidget(mv_ext_layout_btn)
-        layer_ext_row = QHBoxLayout()
-        layer_ext_row.setSpacing(6)
-        self.mv_layer_extent_combo = QComboBox()
-        layer_ext_row.addWidget(self.mv_layer_extent_combo, 1)
-        set_layer_ext_btn = QPushButton("from layer")
-        set_layer_ext_btn.setFixedWidth(80)
-        set_layer_ext_btn.clicked.connect(self._mv_set_from_layer_extent)
-        layer_ext_row.addWidget(set_layer_ext_btn)
-        extent_panel_vl.addLayout(layer_ext_row)
-        mv_ext_copy_btn = QPushButton("copy from other map view")
-        mv_ext_copy_btn.setToolTip("Copy the extent from another map view in this list")
-        mv_ext_copy_btn.clicked.connect(self._mv_copy_extent_from_view)
-        extent_panel_vl.addWidget(mv_ext_copy_btn)
-        mv_ext_show_btn = QPushButton("🗺  show in canvas")
-        mv_ext_show_btn.setToolTip("Zoom the QGIS canvas to this view's extent")
-        mv_ext_show_btn.clicked.connect(self._mv_view_in_canvas)
-        extent_panel_vl.addWidget(mv_ext_show_btn)
-        self.mv_extent_panel.setVisible(False)
-        box_vl.addWidget(self.mv_extent_panel)
-        # Absorb spare height at the bottom, so collapsing the layers/extent
-        # panels does not spread the name and description boxes down the box.
-        box_vl.addStretch()
-
-        # Natural height, not stretch 1: the box should size to its contents
-        # and let the scroll area deal with overflow, rather than growing to
-        # fill and dragging its contents apart.
-        detail_layout.addWidget(mv_settings_box)
-
-        # Duplicate + Delete at the bottom (outside grey box)
-        dup_btn = QPushButton("Duplicate map view")
+        # Duplicate / Delete live inside the card, at the bottom
+        act_row = QHBoxLayout()
+        act_row.setSpacing(8)
+        dup_btn = QPushButton("Duplicate")
         dup_btn.clicked.connect(self._map_view_duplicate)
-        detail_layout.addWidget(dup_btn)
-
-        del_btn = QPushButton("Delete map view")
+        act_row.addWidget(dup_btn)
+        del_btn = QPushButton("Delete")
         del_btn.setObjectName("deleteBtn")
         del_btn.clicked.connect(self._map_view_delete)
-        detail_layout.addWidget(del_btn)
+        act_row.addWidget(del_btn)
+        act_row.addStretch()
+        box_vl.addLayout(act_row)
+
+        card_vl.addWidget(body)
+        detail_layout.addWidget(card)
         detail_layout.addStretch()
 
         self.mv_detail_scroll.setWidget(detail_widget)
@@ -207,8 +169,64 @@ class MapViewsTabMixin:
 
         return widget
 
+    # ── Settings-card building blocks ─────────────────────────────────────
+
+    @staticmethod
+    def _mv_rule():
+        """Hairline between settings inside the card."""
+        line = QFrame()
+        line.setObjectName("mvRule")
+        line.setFixedHeight(1)
+        return line
+
+    def _mv_setting_row(self, key, chip, detail, sources, view_slot, view_tip):
+        """One settings row: label, source chip, detail, Set menu, view button."""
+        row = QHBoxLayout()
+        row.setSpacing(7)
+        label = QLabel(key + ":")
+        label.setObjectName("mvKey")
+        label.setFixedWidth(46)
+        row.addWidget(label)
+        row.addWidget(chip)
+        detail.setTextFormat(Qt.PlainText)
+        row.addWidget(detail, 1)
+
+        # The label is just "Set" — Qt draws the drop-down arrow itself once a
+        # menu is attached, and the stylesheet reserves room for it. A fixed
+        # width clipped the text on wider fonts, so this only sets a floor.
+        set_btn = QPushButton("Set")
+        set_btn.setObjectName("mvSetBtn")
+        set_btn.setMinimumWidth(62)
+        menu = QMenu(set_btn)
+        for text, slot in sources:
+            menu.addAction(text, slot)
+        set_btn.setMenu(menu)
+        row.addWidget(set_btn)
+
+        view_btn = QPushButton("🗺")
+        view_btn.setObjectName("mvViewBtn")
+        view_btn.setFixedWidth(34)
+        view_btn.setToolTip(view_tip)
+        view_btn.clicked.connect(view_slot)
+        row.addWidget(view_btn)
+        return row
+
+    @staticmethod
+    def _mv_set_chip(chip, kind, text):
+        """Recolour a source chip. kind: canvas | theme | layout | none."""
+        chip.setObjectName({"canvas": "mvSrcCanvas", "theme": "mvSrcTheme",
+                            "layout": "mvSrcLayout"}.get(kind, "mvSrcNone"))
+        chip.setText(text)
+        chip.style().unpolish(chip)
+        chip.style().polish(chip)
+
     def _mv_populate_layer_combo(self):
-        """Fill the 'set extent from layer' combo with all project layers."""
+        """Keep the layer list for 'From layer extent…' in step with the project.
+
+        Not shown in the card — the menu item prompts with this list instead.
+        """
+        if not hasattr(self, "mv_layer_extent_combo"):
+            self.mv_layer_extent_combo = QComboBox()
         self.mv_layer_extent_combo.clear()
         try:
             for layer in QgsProject.instance().mapLayers().values():
@@ -228,16 +246,6 @@ class MapViewsTabMixin:
             self.map_views_list_widget.item(i).setData(Qt.UserRole, i)
         self._mv_update_rubber_bands()
         self._update_required_layers()
-
-    def _toggle_mv_layers_panel(self):
-        visible = not self.mv_layers_panel.isVisible()
-        self.mv_layers_panel.setVisible(visible)
-        self._mv_layers_toggle_btn.setText("▼  Set layers" if visible else "▶  Set layers")
-
-    def _toggle_mv_extent_panel(self):
-        visible = not self.mv_extent_panel.isVisible()
-        self.mv_extent_panel.setVisible(visible)
-        self._mv_extent_toggle_btn.setText("▼  Set extent" if visible else "▶  Set extent")
 
     def _mv_view_in_canvas(self):
         idx = self._editing_map_view_idx
@@ -414,9 +422,16 @@ class MapViewsTabMixin:
         if idx is None or idx < 0 or idx >= len(self._map_views):
             QMessageBox.information(self, "No map view", "Select or add a map view first.")
             return
-        layer_id = self.mv_layer_extent_combo.currentData()
-        if not layer_id:
+        layers = list(QgsProject.instance().mapLayers().values())
+        if not layers:
+            QMessageBox.information(self, "No layers", "This project has no layers.")
             return
+        names = [lyr.name() for lyr in layers]
+        picked, ok = QInputDialog.getItem(
+            self, "Extent from layer", "Use the extent of:", names, 0, False)
+        if not ok or not picked:
+            return
+        layer_id = layers[names.index(picked)].id()
         try:
             layer = QgsProject.instance().mapLayer(layer_id)
             if not layer:
@@ -512,38 +527,44 @@ class MapViewsTabMixin:
         self._update_mv_layers_label(mv.get("layerIds"), mv.get("theme"), mv.get("layout"))
         self._mv_update_rubber_bands()
 
-    def _update_mv_extent_label(self, ext):
+    def _update_mv_extent_label(self, ext, source=None):
         if ext:
+            self._mv_set_chip(self.map_view_extent_chip, source or "canvas",
+                              source or "canvas")
+            self.map_view_extent_label.setObjectName("mvDetail")
             self.map_view_extent_label.setText(
-                f"View extent: <b>S {ext[0][0]:.4f}  W {ext[0][1]:.4f}  "
-                f"N {ext[1][0]:.4f}  E {ext[1][1]:.4f}</b>"
-            )
+                "{:.4f},{:.4f} → {:.4f},{:.4f}".format(
+                    ext[0][0], ext[0][1], ext[1][0], ext[1][1]))
         else:
-            self.map_view_extent_label.setText("View extent: <b>(not set)</b>")
+            self._mv_set_chip(self.map_view_extent_chip, "none", "not set")
+            self.map_view_extent_label.setObjectName("mvDetailMuted")
+            self.map_view_extent_label.setText("full data extent")
+        self.map_view_extent_label.style().unpolish(self.map_view_extent_label)
+        self.map_view_extent_label.style().polish(self.map_view_extent_label)
 
     def _update_mv_layers_label(self, layer_ids, theme=None, layout=None):
-        import html as _h
-        lyt = f"layout: <b>{_h.escape(layout)}</b> → " if layout else ""
+        """Chip says where the layers came from; detail says what they are."""
         if theme:
-            self.map_view_layers_label.setText(
-                f"Layers: {lyt}theme: <b>{_h.escape(theme)}</b>"
-                if layout else
-                f"Layers: <b>theme: {_h.escape(theme)}</b>"
-            )
+            self._mv_set_chip(self.map_view_layers_chip, "theme", "theme")
+            text, muted = theme, False
+        elif layout:
+            self._mv_set_chip(self.map_view_layers_chip, "layout", "layout")
+            n = len(layer_ids or [])
+            text = "{}  ·  {} layer{}".format(layout, n, "" if n == 1 else "s")
+            muted = False
         elif layer_ids:
+            self._mv_set_chip(self.map_view_layers_chip, "canvas", "canvas")
             n = len(layer_ids)
-            if layout:
-                self.map_view_layers_label.setText(
-                    f"Layers: layout: <b>{_h.escape(layout)}</b> → <b>{n} layer(s)</b>"
-                )
-            else:
-                preview = ", ".join(_h.escape(x) for x in layer_ids[:3])
-                suffix = f", +{n-3} more" if n > 3 else ""
-                self.map_view_layers_label.setText(
-                    f"Layers: <b>set manually — {n} layer(s): {preview}{suffix}</b>"
-                )
+            text = "{} layer{}".format(n, "" if n == 1 else "s")
+            muted = False
         else:
-            self.map_view_layers_label.setText("Layers: <b>(not configured)</b>")
+            self._mv_set_chip(self.map_view_layers_chip, "none", "not set")
+            text, muted = "all exported layers", True
+        self.map_view_layers_label.setObjectName(
+            "mvDetailMuted" if muted else "mvDetail")
+        self.map_view_layers_label.setText(text)
+        self.map_view_layers_label.style().unpolish(self.map_view_layers_label)
+        self.map_view_layers_label.style().polish(self.map_view_layers_label)
 
     def _map_view_clear_form(self):
         self._editing_map_view_idx = None
@@ -554,8 +575,8 @@ class MapViewsTabMixin:
         self.map_view_notes_edit.clear()
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
-        self.map_view_extent_label.setText("View extent: <b>(not set)</b>")
-        self.map_view_layers_label.setText("Layers: <b>(not configured)</b>")
+        self._update_mv_extent_label(None)
+        self._update_mv_layers_label(None)
 
     def _mv_autosave(self):
         idx = self._editing_map_view_idx

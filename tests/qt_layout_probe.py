@@ -141,10 +141,7 @@ def scan_all_tabs():
                 w = getattr(dlg, btn, None)
                 if w is not None:
                     w.setChecked(not collapsed)
-            if dlg.mv_layers_panel.isVisible() == collapsed:
-                dlg._toggle_mv_layers_panel()
-            if dlg.mv_extent_panel.isVisible() == collapsed:
-                dlg._toggle_mv_extent_panel()
+            # (the map-view sub-panels were replaced by Set menus)
             app.processEvents()
             for selected in (False, True):
                 if selected and dlg.map_views_list_widget.count() == 0:

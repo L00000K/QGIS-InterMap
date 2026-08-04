@@ -409,6 +409,71 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
                 font-size: 11px;
             }}
             QPushButton#icConfigSaveRed:hover {{ background: #B91C1C; }}
+            /* ── Chip card: the standard section, used across tabs ── */
+            QFrame#icCard {{
+                background: #FFFFFF; border: 1px solid #D5D9E0; border-radius: 8px;
+            }}
+            QWidget#icCardChip {{
+                background: #E7EAEF;
+                border-top-left-radius: 7px; border-top-right-radius: 7px;
+                border-bottom: 1px solid #D5D9E0;
+            }}
+            /* Collapsed: nothing follows the chip, so round it off all round. */
+            QWidget#icCardChip[collapsed="true"] {{
+                border-bottom-left-radius: 7px; border-bottom-right-radius: 7px;
+                border-bottom: none;
+            }}
+            QWidget#icCardBody {{ background: transparent; }}
+            QLabel#icCardTitle {{
+                color: #333B49; font-size: 13px; font-weight: 700;
+                background: transparent;
+            }}
+            QPushButton#icCardToggle {{
+                background: transparent; border: none;
+                color: #5A6472; font-size: 10px; padding: 0;
+            }}
+            QPushButton#icCardToggle:hover {{ color: {_PURPLE}; }}
+            QCheckBox#icCardInclude {{
+                color: #4A5261; font-size: 11px; background: transparent;
+            }}
+            /* ── Settings card (Map Views) ─────────────────────── */
+            QFrame#mvCard {{
+                background: #FFFFFF; border: 1px solid #D5D9E0; border-radius: 8px;
+            }}
+            QLabel#mvCardChip {{
+                background: #E7EAEF; color: #333B49;
+                font-size: 13px; font-weight: 700; padding: 9px 14px;
+                border-top-left-radius: 7px; border-top-right-radius: 7px;
+                border-bottom: 1px solid #D5D9E0;
+            }}
+            QFrame#mvRule {{ background: #E4E7EC; border: none; }}
+            QLabel#mvKey {{ color: #3A4150; font-size: 12px; font-weight: 600; }}
+            QLabel#mvDetail {{ color: #1F2430; font-size: 12px; }}
+            QLabel#mvDetailMuted {{ color: #9AA0AA; font-size: 12px; font-style: italic; }}
+            /* Source chips: hue-separated, never the accent colour — that is
+               reserved for buttons and hover states. */
+            QLabel#mvSrcCanvas {{ background:#DFE4EC; color:#414D66; border-radius:9px;
+                                  padding:2px 9px; font-size:10px; font-weight:700; }}
+            QLabel#mvSrcTheme  {{ background:#DCEBE0; color:#2F6141; border-radius:9px;
+                                  padding:2px 9px; font-size:10px; font-weight:700; }}
+            QLabel#mvSrcLayout {{ background:#EFE6D8; color:#725530; border-radius:9px;
+                                  padding:2px 9px; font-size:10px; font-weight:700; }}
+            QLabel#mvSrcNone   {{ background:#ECEEF1; color:#868D99; border-radius:9px;
+                                  padding:2px 9px; font-size:10px; font-weight:700; }}
+            QPushButton#mvSetBtn, QPushButton#mvViewBtn {{
+                background: #fff; border: 1px solid #C4C9D2; border-radius: 4px;
+                padding: 4px 8px;
+            }}
+            /* Room for the drop-down arrow Qt draws on a menu button, so the
+               label never gets clipped. */
+            QPushButton#mvSetBtn {{ padding-right: 20px; text-align: left; }}
+            QPushButton#mvSetBtn::menu-indicator {{
+                subcontrol-origin: padding; subcontrol-position: center right;
+                right: 6px;
+            }}
+            QPushButton#mvSetBtn:hover, QPushButton#mvViewBtn:hover {{
+                border-color: {_PURPLE}; color: {_PURPLE};
+            }}
             QPushButton#icVersion {{
                 color: rgba(255,255,255,0.82);
                 background: rgba(255,255,255,0.13);

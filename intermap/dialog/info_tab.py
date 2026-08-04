@@ -2,13 +2,13 @@
 import datetime
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
-    QLineEdit, QCheckBox, QGroupBox, QTextEdit, QFormLayout,
+    QLineEdit, QTextEdit, QFormLayout,
     QWidget, QComboBox, QScrollArea, QGridLayout, QSizePolicy,
 )
 from qgis.PyQt.QtGui import QFont
 from qgis.core import QgsProject
 from .constants import _PURPOSE_OPTIONS
-from .widgets import _VResizeHandle
+from .widgets import _VResizeHandle, ChipCard
 
 
 class MapInfoTabMixin:
@@ -22,14 +22,13 @@ class MapInfoTabMixin:
         layout.setContentsMargins(4, 4, 4, 8)
         layout.setSpacing(6)
 
-        # ── Map info (grey box) ───────────────────────────────────────────────
-        self.include_info_cb = QCheckBox("Include 'About this map' info panel")
-        self.include_info_cb.setChecked(True)
-        layout.addWidget(self.include_info_cb)
-
-        info_group = QGroupBox("Map info")
-        info_group.setObjectName("greyBox")
-        info_form = QFormLayout(info_group)
+        # ── Map info ──────────────────────────────────────────────────────────
+        self.info_card = ChipCard("Map info", include_text="Include in export")
+        self.include_info_cb = self.info_card.include_cb
+        self.include_info_cb.setToolTip(
+            "Show the 'About this map' info panel in the exported map")
+        info_form = QFormLayout()
+        info_form.setContentsMargins(0, 0, 0, 0)
         info_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         self.info_title_edit = QLineEdit()
         self.info_title_edit.setText(QgsProject.instance().baseName() or "")
@@ -47,31 +46,17 @@ class MapInfoTabMixin:
         _desc_vl.addWidget(self.info_text_edit)
         _desc_vl.addWidget(_VResizeHandle(self.info_text_edit))
         info_form.addRow("Description:", _desc_w)
-        layout.addWidget(info_group)
+        self.info_card.body_layout.addLayout(info_form)
+        layout.addWidget(self.info_card)
 
         # ── Document metadata ────────────────────────────────────────────────
-        _dm_hdr = QWidget()
-        _dm_hdr_l = QHBoxLayout(_dm_hdr)
-        _dm_hdr_l.setContentsMargins(0, 4, 0, 0)
-        _dm_hdr_l.setSpacing(4)
-        self._dm_toggle_btn = QPushButton("▼")
-        self._dm_toggle_btn.setFixedSize(18, 18)
-        self._dm_toggle_btn.setFlat(True)
-        self._dm_toggle_btn.setCheckable(True)
-        self._dm_toggle_btn.setChecked(True)
-        _dm_hdr_l.addWidget(self._dm_toggle_btn)
-        _dm_title_lbl = QLabel("Document metadata")
-        _dm_title_lbl.setStyleSheet("font-weight: 600;")
-        _dm_hdr_l.addWidget(_dm_title_lbl, 1)
-        self.include_doc_metadata_cb = QCheckBox("Include in export")
-        self.include_doc_metadata_cb.setChecked(True)
-        _dm_hdr_l.addWidget(self.include_doc_metadata_cb)
-        layout.addWidget(_dm_hdr)
-
-        self.doc_meta_widget = QGroupBox()
-        self.doc_meta_widget.setObjectName("greyBox")
-        self.doc_meta_widget.setStyleSheet("QGroupBox { margin-top: 0px; padding-top: 6px; }")
-        dm_form = QFormLayout(self.doc_meta_widget)
+        self.doc_meta_card = ChipCard("Document metadata",
+                                      include_text="Include in export")
+        self._dm_toggle_btn = self.doc_meta_card.toggle_btn
+        self.include_doc_metadata_cb = self.doc_meta_card.include_cb
+        self.doc_meta_widget = self.doc_meta_card.body
+        dm_form = QFormLayout()
+        dm_form.setContentsMargins(0, 0, 0, 0)
         dm_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         self.info_doc_number_edit = QLineEdit()
         self.info_doc_number_edit.setPlaceholderText("Document number…")
@@ -95,38 +80,18 @@ class MapInfoTabMixin:
         for opt in _PURPOSE_OPTIONS:
             self.info_purpose_combo.addItem(opt)
         dm_form.addRow("Purpose of issue:", self.info_purpose_combo)
-        layout.addWidget(self.doc_meta_widget)
-        self._dm_toggle_btn.toggled.connect(
-            lambda checked: (
-                self._dm_toggle_btn.setText("▼" if checked else "▶"),
-                self.doc_meta_widget.setVisible(checked),
-            )
-        )
+        self.doc_meta_card.body_layout.addLayout(dm_form)
+        layout.addWidget(self.doc_meta_card)
         self.include_doc_metadata_cb.toggled.connect(self._dm_toggle_btn.setChecked)
 
         # ── Project information ───────────────────────────────────────────────
-        _pi_hdr = QWidget()
-        _pi_hdr_l = QHBoxLayout(_pi_hdr)
-        _pi_hdr_l.setContentsMargins(0, 4, 0, 0)
-        _pi_hdr_l.setSpacing(4)
-        self._pi_toggle_btn = QPushButton("▼")
-        self._pi_toggle_btn.setFixedSize(18, 18)
-        self._pi_toggle_btn.setFlat(True)
-        self._pi_toggle_btn.setCheckable(True)
-        self._pi_toggle_btn.setChecked(True)
-        _pi_hdr_l.addWidget(self._pi_toggle_btn)
-        _pi_title_lbl = QLabel("Project information")
-        _pi_title_lbl.setStyleSheet("font-weight: 600;")
-        _pi_hdr_l.addWidget(_pi_title_lbl, 1)
-        self.include_project_info_cb = QCheckBox("Include in export")
-        self.include_project_info_cb.setChecked(True)
-        _pi_hdr_l.addWidget(self.include_project_info_cb)
-        layout.addWidget(_pi_hdr)
-
-        self.proj_info_widget = QGroupBox()
-        self.proj_info_widget.setObjectName("greyBox")
-        self.proj_info_widget.setStyleSheet("QGroupBox { margin-top: 0px; padding-top: 6px; }")
-        proj_form = QFormLayout(self.proj_info_widget)
+        self.proj_info_card = ChipCard("Project information",
+                                       include_text="Include in export")
+        self._pi_toggle_btn = self.proj_info_card.toggle_btn
+        self.include_project_info_cb = self.proj_info_card.include_cb
+        self.proj_info_widget = self.proj_info_card.body
+        proj_form = QFormLayout()
+        proj_form.setContentsMargins(0, 0, 0, 0)
         proj_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
         self.info_client_edit = QLineEdit()
@@ -165,38 +130,17 @@ class MapInfoTabMixin:
         _pimg_l.addWidget(_pimg_btn)
         proj_form.addRow("Project image:", _pimg_w)
 
-        layout.addWidget(self.proj_info_widget)
-        self._pi_toggle_btn.toggled.connect(
-            lambda checked: (
-                self._pi_toggle_btn.setText("▼" if checked else "▶"),
-                self.proj_info_widget.setVisible(checked),
-            )
-        )
+        self.proj_info_card.body_layout.addLayout(proj_form)
+        layout.addWidget(self.proj_info_card)
         self.include_project_info_cb.toggled.connect(self._pi_toggle_btn.setChecked)
 
         # ── Document control ─────────────────────────────────────────────────
-        _dc_hdr = QWidget()
-        _dc_hdr_l = QHBoxLayout(_dc_hdr)
-        _dc_hdr_l.setContentsMargins(0, 4, 0, 0)
-        _dc_hdr_l.setSpacing(4)
-        self._dc_toggle_btn = QPushButton("▼")
-        self._dc_toggle_btn.setFixedSize(18, 18)
-        self._dc_toggle_btn.setFlat(True)
-        self._dc_toggle_btn.setCheckable(True)
-        self._dc_toggle_btn.setChecked(True)
-        _dc_hdr_l.addWidget(self._dc_toggle_btn)
-        _dc_title_lbl = QLabel("Document control")
-        _dc_title_lbl.setStyleSheet("font-weight: 600;")
-        _dc_hdr_l.addWidget(_dc_title_lbl, 1)
-        self.include_doc_control_cb = QCheckBox("Include in export")
-        self.include_doc_control_cb.setChecked(True)
-        _dc_hdr_l.addWidget(self.include_doc_control_cb)
-        layout.addWidget(_dc_hdr)
-
-        self.doc_control_widget = QGroupBox()
-        self.doc_control_widget.setObjectName("greyBox")
-        self.doc_control_widget.setStyleSheet("QGroupBox { margin-top: 0px; padding-top: 6px; }")
-        dc_vl = QVBoxLayout(self.doc_control_widget)
+        self.doc_control_card = ChipCard("Document control",
+                                         include_text="Include in export")
+        self._dc_toggle_btn = self.doc_control_card.toggle_btn
+        self.include_doc_control_cb = self.doc_control_card.include_cb
+        self.doc_control_widget = self.doc_control_card.body
+        dc_vl = self.doc_control_card.body_layout
 
         self.dc_grid_widget = QWidget()
         dc_grid = QGridLayout(self.dc_grid_widget)
@@ -233,28 +177,13 @@ class MapInfoTabMixin:
         cb_hl.addWidget(QLabel(self._today_str))
         dc_vl.addWidget(self.created_by_widget)
 
-        layout.addWidget(self.doc_control_widget)
+        layout.addWidget(self.doc_control_card)
 
         # ── Changelog ─────────────────────────────────────────────────────────
-        _cl_hdr = QWidget()
-        _cl_hdr_l = QHBoxLayout(_cl_hdr)
-        _cl_hdr_l.setContentsMargins(0, 4, 0, 0)
-        _cl_hdr_l.setSpacing(4)
-        self._cl_toggle_btn = QPushButton("▶")
-        self._cl_toggle_btn.setFixedSize(18, 18)
-        self._cl_toggle_btn.setFlat(True)
-        self._cl_toggle_btn.setCheckable(True)
-        self._cl_toggle_btn.setChecked(False)
-        _cl_hdr_l.addWidget(self._cl_toggle_btn)
-        _cl_title_lbl = QLabel("Changelog")
-        _cl_title_lbl.setStyleSheet("font-weight: 600;")
-        _cl_hdr_l.addWidget(_cl_title_lbl, 1)
-        layout.addWidget(_cl_hdr)
-
-        self.cl_widget = QWidget()
-        self.cl_widget.setVisible(False)
-        cl_vl = QVBoxLayout(self.cl_widget)
-        cl_vl.setContentsMargins(6, 4, 6, 4)
+        self.changelog_card = ChipCard("Changelog")
+        self._cl_toggle_btn = self.changelog_card.toggle_btn
+        self.cl_widget = self.changelog_card.body
+        cl_vl = self.changelog_card.body_layout
         cl_vl.setSpacing(4)
 
         self.changelog_list = QListWidget()
@@ -277,13 +206,9 @@ class MapInfoTabMixin:
         _rm_btn.clicked.connect(self._changelog_remove_entry)
         cl_vl.addWidget(_rm_btn)
 
-        layout.addWidget(self.cl_widget)
-        self._cl_toggle_btn.toggled.connect(
-            lambda checked: (
-                self._cl_toggle_btn.setText("▼" if checked else "▶"),
-                self.cl_widget.setVisible(checked),
-            )
-        )
+        layout.addWidget(self.changelog_card)
+        # Changelog starts collapsed — it is reference, not routine input.
+        self.changelog_card.setExpanded(False)
 
         # Sections must not absorb spare height. With Qt's default Preferred
         # policy a group box grows to fill the tab and its form rows spread
@@ -299,12 +224,6 @@ class MapInfoTabMixin:
 
         layout.addStretch()
 
-        self._dc_toggle_btn.toggled.connect(
-            lambda checked: (
-                self._dc_toggle_btn.setText("▼" if checked else "▶"),
-                self.doc_control_widget.setVisible(checked),
-            )
-        )
         self.include_doc_control_cb.toggled.connect(self._dc_toggle_btn.setChecked)
         self.include_doc_control_cb.toggled.connect(self._on_doc_control_toggled)
         self._on_doc_control_toggled(self.include_doc_control_cb.isChecked())
