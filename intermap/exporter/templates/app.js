@@ -148,8 +148,9 @@
         if (!list) return;
         var collapsed = list.classList.toggle('collapsed');
         // Chevron points the way the click will move the list: up to open it,
-        // down to put it away again.
-        btn.innerHTML = collapsed ? '&#8963;' : '&#8964;';
+        // down to put it away again. The arrow itself is drawn in CSS.
+        btn.classList.toggle('up', collapsed);
+        btn.classList.toggle('down', !collapsed);
         btn.setAttribute('aria-label', collapsed ? 'Expand changelog' : 'Collapse changelog');
       });
     }

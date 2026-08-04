@@ -673,10 +673,23 @@
     max-height: 130px; overflow-y: auto; background: #fafafa;
   }
   #changelog-list.collapsed { display: none; }
-  /* Chevron glyphs (U+2303 / U+2304) are drawn small and high in most fonts —
-     size them up and nudge them down so they read as a clear ^ / v. */
-  #changelog-hdr .cad-collapse-btn {
-    font-size: 15px; line-height: 1; position: relative; top: 1px;
+  /* Chevron drawn in CSS rather than set from a font glyph: the caret
+     characters render at wildly different sizes and baselines depending on
+     the font, so a rotated corner gives a consistent arrow at header scale. */
+  #changelog-hdr .cl-chev {
+    width: 14px; height: 14px; position: relative; flex: none;
+  }
+  #changelog-hdr .cl-chev::before {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 6px; height: 6px;
+    border-right: 1.6px solid currentColor;
+    border-bottom: 1.6px solid currentColor;
+  }
+  #changelog-hdr .cl-chev.up::before {
+    transform: translate(-50%, -25%) rotate(-135deg);
+  }
+  #changelog-hdr .cl-chev.down::before {
+    transform: translate(-50%, -75%) rotate(45deg);
   }
   #changelog-list li {
     display: flex; gap: 6px; padding: 3px 10px;
