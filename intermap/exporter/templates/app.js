@@ -2223,6 +2223,19 @@
     return vals.length ? String(vals[0]) : '(feature)';
   }
 
+  // The symbology class a feature falls into — the same label the legend
+  // shows for it. Empty when the layer is not classified, or when the value
+  // matches no class (a rule-based or single-symbol layer, say).
+  function getClassLabel(f) {
+    var sm = f.legendItem && f.legendItem.ld && f.legendItem.ld.styleMap;
+    if (!sm || !sm.entries || !sm.entries.length) return '';
+    var props = (f.lfl && f.lfl._feature && f.lfl._feature.properties) || {};
+    var idx = resolveEntryIndex(sm, props);
+    if (idx < 0 || !sm.entries[idx]) return '';
+    var label = sm.entries[idx].label;
+    return label == null ? '' : String(label);
+  }
+
   function showIdentifySingle(f) {
     infoPanel.classList.remove('split');
     infoPanelBody.innerHTML = f.html;
@@ -2243,9 +2256,11 @@
       item.className = 'mf-item';
       var fStyle = resolveStyle(f.legendItem.ld.styleMap, f.lfl._feature && f.lfl._feature.properties || {});
       var fSwatch = swatchSvg(f.legendItem.ld.geomType, fStyle);
+      var fClass = getClassLabel(f);
       item.innerHTML = '<span class="mf-swatch">'+fSwatch+'</span>'
                      + '<span class="mf-text">'
                      + '<div class="mf-feature-name">'+escHtml(getDisplayName(f))+'</div>'
+                     + (fClass ? '<div class="mf-class-name">'+escHtml(fClass)+'</div>' : '')
                      + '<div class="mf-layer-name">'+escHtml(f.layerName)+'</div>'
                      + '</span>';
       item.addEventListener('click', function() {

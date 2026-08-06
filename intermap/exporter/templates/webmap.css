@@ -931,6 +931,7 @@
   .info-list-pane .mf-item:hover { background: @@_th_acc_lt@@; }
   .info-list-pane .mf-item.active { background: @@_th_acc@@; }
   .info-list-pane .mf-item.active .mf-feature-name { color: #fff; }
+  .info-list-pane .mf-item.active .mf-class-name { color: rgba(255,255,255,0.85); }
   .info-list-pane .mf-item.active .mf-layer-name { color: rgba(255,255,255,0.65); }
   .info-list-pane .mf-item.active .mf-swatch svg { opacity: 0.85; }
   .info-detail-pane {
@@ -973,6 +974,11 @@
   }
   .mf-item:hover { background: @@_th_acc_lt@@; }
   .mf-feature-name { font-size: 11px; color: #222; font-weight: 600; }
+  /* Symbology class, between the feature and the layer it came from. */
+  .mf-class-name {
+    font-size: 10px; color: #555; margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .mf-layer-name { font-size: 9px; color: #888; margin-top: 1px; }
   /* ── Drag-select rubber-band rectangle */
   #select-rect {
