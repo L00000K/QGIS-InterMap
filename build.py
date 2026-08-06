@@ -51,6 +51,35 @@ def git_commit():
         return ""
 
 
+COMMIT_LOG_LIMIT = 40
+
+
+def git_commits(limit=COMMIT_LOG_LIMIT):
+    """Recent commits, newest first, as [{'commit','date','subject'}].
+
+    Baked into the zip so an installed plugin can list what has landed without
+    a checkout or network access. Merges are left out — they say nothing about
+    what changed.
+    """
+    repo = os.path.dirname(os.path.abspath(__file__))
+    try:
+        res = subprocess.run(
+            ["git", "-C", repo, "log", "--no-merges", "-n", str(limit),
+             "--format=%h\x1f%cs\x1f%s"],
+            capture_output=True, text=True, timeout=10)
+        if res.returncode != 0:
+            return []
+        out = []
+        for line in res.stdout.splitlines():
+            parts = line.split("\x1f", 2)
+            if len(parts) == 3:
+                out.append({"commit": parts[0], "date": parts[1],
+                            "subject": parts[2]})
+        return out
+    except Exception:
+        return []
+
+
 def build_stamp_source(version):
     """Contents of intermap/_build.json, identifying this build.
 
@@ -65,6 +94,7 @@ def build_stamp_source(version):
         "version": version,
         "commit": git_commit(),
         "built": datetime.date.today().isoformat(),
+        "commits": git_commits(),
     }, indent=2) + "\n"
 
 

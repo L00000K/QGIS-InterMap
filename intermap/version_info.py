@@ -84,6 +84,41 @@ def install_identity():
     return version()
 
 
+def commit_log(limit=40):
+    """Commits behind this build, newest first: [{'commit','date','subject'}].
+
+    An installed zip carries the list baked in by build.py, so it works with no
+    checkout and no network. Running from a checkout, git is asked directly and
+    the answer is always current.
+    """
+    try:
+        with open(os.path.join(_HERE, "_build.json"), encoding="utf-8") as fh:
+            commits = json.load(fh).get("commits") or []
+        if commits:
+            return commits[:limit]
+    except Exception:
+        pass
+    try:
+        import subprocess
+        repo = os.path.dirname(_HERE)
+        if os.path.isdir(os.path.join(repo, ".git")):
+            res = subprocess.run(
+                ["git", "-C", repo, "log", "--no-merges", "-n", str(limit),
+                 "--format=%h\x1f%cs\x1f%s"],
+                capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                out = []
+                for line in res.stdout.splitlines():
+                    parts = line.split("\x1f", 2)
+                    if len(parts) == 3:
+                        out.append({"commit": parts[0], "date": parts[1],
+                                    "subject": parts[2]})
+                return out
+    except Exception:
+        pass
+    return []
+
+
 def changelog_entries():
     """Parse metadata.txt's changelog into [(version, text)], newest first.
 

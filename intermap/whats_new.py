@@ -12,19 +12,57 @@ from . import version_info
 _LAST_SEEN_KEY = f"{_SETTINGS_KEY}/last_seen_build"
 
 
-def _changelog_html(highlight=None):
+def _commits_html(since_commit=None):
+    """Individual pushes, newest first, under the released-version summary.
+
+    The version entries say what a release is for; this says what actually
+    landed and when. `since_commit` marks everything newer than the build the
+    user last had, so an update shows exactly what it brought.
+    """
+    commits = version_info.commit_log()
+    if not commits:
+        return ""
+
+    parts = ["<h3 class='current'>Recent pushes</h3>"]
+    marking = bool(since_commit) and any(
+        c.get("commit") == since_commit for c in commits)
+    last_date = None
+    for c in commits:
+        commit = c.get("commit", "")
+        if marking and commit == since_commit:
+            marking = False       # reached the build they already had
+            parts.append("<p class='seen'>&mdash; already installed &mdash;</p>")
+        date = c.get("date", "") or ""
+        if date != last_date:
+            parts.append("<p class='cdate'>{}</p>".format(html.escape(date)))
+            last_date = date
+        parts.append(
+            "<p class='commit'>{}<span class='sha'>{}</span> {}</p>".format(
+                "<span class='new'>NEW</span> " if marking else "",
+                html.escape(commit), html.escape(c.get("subject", ""))))
+    return "".join(parts)
+
+
+def _changelog_html(highlight=None, since_commit=None):
     entries = version_info.changelog_entries()
     stamp = version_info.build_stamp()
 
     parts = [
         "<style>"
         "  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #222; }"
-        f" h3 {{ color: {_PURPLE}; font-size: 13px; margin: 14px 0 3px; }}"
-        "  h3.current { margin-top: 0; }"
+        f" h3 {{ color: {_PURPLE}; font-size: 13px; margin: 16px 0 3px; }}"
+        "  h3.current { margin-top: 4px; }"
+        f" h4 {{ color: {_PURPLE}; font-size: 12px; margin: 10px 0 3px; }}"
         "  .new { background: #FFF3C4; border-radius: 3px; padding: 1px 6px;"
         "         font-size: 10px; font-weight: 700; color: #7A5B00; }"
         "  p { margin: 0 0 4px; line-height: 1.5; }"
         "  .meta { color: #6B7280; font-size: 11px; }"
+        "  .cdate { color: #6B7280; font-size: 10px; font-weight: 700;"
+        "           margin: 8px 0 2px; }"
+        "  .commit { margin: 0 0 2px 10px; line-height: 1.45; }"
+        "  .sha { color: #6B7280; font-family: Consolas, monospace;"
+        "         font-size: 11px; margin-right: 6px; }"
+        "  .seen { color: #9AA0AA; font-size: 10px; margin: 8px 0 2px; }"
         "</style>"
     ]
 
@@ -34,13 +72,20 @@ def _changelog_html(highlight=None):
                 html.escape(stamp.get("commit", "")),
                 html.escape(stamp.get("date", "") or "")))
 
+    # Pushes first: what landed most recently is what someone opening this
+    # window after an update wants to see. The release notes below say what a
+    # version is for, which is the slower-moving half of the story.
+    parts.append(_commits_html(since_commit))
+
     if not entries:
         parts.append("<p>No changelog entries found in metadata.txt.</p>")
+    else:
+        parts.append("<h3>Release notes</h3>")
 
     for idx, (ver, text) in enumerate(entries):
         badge = " <span class='new'>NEW</span>" if ver == highlight else ""
-        cls = " class='current'" if idx == 0 else ""
-        parts.append("<h3{}>{}{}</h3>".format(cls, html.escape(ver), badge))
+        cls = ""
+        parts.append("<h4{}>{}{}</h4>".format(cls, html.escape(ver), badge))
         # Entries are written as semicolon-separated clauses; one line each
         # reads far better than a single dense paragraph.
         for clause in [c.strip() for c in text.split(";") if c.strip()]:
@@ -52,7 +97,8 @@ def _changelog_html(highlight=None):
 class ChangelogDialog(QDialog):
     """Scrollable changelog. `highlight` marks one version as new."""
 
-    def __init__(self, parent=None, highlight=None, updated_from=None):
+    def __init__(self, parent=None, highlight=None, updated_from=None,
+                 since_commit=None):
         super().__init__(parent)
         self.setWindowTitle("InterMap — what's new")
         self.setMinimumSize(560, 460)
@@ -73,7 +119,8 @@ class ChangelogDialog(QDialog):
 
         body = QTextBrowser()
         body.setOpenExternalLinks(True)
-        body.setHtml(_changelog_html(highlight=highlight))
+        body.setHtml(_changelog_html(highlight=highlight,
+                                     since_commit=since_commit))
         layout.addWidget(body, 1)
 
         row = QHBoxLayout()
@@ -106,10 +153,12 @@ def check_for_update(parent=None):
         settings.setValue(_LAST_SEEN_KEY, current)
         if not previous or previous == current:
             return False          # first install, or nothing changed
-        # Identity carries the build commit; the heading should show versions.
-        prev_version = previous.split("+", 1)[0]
+        # Identity carries the build commit; the heading should show versions,
+        # and the commit marks where the user's previous build stopped.
+        prev_version, _, prev_commit = previous.partition("+")
         ChangelogDialog(parent, highlight=version_info.version(),
-                        updated_from=prev_version).exec_()
+                        updated_from=prev_version,
+                        since_commit=prev_commit or None).exec_()
         return True
     except Exception:
         return False

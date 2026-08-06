@@ -55,6 +55,22 @@ class VersionInfoTests(unittest.TestCase):
             self.assertIn("commit", stamp)
             self.assertIn("date", stamp)
 
+    def test_commit_log_shape(self):
+        """Every entry carries a hash, an ISO date and a subject."""
+        for c in self.vi.commit_log(5):
+            self.assertTrue(c["commit"])
+            self.assertRegex(c["date"], r"^\d{4}-\d{2}-\d{2}$")
+            self.assertIsInstance(c["subject"], str)
+
+    def test_commit_log_respects_limit(self):
+        self.assertLessEqual(len(self.vi.commit_log(3)), 3)
+
+    def test_commit_log_newest_first(self):
+        log = self.vi.commit_log(6)
+        if len(log) > 1:
+            dates = [c["date"] for c in log]
+            self.assertEqual(dates, sorted(dates, reverse=True))
+
     def test_module_imports_without_qgis_runtime(self):
         # version_info is imported while building the header, so it must not
         # pull in anything heavier than the standard library.
