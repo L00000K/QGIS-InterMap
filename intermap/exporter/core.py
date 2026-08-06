@@ -36,6 +36,7 @@ class WebMapExporter:
                  feat_measure=True, feat_filter=True, feat_print=True,
                  feat_search=True, feat_minimap=True, feat_fancy_labels=True,
                  feat_changelog=True, changelog=None,
+                 feat_tree_lines=False,
                  feat_3d=True, feat_sketch=True,
                  cesium_ion_token='', google_maps_key='',
                  feat_3d_extrude_field='', feat_3d_extrude_scale=1.0,
@@ -67,6 +68,7 @@ class WebMapExporter:
         self.feat_minimap = feat_minimap
         self.feat_fancy_labels = feat_fancy_labels
         self.feat_changelog = feat_changelog
+        self.feat_tree_lines = feat_tree_lines
         self.changelog = changelog or []
         self.feat_3d = feat_3d
         self.feat_sketch = feat_sketch
@@ -601,6 +603,7 @@ class WebMapExporter:
             "minimap":     self.feat_minimap,
             "fancyLabels": self.feat_fancy_labels,
             "changelog":   self.feat_changelog,
+            "treeLines":   self.feat_tree_lines,
             "cesium3d":    self.feat_3d,
             "sketch":      self.feat_sketch,
         })

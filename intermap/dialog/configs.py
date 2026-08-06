@@ -273,6 +273,7 @@ class ConfigsMixin:
             "layer_names":           self._checked_layer_names(),
             "include_layer_control": self.layer_control_cb.isChecked(),
             "include_legend": self.feat_legend_cb.isChecked(),
+            "feat_tree_lines": self.feat_tree_lines_cb.isChecked(),
             "include_basemap":       self.basemap_cb.isChecked(),
             "basemap_greyscale":     self.basemap_greyscale_cb.isChecked(),
             "initial_extent":        self._initial_extent,
@@ -317,6 +318,7 @@ class ConfigsMixin:
     def _apply_state(self, state):
         self.layer_control_cb.setChecked(bool(state.get("include_layer_control", True)))
         self.feat_legend_cb.setChecked(bool(state.get("include_legend", True)))
+        self.feat_tree_lines_cb.setChecked(bool(state.get("feat_tree_lines", False)))
         self.basemap_cb.setChecked(bool(state.get("include_basemap", False)))
         self.basemap_greyscale_cb.setChecked(bool(state.get("basemap_greyscale", False)))
         ext = state.get("initial_extent")

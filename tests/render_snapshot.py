@@ -242,7 +242,7 @@ def build_scenarios(tmpdir):
         "full": WebMapExporter(
             [], "unused.html",
             map_views=MAP_VIEWS, info_panel=INFO_PANEL, theme="corporate",
-            changelog=CHANGELOG,
+            changelog=CHANGELOG, feat_tree_lines=True,
             cesium_ion_token="TOKEN123", google_maps_key="GKEY456",
             feat_3d_extrude_field="depth", feat_3d_extrude_scale=2.5,
             cog_proxy="https://proxy.example.com/cors?url=",

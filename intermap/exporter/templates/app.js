@@ -1304,6 +1304,8 @@
       + '<button id="legend-toggle-all">Hide all</button></span>';
     panel.appendChild(hdr);
 
+    if (FEAT.treeLines) panel.classList.add('tree-lines');
+
     var toolsBtn = document.getElementById('legend-tools-btn');
     toolsBtn.addEventListener('click', function() {
       var on = panel.classList.toggle('tools-mode');

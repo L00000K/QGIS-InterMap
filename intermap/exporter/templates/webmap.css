@@ -256,11 +256,33 @@
   }
   .legend-group-hdr input[type=checkbox] { margin: 0; cursor: pointer; flex-shrink: 0; }
   .legend-group-hdr:hover { background: @@_th_acc_lt@@; }
-  .legend-group-name { font-size: 12px; font-weight: 600; color: @@_th_acc@@; }
+  /* Group names read as structure, not as links — black in every theme. */
+  .legend-group-name { font-size: 12px; font-weight: 600; color: #111; }
   /* One symbology swatch width (20px) plus its gap (6px) per nesting level, so
      a nested layer's name starts where its parent's swatch ended. */
   .legend-group-body { padding-left: 26px; }
   .legend-group-body:not(.open) { display: none; }
+
+  /* ── Tree lines (optional) ────────────────────────────────────────────
+     Elbow connectors drawn in the indent gutter each nesting level opens up.
+     The vertical run stops at the last child's elbow so the branch closes
+     off rather than trailing past the final row. */
+  #legend.tree-lines .legend-group-body > .legend-layer,
+  #legend.tree-lines .legend-group-body > .legend-group { position: relative; }
+  #legend.tree-lines .legend-group-body > .legend-layer::before,
+  #legend.tree-lines .legend-group-body > .legend-group::before {
+    content: ''; position: absolute; left: -14px; top: 0;
+    width: 1px; height: 100%; background: #c8ccd2;
+  }
+  #legend.tree-lines .legend-group-body > .legend-layer::after,
+  #legend.tree-lines .legend-group-body > .legend-group::after {
+    content: ''; position: absolute; left: -14px;
+    width: 9px; height: 1px; background: #c8ccd2;
+  }
+  #legend.tree-lines .legend-group-body > .legend-layer::after { top: 12px; }
+  #legend.tree-lines .legend-group-body > .legend-group::after { top: 11px; }
+  #legend.tree-lines .legend-group-body > .legend-layer:last-child::before { height: 12px; }
+  #legend.tree-lines .legend-group-body > .legend-group:last-child::before { height: 11px; }
 
   /* ── Layer cog button ─────────────────────────────────────────── */
   .legend-cog-btn {

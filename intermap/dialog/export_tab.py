@@ -22,10 +22,10 @@ class ExportTabMixin:
         cap_group.setObjectName("greyBox")
         cap_vl = QVBoxLayout(cap_group)
         cap_vl.setSpacing(5)
-        self.cap_title_cb = QCheckBox("Title block  ·  client, project no., document control & revisions")
-        self.cap_views_cb = QCheckBox("Map views  ·  named preset extents & layer sets")
+        self.cap_title_cb = QCheckBox("Title block  ·  client, project no., document control && revisions")
+        self.cap_views_cb = QCheckBox("Map views  ·  named preset extents && layer sets")
         self.cap_report_cb = QCheckBox("Report  ·  scrolling story panel (Markdown or PDF)")
-        self.feat_3d_cb = QCheckBox("3D view  ·  Cesium globe, extrusion & terrain")
+        self.feat_3d_cb = QCheckBox("3D view  ·  Cesium globe, extrusion && terrain")
         self.feat_3d_cb.setChecked(False)
         for _cb in (self.cap_title_cb, self.cap_views_cb, self.cap_report_cb, self.feat_3d_cb):
             _cb.toggled.connect(self._update_capability_tabs)
@@ -82,11 +82,23 @@ class ExportTabMixin:
         tools_layout = QVBoxLayout(tools_group)
         tools_layout.setSpacing(4)
 
-        self.feat_layers_cb = QCheckBox("Layers panel  ·  visibility, filters & per-layer tools")
+        self.feat_layers_cb = QCheckBox("Layers panel  ·  visibility, filters && per-layer tools")
         self.feat_layers_cb.setChecked(True)
         tools_layout.addWidget(self.feat_layers_cb)
         # alias kept for legacy _export reference
         self.layer_control_cb = self.feat_layers_cb
+
+        _layers_sub = QWidget()
+        _layers_sub_vl = QVBoxLayout(_layers_sub)
+        _layers_sub_vl.setContentsMargins(20, 0, 0, 0)
+        _layers_sub_vl.setSpacing(2)
+        self.feat_tree_lines_cb = QCheckBox("↳ Tree lines")
+        self.feat_tree_lines_cb.setChecked(False)
+        self.feat_tree_lines_cb.setToolTip(
+            "Draw elbow connectors between a group and the layers inside it"
+        )
+        _layers_sub_vl.addWidget(self.feat_tree_lines_cb)
+        tools_layout.addWidget(_layers_sub)
 
         self.feat_legend_cb = QCheckBox("Legend  ·  read-only symbology list")
         self.feat_legend_cb.setChecked(True)
@@ -125,7 +137,7 @@ class ExportTabMixin:
         self.feat_measure_cb.setChecked(True)
         tools_layout.addWidget(self.feat_measure_cb)
 
-        self.feat_print_cb = QCheckBox("Print tool (prints map with legend, scale bar & north arrow)")
+        self.feat_print_cb = QCheckBox("Print tool (prints map with legend, scale bar && north arrow)")
         self.feat_print_cb.setChecked(True)
         self.feat_print_cb.setToolTip(
             "Adds a print button to the map toolbar. Printed output includes the\n"
@@ -145,7 +157,7 @@ class ExportTabMixin:
         self.feat_minimap_cb.setChecked(True)
         tools_layout.addWidget(self.feat_minimap_cb)
 
-        self.feat_fancy_labels_cb = QCheckBox("Label & symbology controls (cluster, spread…)")
+        self.feat_fancy_labels_cb = QCheckBox("Label && symbology controls (cluster, spread…)")
         self.feat_fancy_labels_cb.setChecked(True)
         tools_layout.addWidget(self.feat_fancy_labels_cb)
 
@@ -584,6 +596,7 @@ class ExportTabMixin:
                 output_path=output_path,
                 include_layer_control=self.layer_control_cb.isChecked(),
                 include_legend=self.feat_legend_cb.isChecked(),
+                feat_tree_lines=self.feat_tree_lines_cb.isChecked(),
                 include_basemap=self.basemap_cb.isChecked(),
                 basemap_greyscale=self.basemap_greyscale_cb.isChecked(),
                 progress_callback=lambda v: self.progress.setValue(v),
