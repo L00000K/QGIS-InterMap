@@ -112,6 +112,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         s = QSettings()
         for flag, attr in (
             ("include_layer_control", "layer_control_cb"),
+            ("include_legend",        "feat_legend_cb"),
             ("include_basemap",       "basemap_cb"),
             ("basemap_greyscale",     "basemap_greyscale_cb"),
             ("include_info",          "include_info_cb"),
@@ -210,6 +211,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
     def _save_settings(self):
         s = QSettings()
         s.setValue(f"{_SETTINGS_KEY}/include_layer_control", self.layer_control_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/include_legend", self.feat_legend_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_basemap",       self.basemap_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/basemap_greyscale",     self.basemap_greyscale_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_info",          self.include_info_cb.isChecked())
@@ -680,6 +682,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
             self.include_project_info_cb.toggled,
             self.include_doc_control_cb.toggled,
             self.layer_control_cb.toggled,
+            self.feat_legend_cb.toggled,
             self.basemap_cb.toggled,
         ]:
             _sig.connect(self._mark_unsaved)

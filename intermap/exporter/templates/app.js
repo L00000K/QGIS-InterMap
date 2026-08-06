@@ -73,6 +73,7 @@
     if (chipViews && typeof THEMES !== 'undefined' && THEMES.length > 0) {
       var _chipViewEls = [];
       THEMES.forEach(function(th, i) {
+        if (th.kind === 'text') return;   // notes are not views to jump to
         var el = document.createElement('div');
         el.className = 'mv-chip-item';
         el.textContent = th.name || ('Map View ' + (i + 1));
@@ -158,6 +159,7 @@
 
   var LAYERS = @@layers_json@@;
   var INCLUDE_LEGEND = @@include_legend@@;
+  var INCLUDE_LAYERS = @@include_layers@@;
   var LAYER_TREE = @@tree_json@@;
   var THEMES = @@themes_json@@;
   var _cogProxy = @@_cog_proxy_json@@;
@@ -826,6 +828,9 @@
   // Rebuild a layer in place (used after a filter change), preserving visibility.
   function rebuildLayer(item) {
     var wasVisible = item.visible;
+    // The markers are about to be replaced, so any click-spread pins on this
+    // layer point at objects that will no longer be on the map.
+    if ((item._pinnedCount || 0) > 0) clearPinnedSpread(item);
     removeItemLayer(item);
     item.lfl = buildLayer(item);
     if (wasVisible) addItemLayer(item);
@@ -1275,15 +1280,23 @@
   }  // end if (FEAT.attrTable)
 
   // ── Legend panel ─────────────────────────────────────────────────────────
-  try { if (INCLUDE_LEGEND && legendItems.length > 0) {
+  try { if ((INCLUDE_LAYERS || INCLUDE_LEGEND) && legendItems.length > 0) {
     var panel = document.getElementById('legend');
     panel.style.display = 'flex';
 
-    // Header
+    // Header. With both modes exported the title becomes a two-way switch:
+    // "Layers" is the interactive control, "Legend" is the read-only
+    // symbology list with every class expanded and no toggles.
+    var _bothModes = INCLUDE_LAYERS && INCLUDE_LEGEND;
+    var _titleHtml = _bothModes
+      ? '<span id="legend-mode-toggle" role="group" aria-label="Panel mode">'
+        + '<button type="button" data-mode="layers" class="active">Layers</button>'
+        + '<button type="button" data-mode="legend">Legend</button></span>'
+      : '<span>' + (INCLUDE_LAYERS ? 'Layers' : 'Legend') + '</span>';
     var hdr = document.getElementById('legend-header') || document.createElement('div');
     hdr.id = 'legend-header';
-    hdr.innerHTML = '<span>Layers</span>'
-      + '<span style="display:flex;align-items:center;gap:4px;">'
+    hdr.innerHTML = _titleHtml
+      + '<span id="legend-hdr-actions" style="display:flex;align-items:center;gap:4px;">'
       + '<button id="legend-tools-btn" title="Show layer tools">'
       + '<svg width="13" height="13" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">'
       + '<path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/>'
@@ -1297,6 +1310,31 @@
       toolsBtn.classList.toggle('active', on);
       toolsBtn.title = on ? 'Hide layer tools' : 'Show layer tools';
     });
+
+    function setPanelMode(mode) {
+      var legendMode = mode === 'legend';
+      panel.classList.toggle('legend-mode', legendMode);
+      // The layer tools have no meaning in a read-only legend.
+      if (legendMode && panel.classList.contains('tools-mode')) {
+        panel.classList.remove('tools-mode');
+        toolsBtn.classList.remove('active');
+      }
+      var tgl = document.getElementById('legend-mode-toggle');
+      if (tgl) {
+        Array.prototype.forEach.call(tgl.children, function(b) {
+          b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+        });
+      }
+    }
+    if (_bothModes) {
+      document.getElementById('legend-mode-toggle')
+        .addEventListener('click', function(e) {
+          var b = e.target.closest ? e.target.closest('button[data-mode]') : null;
+          if (b) setPanelMode(b.getAttribute('data-mode'));
+        });
+    }
+    // Legend-only exports open straight into the read-only view.
+    if (!INCLUDE_LAYERS) setPanelMode('legend');
 
     var body = document.createElement('div');
     body.id = 'legend-body';
@@ -2078,18 +2116,23 @@
   // ── Map-level click + drag (select or identify) ──────────────────────────
   var selectRect = document.getElementById('select-rect');
   var _dragStart = null, _dragRx, _dragRy, _dragRw, _dragRh;
+  var _pickSpreadMode = false;
+  function _dragModeOn() { return _selectMode || _identifyMode || _pickSpreadMode; }
 
   map.getContainer().addEventListener('mousedown', function(e) {
-    if ((!_selectMode && !_identifyMode) || e.button !== 0) return;
+    if (!_dragModeOn() || e.button !== 0) return;
     e.preventDefault();
     map.dragging.disable();
     var rc = map.getContainer().getBoundingClientRect();
     _dragStart = {x: e.clientX - rc.left, y: e.clientY - rc.top};
+    // Reset the rectangle: without this a plain click re-uses the previous
+    // drag's dimensions and repeats that selection.
+    _dragRx = _dragStart.x; _dragRy = _dragStart.y; _dragRw = 0; _dragRh = 0;
     selectRect.style.cssText += ';left:'+_dragStart.x+'px;top:'+_dragStart.y+'px;width:0;height:0;display:block';
   });
 
   document.addEventListener('mousemove', function(e) {
-    if ((!_selectMode && !_identifyMode) || !_dragStart) return;
+    if (!_dragModeOn() || !_dragStart) return;
     var rc = map.getContainer().getBoundingClientRect();
     var cx = e.clientX - rc.left, cy = e.clientY - rc.top;
     _dragRx = Math.min(_dragStart.x, cx); _dragRy = Math.min(_dragStart.y, cy);
@@ -2099,12 +2142,22 @@
   });
 
   document.addEventListener('mouseup', function(e) {
-    if ((!_selectMode && !_identifyMode) || !_dragStart) return;
+    if (!_dragModeOn() || !_dragStart) return;
     map.dragging.enable();
     selectRect.style.display = 'none';
     var ds = _dragStart;
     _dragStart = null;
-    if (!_dragRw || _dragRw < 5 || _dragRh < 5) return;
+    var tinyDrag = (_dragRw < 5 || _dragRh < 5);
+
+    if (_pickSpreadMode) {
+      // A click opens the cluster under the cursor; a drag takes the box.
+      if (tinyDrag) pickSpreadAtPoint(ds);
+      else pickSpreadInBounds(L.latLngBounds(
+        map.containerPointToLatLng(L.point(_dragRx, _dragRy + _dragRh)),
+        map.containerPointToLatLng(L.point(_dragRx + _dragRw, _dragRy))));
+      return;
+    }
+    if (tinyDrag) return;
 
     var sw = map.containerPointToLatLng(L.point(_dragRx, _dragRy + _dragRh));
     var ne = map.containerPointToLatLng(L.point(_dragRx + _dragRw, _dragRy));
@@ -2297,13 +2350,21 @@
     });
   }
 
+  // A layer's label group stays on when the click-spread tool has pinned some
+  // of its points, even though the layer's own labels are switched off.
+  function _syncLabelGroup(item) {
+    if (!item.labelGroup) return;
+    var wanted = item.visible && (item.labelsVisible || (item._pinnedCount || 0) > 0);
+    item.labelGroup.style.display = wanted ? '' : 'none';
+  }
+
   function setLayerVisible(item, visible) {
     item.visible = visible;
     if (visible) addItemLayer(item);
     else removeItemLayer(item);
     if (item.checkbox) item.checkbox.checked = visible;
     if (item.layerDiv) item.layerDiv.classList.toggle('hidden', !visible);
-    if (item.labelGroup) item.labelGroup.style.display = (visible && item.labelsVisible) ? '' : 'none';
+    _syncLabelGroup(item);
     setTimeout(layoutAllLabels, 100);
     setTimeout(renderLineLabels, 100);
     setTimeout(renderLineTicks, 100);
@@ -2316,7 +2377,7 @@
 
   function setLayerLabels(item, visible) {
     item.labelsVisible = visible;
-    if (item.labelGroup) item.labelGroup.style.display = (item.visible && visible) ? '' : 'none';
+    _syncLabelGroup(item);
     setTimeout(layoutAllLabels, 100);
     if (item.ld.geomType === 'line') setTimeout(renderLineLabels, 100);
   }
@@ -2415,7 +2476,7 @@
   // rather than being skipped, so this no longer has to be small.
   var SPREAD_MAX_GROUP  = 60;   // beyond this, warn and leave the stack alone
   var SPREAD_MAX_MARKERS = 8000; // total visible spreadable markers before bailing
-  var SPREAD_OFFSET_X   = 62;   // px right of group centroid for stack anchor
+  var SPREAD_OFFSET_X   = 31;   // px right of group centroid for stack anchor
   var SPREAD_ICON_GAP   = 30;   // px vertical spacing between stacked icons
   var SPREAD_COL_GAP    = 54;   // px horizontal spacing between stacked columns
 
@@ -2461,33 +2522,61 @@
     return groups;
   }
 
+  // Markers explicitly picked out with the click-spread tool, as
+  // {mkr, item} pairs. They spread regardless of their layer's group setting.
+  var _pinnedSpread = [];
+  // Markers currently displaced from their true position. Kept so a re-run can
+  // send home only the ones that no longer belong to a group, instead of
+  // resetting every marker and immediately moving most of them back — that
+  // round trip was visible as a flicker on every pan.
+  var _spreadMoved = [];
+
+  function _spreadCollect() {
+    var all = [], touched = [];
+    function add(mkr) {
+      if (!mkr || !mkr._origLatLng || mkr._spreadSeen) return;
+      mkr._spreadSeen = true;
+      touched.push(mkr);
+      var pt = map.latLngToContainerPoint(mkr._origLatLng);
+      all.push({ mkr: mkr, px: pt.x, py: pt.y, origLatLng: mkr._origLatLng });
+    }
+    legendItems.forEach(function(item) {
+      if (!item.visible || !item.spreadMarkers || !item.spreadMarkers.length) return;
+      if (item.groupEnabled && item.groupMode === 'spread') item.spreadMarkers.forEach(add);
+    });
+    _pinnedSpread.forEach(function(p) { if (p.item.visible) add(p.mkr); });
+    touched.forEach(function(m) { m._spreadSeen = false; });
+    return all;
+  }
+
   function spreadMarkers() {
     var zoom = map.getZoom();
+    var moved = [];
 
-    // 1. Restore all markers to original positions
-    legendItems.forEach(function(item) {
-      if (!item.spreadMarkers || !item.spreadMarkers.length) return;
-      item.spreadMarkers.forEach(function(mkr) {
-        if (mkr._origLatLng) mkr.setLatLng(mkr._origLatLng);
+    // Send home anything that was displaced last time but is not this time,
+    // then re-run label layout. Markers that stay in a group are never moved
+    // back through their true position on the way to their new slot.
+    function finish() {
+      _spreadMoved.forEach(function(mkr) {
+        if (!mkr._spreadOn && mkr._origLatLng) mkr.setLatLng(mkr._origLatLng);
       });
-    });
+      moved.forEach(function(mkr) { mkr._spreadOn = false; });
+      _spreadMoved = moved;
+      setTimeout(layoutAllLabels, 0);
+    }
 
-    // Clear leader lines
-    if (_spreadLeaderSvg) _spreadLeaderSvg.innerHTML = '';
-    if (zoom < SPREAD_MIN_ZOOM) { setTimeout(layoutAllLabels, 0); return; }
+    // Clear leader lines — they are drawn in container space, so they are
+    // redrawn from scratch on every view change.
+    if (_spreadLeaderSvg) {
+      _spreadLeaderSvg.innerHTML = '';
+      _spreadLeaderSvg.style.opacity = '1';
+    }
+    if (zoom < SPREAD_MIN_ZOOM) { finish(); return; }
 
-    // 2. Collect visible point markers from spread-enabled layers
-    var all = [];
-    legendItems.forEach(function(item) {
-      if (!item.visible || !item.groupEnabled || item.groupMode !== 'spread') return;
-      if (!item.spreadMarkers || !item.spreadMarkers.length) return;
-      item.spreadMarkers.forEach(function(mkr) {
-        if (!mkr._origLatLng) return;
-        var pt = map.latLngToContainerPoint(mkr._origLatLng);
-        all.push({ mkr: mkr, px: pt.x, py: pt.y, origLatLng: mkr._origLatLng });
-      });
-    });
-    if (!all.length) { setTimeout(layoutAllLabels, 0); return; }
+    // Positions are read from _origLatLng rather than the marker's current
+    // location, so no restore pass is needed before measuring.
+    var all = _spreadCollect();
+    if (!all.length) { finish(); return; }
     // Grouping is now linear (see _spreadGroupByProximity), so this bound only
     // guards against the cost of repositioning a very large number of markers.
     // It says so rather than failing silently, which is what the old limit of
@@ -2496,7 +2585,7 @@
     if (all.length > SPREAD_MAX_MARKERS) {
       console.warn('Explode/spread: ' + all.length + ' points visible exceeds the '
         + 'limit of ' + SPREAD_MAX_MARKERS + ' — filter the layer or zoom in.');
-      setTimeout(layoutAllLabels, 0);
+      finish();
       return;
     }
 
@@ -2544,6 +2633,8 @@
         var newPy = startY + row * SPREAD_ICON_GAP;
         var newLatLng = map.containerPointToLatLng([newPx, newPy]);
         m.mkr.setLatLng(newLatLng);
+        m.mkr._spreadOn = true;
+        moved.push(m.mkr);
 
         // Draw leader line: original → spread position
         if (leaderFrag) {
@@ -2571,11 +2662,16 @@
 
     if (_spreadLeaderSvg && leaderFrag) _spreadLeaderSvg.appendChild(leaderFrag);
 
-    // 5. Re-run label layout so labels follow the new marker positions
-    setTimeout(layoutAllLabels, 0);
+    finish();
   }
 
   map.on('moveend zoomend viewreset', spreadMarkers);
+  // Leader lines are anchored to container pixels, so during a pan they stay
+  // put while the markers they point at move away. Hide them until the view
+  // settles, the same way labels are handled.
+  map.on('movestart zoomstart', function() {
+    if (_spreadLeaderSvg) _spreadLeaderSvg.style.opacity = '0';
+  });
   setTimeout(spreadMarkers, 250);
 
   // ── Label pan/zoom hide ────────────────────────────────────────────────────
@@ -2675,7 +2771,11 @@
     var _vpBounds = map.getBounds().pad(0.15); // viewport + 15% margin for culling
 
     _allLabelItems.forEach(function(item) {
-      if (!item.visible || !item.labelsVisible || !item.labelData) return;
+      if (!item.visible || !item.labelData) return;
+      // Points picked out with the click-spread tool carry their labels even
+      // when the layer's own labels are switched off.
+      var hasPinned = (item._pinnedCount || 0) > 0;
+      if (!item.labelsVisible && !hasPinned) return;
       var cfg = item.labelCfg;
       var fsz = cfg.fontSize || 11;
       // Scale-based label visibility: convert QGIS scale denominators to zoom levels
@@ -2691,8 +2791,7 @@
         if (zoom < minAllowedZoom || zoom > maxAllowedZoom) return;
       }
       // Spread mode forces labels to the right and uses static placement
-      var rightForced = item.groupEnabled && item.groupMode === 'spread';
-      var useStatic = rightForced || _labelPlacementMode === 'static';
+      var layerSpread = item.groupEnabled && item.groupMode === 'spread';
       var isLine = item.ld.geomType === 'line';
       var isPolygon = item.ld.geomType === 'polygon';
       // Line/polygon labels: vertical offset; centered on anchor; no right-side shift; always static
@@ -2704,6 +2803,10 @@
       }
 
       item.labelData.forEach(function(ld) {
+        var pinned = !!(ld.lyr && ld.lyr._spreadPinned);
+        if (!item.labelsVisible && !pinned) return;
+        var rightForced = layerSpread || pinned;
+        var useStatic = rightForced || _labelPlacementMode === 'static';
         var curLatLng = (ld.lyr && ld.lyr.getLatLng) ? ld.lyr.getLatLng() : ld.latlng;
         if (!_vpBounds.contains(curLatLng)) return; // skip labels outside current viewport
         var pt = map.latLngToContainerPoint(curLatLng);
@@ -2948,7 +3051,7 @@
     }
     var NS = 'http://www.w3.org/2000/svg';
     var g = document.createElementNS(NS, 'g');
-    g.style.display = (item.visible && item.labelsVisible) ? '' : 'none';
+    g.style.display = (item.visible && (item.labelsVisible || (item._pinnedCount || 0) > 0)) ? '' : 'none';
     if (_labelSvg) _labelSvg.appendChild(g);
     item.labelGroup = g;
 
@@ -3348,6 +3451,95 @@
     });
   }
 
+  // ── Click-spread tool ────────────────────────────────────────────────────
+  // Spread on demand: click a knot of overlapping points, or drag a box over
+  // them, and just those points fan out with their labels pinned on. Unlike
+  // the per-layer Explode setting this ignores layer boundaries and leaves
+  // the rest of the map alone.
+  if (FEAT.fancyLabels) (function() {
+    var SpreadPickBtn = L.Control.extend({
+      onAdd: function() {
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+        btn.id = 'spread-pick-btn';
+        btn.title = 'Spread points: click a cluster or drag a box over points';
+        btn.setAttribute('aria-label', 'Spread points');
+        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg">'
+          + '<circle cx="6" cy="10" r="2.2" fill="currentColor"/>'
+          + '<circle cx="15" cy="4.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<circle cx="15" cy="10" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<circle cx="15" cy="15.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<path d="M7.8 9.2 13.2 5.2M8.2 10h4.9M7.8 10.8l5.4 4" fill="none" stroke="currentColor" stroke-width="1" stroke-opacity="0.55"/>'
+          + '</svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.on(btn, 'click', function() { setSpreadPick(!_pickSpreadMode); });
+        return btn;
+      }
+    });
+    new SpreadPickBtn({position: 'topleft'}).addTo(map);
+
+    window._imSetSpreadPick = setSpreadPick;
+
+    function setSpreadPick(on) {
+      _pickSpreadMode = !!on;
+      var btn = document.getElementById('spread-pick-btn');
+      if (btn) btn.classList.toggle('measure-active', _pickSpreadMode);
+      map.getContainer().style.cursor = _pickSpreadMode ? 'crosshair' : '';
+      // Leaving the tool puts everything it spread back where it belongs.
+      if (!_pickSpreadMode) clearPinnedSpread();
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && _pickSpreadMode) setSpreadPick(false);
+    });
+  })();
+
+  function clearPinnedSpread(onlyItem) {
+    var kept = [];
+    _pinnedSpread.forEach(function(p) {
+      if (onlyItem && p.item !== onlyItem) { kept.push(p); return; }
+      p.mkr._spreadPinned = false;
+      p.item._pinnedCount = Math.max(0, (p.item._pinnedCount || 0) - 1);
+      _syncLabelGroup(p.item);
+    });
+    _pinnedSpread = kept;
+    spreadMarkers();
+  }
+
+  // Pin every spreadable marker the caller matched. `hit(latlng, containerPt)`
+  // decides; returning true pins that marker.
+  function _pinSpreadWhere(hit) {
+    var added = 0;
+    legendItems.forEach(function(item) {
+      if (!item.visible || !item.spreadMarkers || !item.spreadMarkers.length) return;
+      item.spreadMarkers.forEach(function(mkr) {
+        if (!mkr._origLatLng || mkr._spreadPinned) return;
+        if (!hit(mkr._origLatLng, map.latLngToContainerPoint(mkr._origLatLng))) return;
+        mkr._spreadPinned = true;
+        item._pinnedCount = (item._pinnedCount || 0) + 1;
+        _pinnedSpread.push({ mkr: mkr, item: item });
+        added++;
+      });
+      _syncLabelGroup(item);
+    });
+    if (added) spreadMarkers();
+    return added;
+  }
+
+  function pickSpreadAtPoint(pt) {
+    // A single point is not a cluster — take everything within the same
+    // proximity radius the automatic spread uses, so one click opens the knot.
+    var r2 = SPREAD_THRESHOLD * SPREAD_THRESHOLD;
+    _pinSpreadWhere(function(_ll, p) {
+      var dx = p.x - pt.x, dy = p.y - pt.y;
+      return dx * dx + dy * dy <= r2;
+    });
+  }
+
+  function pickSpreadInBounds(bounds) {
+    _pinSpreadWhere(function(ll) { return bounds.contains(ll); });
+  }
+
   // ── Data export ───────────────────────────────────────────────────────────
   // Toolbar button that lets the viewer download the underlying layer data as
   // GeoJSON or CSV (per layer, or all vector layers combined as GeoJSON).
@@ -3448,7 +3640,7 @@
 
   function applyTheme(idx) {
     var theme = THEMES[idx];
-    if (!theme) return;
+    if (!theme || theme.kind === 'text') return;   // a text block is not a view
     if (theme.layerIds) {
       legendItems.forEach(function(it) {
         var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
@@ -3464,12 +3656,39 @@
 
   if (THEMES.length > 0) {
     var mvSection = document.getElementById('map-views-section');
+    var _hasRealView = THEMES.some(function(t) { return t.kind !== 'text'; });
     if (mvSection) {
-      var mvHeader = document.createElement('div');
-      mvHeader.className = 'mv-section-header';
-      mvHeader.textContent = 'Map Views';
-      mvSection.appendChild(mvHeader);
+      if (_hasRealView) {
+        var mvHeader = document.createElement('div');
+        mvHeader.className = 'mv-section-header';
+        mvHeader.textContent = 'Map Views';
+        mvSection.appendChild(mvHeader);
+      }
       THEMES.forEach(function(th, i) {
+        // A text block is a note in the list, not a view: it has a heading you
+        // can fold away and no effect on the map.
+        if (th.kind === 'text') {
+          var block = document.createElement('div');
+          block.className = 'mv-text-block';
+          var bHdr = document.createElement('div');
+          bHdr.className = 'mv-text-hdr';
+          bHdr.innerHTML = '<span>' + escHtml(th.name || 'Notes') + '</span>'
+                         + '<button type="button" class="mv-text-chev down" aria-label="Collapse"></button>';
+          var bBody = document.createElement('div');
+          bBody.className = 'mv-text-body';
+          bBody.innerHTML = th.notes || '';
+          bHdr.addEventListener('click', function() {
+            var closed = bBody.classList.toggle('collapsed');
+            var chev = bHdr.querySelector('.mv-text-chev');
+            chev.classList.toggle('up', closed);
+            chev.classList.toggle('down', !closed);
+            chev.setAttribute('aria-label', closed ? 'Expand' : 'Collapse');
+          });
+          block.appendChild(bHdr);
+          block.appendChild(bBody);
+          mvSection.appendChild(block);
+          return;
+        }
         var mvItem = document.createElement('div');
         mvItem.className = 'mv-item';
         mvItem.dataset.mvIdx = i;
@@ -3482,9 +3701,12 @@
         });
         mvSection.appendChild(mvItem);
       });
-      // Auto-select the first map view on load
+      // Auto-select the first map view. This runs synchronously rather than on
+      // a timer: every layer starts visible, so a delayed apply let the full
+      // set of layers and labels paint before the view culled them, which read
+      // as all the labels switching on and then vanishing.
       var firstMvItem = mvSection.querySelector('.mv-item');
-      if (firstMvItem) setTimeout(function() { firstMvItem.click(); }, 150);
+      if (firstMvItem) firstMvItem.click();
     }
   }
 
@@ -3497,7 +3719,7 @@
     { sel: '#map-title-chip',                    name: 'Project Info',      text: 'Click to re-open the project info panel. Shows the map title, description, and title block.', side:'right' },
     { sel: '#left-panel-close',                  name: 'Close Info Panel',  text: 'Collapse the left panel. The map title chip will appear at the top-left — click it to reopen.', side:'right' },
     // ── Legend / layers
-    { sel: '#legend-header',                     name: 'Layers Panel',      text: 'The layers panel lists all map layers. Click the eye icon to toggle visibility. Drag layers to re-order. The gear icon opens per-layer settings.', side:'right' },
+    { sel: '#legend-header',                     name: 'Layers Panel',      text: 'The layers panel lists all map layers. Click the eye icon to toggle visibility. Drag layers to re-order. The gear icon opens per-layer settings. Switch to Legend for a read-only symbology list with every class shown.', side:'right' },
     { sel: '.legend-cog-btn',                    name: 'Layer Settings',    text: 'Open layer settings: adjust opacity, symbol colours, and attribute filters for this layer.', side:'right' },
     { sel: '#legend-tools-btn',                  name: 'Legend Options',    text: 'Toggle the label column and other legend display options.', side:'right' },
     // ── Map controls
@@ -3507,6 +3729,7 @@
     { sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' },
     { sel: '[title="Search all layers"]',        name: 'Smart Search',      text: 'Type a term and press Enter to search all layers at once. Non-matching features are greyed out. Click the lightning bolt to activate.' },
     { sel: '#measure-btn',                       name: 'Measure',           text: 'Measure distance along a path: click each point, then double-click to finish. Running totals are labelled on the map. Click the button again to clear.' },
+    { sel: '#spread-pick-btn',                   name: 'Spread Points',     text: 'Click a knot of overlapping points, or drag a box over them, to fan just those points out with their labels shown. Click the button again to put them back.' },
     { sel: '#print-btn',                         name: 'Print',             text: 'Print the current map. The printed sheet includes the legend, scale bar, north arrow, title and data credit; the on-screen tool buttons are left off.' },
     { sel: '#data-export-btn',                   name: 'Data Export',       text: 'Download layers as GeoJSON or CSV, either individually or all at once.' },
     { sel: '.leaflet-control-fullscreen-button', name: 'Full Screen',       text: 'Toggle full-screen mode.' },

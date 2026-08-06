@@ -49,6 +49,38 @@
     border-radius: 6px 6px 0 0;
   }
   #legend-header span { font-weight: 700; font-size: 13px; color: #fff; letter-spacing: -0.01em; }
+  /* ── Layers / Legend mode switch ──────────────────────────────────── */
+  #legend-mode-toggle {
+    display: inline-flex; border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 4px; overflow: hidden;
+  }
+  #legend-mode-toggle button {
+    font: inherit; font-size: 11px; font-weight: 600;
+    color: rgba(255,255,255,0.75); background: none; border: none;
+    padding: 2px 9px; cursor: pointer; transition: background 0.12s, color 0.12s;
+  }
+  #legend-mode-toggle button + button { border-left: 1px solid rgba(255,255,255,0.35); }
+  #legend-mode-toggle button:hover { background: rgba(255,255,255,0.14); color: #fff; }
+  #legend-mode-toggle button.active { background: rgba(255,255,255,0.9); color: @@_th_hdr@@; }
+  /* Legend mode: symbology only. Every control that changes the map is gone
+     and the class lists are open, so the panel reads as a printed legend. */
+  #legend.legend-mode #legend-hdr-actions,
+  #legend.legend-mode .legend-layer-row input[type=checkbox],
+  #legend.legend-mode .legend-group-hdr input[type=checkbox],
+  #legend.legend-mode .legend-entry input[type=checkbox],
+  #legend.legend-mode .legend-expand,
+  #legend.legend-mode .legend-cog-btn,
+  #legend.legend-mode .layer-actions,
+  #legend.legend-mode .layer-settings,
+  #legend.legend-mode .layer-filter { display: none !important; }
+  #legend.legend-mode .legend-entries { display: block; }
+  #legend.legend-mode .legend-layer-row,
+  #legend.legend-mode .legend-group-hdr { cursor: default; }
+  #legend.legend-mode .legend-layer-row:hover,
+  #legend.legend-mode .legend-group-hdr:hover { background: none; }
+  /* A hidden layer is not part of the legend at all. */
+  #legend.legend-mode .legend-layer.hidden,
+  #legend.legend-mode .legend-entry.class-hidden { display: none; }
   #legend-toggle-all {
     font-size: 11px;
     color: rgba(255,255,255,0.85);
@@ -225,7 +257,9 @@
   .legend-group-hdr input[type=checkbox] { margin: 0; cursor: pointer; flex-shrink: 0; }
   .legend-group-hdr:hover { background: @@_th_acc_lt@@; }
   .legend-group-name { font-size: 12px; font-weight: 600; color: @@_th_acc@@; }
-  .legend-group-body { padding-left: 8px; }
+  /* One symbology swatch width (20px) plus its gap (6px) per nesting level, so
+     a nested layer's name starts where its parent's swatch ended. */
+  .legend-group-body { padding-left: 26px; }
   .legend-group-body:not(.open) { display: none; }
 
   /* ── Layer cog button ─────────────────────────────────────────── */
@@ -699,6 +733,38 @@
   .cl-rev { font-weight: 700; color: #555; white-space: nowrap; min-width: 36px; }
   .cl-date { color: #888; white-space: nowrap; min-width: 68px; }
   .cl-text { color: #333; flex: 1; }
+  /* ── Map-view text blocks ─────────────────────────────────────────── */
+  .mv-text-block { border-top: 1px solid #eee; }
+  .mv-text-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; padding: 8px 14px 4px; cursor: pointer; user-select: none;
+  }
+  .mv-text-hdr span {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: #666;
+  }
+  .mv-text-hdr:hover span { color: #333; }
+  .mv-text-body {
+    padding: 0 14px 8px; font-size: 11px; line-height: 1.45; color: #333;
+  }
+  .mv-text-body.collapsed { display: none; }
+  .mv-text-body p { margin: 0 0 6px; }
+  .mv-text-body p:last-child { margin-bottom: 0; }
+  /* Same CSS-drawn chevron as the changelog header. */
+  .mv-text-chev {
+    width: 14px; height: 14px; position: relative; flex: none;
+    background: none; border: none; padding: 0; cursor: pointer; color: #888;
+  }
+  .mv-text-hdr:hover .mv-text-chev { color: #333; }
+  .mv-text-chev::before {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 6px; height: 6px;
+    border-right: 1.6px solid currentColor;
+    border-bottom: 1.6px solid currentColor;
+  }
+  .mv-text-chev.up::before { transform: translate(-50%, -25%) rotate(-135deg); }
+  .mv-text-chev.down::before { transform: translate(-50%, -75%) rotate(45deg); }
+
   .mv-section-header {
     padding: 8px 14px 4px;
     font-size: 10px;

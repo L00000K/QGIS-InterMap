@@ -82,11 +82,20 @@ class ExportTabMixin:
         tools_layout = QVBoxLayout(tools_group)
         tools_layout.setSpacing(4)
 
-        self.feat_layers_cb = QCheckBox("Layers panel")
+        self.feat_layers_cb = QCheckBox("Layers panel  ·  visibility, filters & per-layer tools")
         self.feat_layers_cb.setChecked(True)
         tools_layout.addWidget(self.feat_layers_cb)
         # alias kept for legacy _export reference
         self.layer_control_cb = self.feat_layers_cb
+
+        self.feat_legend_cb = QCheckBox("Legend  ·  read-only symbology list")
+        self.feat_legend_cb.setChecked(True)
+        self.feat_legend_cb.setToolTip(
+            "Export the symbology as a read-only legend. With the layers panel "
+            "on as well, the reader gets a Layers / Legend switch at the top of "
+            "the panel."
+        )
+        tools_layout.addWidget(self.feat_legend_cb)
 
         self.feat_identify_cb = QCheckBox("Identify features")
         self.feat_identify_cb.setChecked(True)
@@ -574,6 +583,7 @@ class ExportTabMixin:
                 layers=layers,
                 output_path=output_path,
                 include_layer_control=self.layer_control_cb.isChecked(),
+                include_legend=self.feat_legend_cb.isChecked(),
                 include_basemap=self.basemap_cb.isChecked(),
                 basemap_greyscale=self.basemap_greyscale_cb.isChecked(),
                 progress_callback=lambda v: self.progress.setValue(v),

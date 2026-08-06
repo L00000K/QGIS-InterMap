@@ -24,7 +24,8 @@ from .utils import _richtext_body
 
 class WebMapExporter:
     def __init__(self, layers, output_path,
-                 include_layer_control=True, include_basemap=True,
+                 include_layer_control=True, include_legend=True,
+                 include_basemap=True,
                  basemap_greyscale=False,
                  progress_callback=None,
                  layer_tree=None, initial_extent=None, map_views=None,
@@ -45,6 +46,7 @@ class WebMapExporter:
         self.layers = layers
         self.output_path = output_path
         self.include_layer_control = include_layer_control
+        self.include_legend = include_legend
         self.include_basemap = include_basemap
         self.basemap_greyscale = basemap_greyscale
         self.progress = progress_callback or (lambda v: None)
@@ -184,7 +186,11 @@ class WebMapExporter:
         bounds_json = json.dumps(bounds)
         initial_bounds = self.initial_extent if self.initial_extent else bounds
         initial_bounds_json = json.dumps(initial_bounds)
-        include_legend = "true" if self.include_layer_control else "false"
+        # Two independent panel modes: the interactive layer control and the
+        # read-only symbology legend. Either alone shows that mode only; both
+        # on gives the reader a toggle between them.
+        include_layers_json = "true" if self.include_layer_control else "false"
+        include_legend = "true" if self.include_legend else "false"
         include_basemap_json = "true" if self.include_basemap else "false"
         basemap_greyscale_json = "true" if self.basemap_greyscale else "false"
         tree_json = json.dumps(self.layer_tree, separators=(",", ":")).replace("</", "<\\/")
@@ -672,6 +678,7 @@ class WebMapExporter:
             "bounds_json": bounds_json,
             "initial_bounds_json": initial_bounds_json,
             "include_legend": include_legend,
+            "include_layers": include_layers_json,
             "include_basemap_json": include_basemap_json,
             "basemap_greyscale_json": basemap_greyscale_json,
             "tree_json": tree_json,
