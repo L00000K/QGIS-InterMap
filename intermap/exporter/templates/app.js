@@ -996,6 +996,11 @@
         L.DomEvent.disableClickPropagation(btn);
         L.DomEvent.on(btn, 'click', function() {
           _identifyMode = !_identifyMode;
+          // Picking and identifying both want the drag, so one disarms the
+          // other. The spread itself stays — that is what gets identified.
+          if (_identifyMode && typeof window._imSetSpreadPick === 'function') {
+            window._imSetSpreadPick(false);
+          }
           btn.classList.toggle('ident-active', _identifyMode);
           map.getContainer().classList.toggle('identify-mode', _identifyMode);
           if (!_identifyMode) { selectRect.style.display = 'none'; }
@@ -1005,6 +1010,131 @@
     });
     new IdentifyBtn({position: 'topleft'}).addTo(map);
   }
+
+  // ── Click-spread tool ────────────────────────────────────────────────────
+  // Spread on demand: click a knot of overlapping points, or drag a box over
+  // them, and just those points fan out with their labels pinned on. Unlike
+  // the per-layer Explode setting this ignores layer boundaries and leaves
+  // the rest of the map alone.
+  if (FEAT.fancyLabels) (function() {
+    var SpreadPickBtn = L.Control.extend({
+      onAdd: function() {
+        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
+        btn.id = 'spread-pick-btn';
+        btn.title = 'Spread points: click a cluster or drag a box over points';
+        btn.setAttribute('aria-label', 'Spread points');
+        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg">'
+          + '<circle cx="6" cy="10" r="2.2" fill="currentColor"/>'
+          + '<circle cx="15" cy="4.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<circle cx="15" cy="10" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<circle cx="15" cy="15.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+          + '<path d="M7.8 9.2 13.2 5.2M8.2 10h4.9M7.8 10.8l5.4 4" fill="none" stroke="currentColor" stroke-width="1" stroke-opacity="0.55"/>'
+          + '</svg>';
+        L.DomEvent.disableClickPropagation(btn);
+        // Three steps, so picking and reading are never the same click:
+        //   idle    → picking      (crosshair; click or drag to spread)
+        //   picking → holding      (spread stays put so you can identify it)
+        //   holding → idle         (spread cleared)
+        L.DomEvent.on(btn, 'click', function() {
+          if (_pickSpreadMode) setSpreadPick(false);
+          else if (_pinnedSpread.length) clearPinnedSpread();
+          else setSpreadPick(true);
+        });
+        return btn;
+      }
+    });
+    new SpreadPickBtn({position: 'topleft'}).addTo(map);
+
+    window._imSetSpreadPick = setSpreadPick;
+    window._imClearSpread   = clearPinnedSpread;
+
+    function setSpreadPick(on) {
+      _pickSpreadMode = !!on;
+      // Identify and picking both want the same click, so arming one disarms
+      // the other rather than leaving the map in an ambiguous state.
+      if (_pickSpreadMode && _identifyMode) {
+        _identifyMode = false;
+        var iBtn = document.getElementById('identify-btn');
+        if (iBtn) iBtn.classList.remove('ident-active');
+        map.getContainer().classList.remove('identify-mode');
+      }
+      map.getContainer().style.cursor = _pickSpreadMode ? 'crosshair' : '';
+      // Leaving pick mode leaves the spread on the map: the whole point of
+      // fanning points out is to then click one and read it.
+      _refreshSpreadBtn();
+    }
+
+    // Reflected on the button so the three steps are visible: solid while
+    // picking, outlined while a spread is being held, plain when idle.
+    function _refreshSpreadBtn() {
+      var btn = document.getElementById('spread-pick-btn');
+      if (!btn) return;
+      var holding = !_pickSpreadMode && _pinnedSpread.length > 0;
+      btn.classList.toggle('measure-active', _pickSpreadMode);
+      btn.classList.toggle('spread-holding', holding);
+      btn.title = _pickSpreadMode
+        ? 'Picking — click a cluster or drag a box; click here when done'
+        : (holding ? 'Click to clear the spread'
+                   : 'Spread points: click a cluster or drag a box over points');
+    }
+    window._imRefreshSpreadBtn = _refreshSpreadBtn;
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Escape') return;
+      if (_pickSpreadMode) setSpreadPick(false);
+      if (_pinnedSpread.length) clearPinnedSpread();
+    });
+  })();
+
+  function clearPinnedSpread(onlyItem) {
+    var kept = [];
+    _pinnedSpread.forEach(function(p) {
+      if (onlyItem && p.item !== onlyItem) { kept.push(p); return; }
+      p.mkr._spreadPinned = false;
+      p.item._pinnedCount = Math.max(0, (p.item._pinnedCount || 0) - 1);
+      _syncLabelGroup(p.item);
+    });
+    _pinnedSpread = kept;
+    spreadMarkers();
+    if (typeof window._imRefreshSpreadBtn === 'function') window._imRefreshSpreadBtn();
+  }
+
+  // Pin every spreadable marker the caller matched. `hit(latlng, containerPt)`
+  // decides; returning true pins that marker.
+  function _pinSpreadWhere(hit) {
+    var added = 0;
+    legendItems.forEach(function(item) {
+      if (!item.visible || !item.spreadMarkers || !item.spreadMarkers.length) return;
+      item.spreadMarkers.forEach(function(mkr) {
+        if (!mkr._origLatLng || mkr._spreadPinned) return;
+        if (!hit(mkr._origLatLng, map.latLngToContainerPoint(mkr._origLatLng))) return;
+        mkr._spreadPinned = true;
+        item._pinnedCount = (item._pinnedCount || 0) + 1;
+        _pinnedSpread.push({ mkr: mkr, item: item });
+        added++;
+      });
+      _syncLabelGroup(item);
+    });
+    if (added) spreadMarkers();
+    if (typeof window._imRefreshSpreadBtn === 'function') window._imRefreshSpreadBtn();
+    return added;
+  }
+
+  function pickSpreadAtPoint(pt) {
+    // A single point is not a cluster — take everything within the same
+    // proximity radius the automatic spread uses, so one click opens the knot.
+    var r2 = SPREAD_THRESHOLD * SPREAD_THRESHOLD;
+    _pinSpreadWhere(function(_ll, p) {
+      var dx = p.x - pt.x, dy = p.y - pt.y;
+      return dx * dx + dy * dy <= r2;
+    });
+  }
+
+  function pickSpreadInBounds(bounds) {
+    _pinSpreadWhere(function(ll) { return bounds.contains(ll); });
+  }
+
 
   // ── Attribute table button ────────────────────────────────────────────────
   var _selectMode = false;
@@ -2285,7 +2415,8 @@
 
   // ── Click identify ────────────────────────────────────────────────────────
   map.on('click', function(e) {
-    if (_selectMode) return;  // select mode takes priority; identify always passive
+    // Select and pick modes own the click; identify is otherwise always passive.
+    if (_selectMode || _pickSpreadMode) return;
     var clickPt = map.latLngToContainerPoint(e.latlng);
     var found = [];
     legendItems.forEach(function(it) {
@@ -3471,95 +3602,6 @@
     });
   }
 
-  // ── Click-spread tool ────────────────────────────────────────────────────
-  // Spread on demand: click a knot of overlapping points, or drag a box over
-  // them, and just those points fan out with their labels pinned on. Unlike
-  // the per-layer Explode setting this ignores layer boundaries and leaves
-  // the rest of the map alone.
-  if (FEAT.fancyLabels) (function() {
-    var SpreadPickBtn = L.Control.extend({
-      onAdd: function() {
-        var btn = L.DomUtil.create('button', 'leaflet-bar leaflet-control');
-        btn.id = 'spread-pick-btn';
-        btn.title = 'Spread points: click a cluster or drag a box over points';
-        btn.setAttribute('aria-label', 'Spread points');
-        btn.style.cssText = 'width:30px;height:30px;padding:0;border:none;cursor:pointer;background:white;border-radius:4px;display:flex;align-items:center;justify-content:center;';
-        btn.innerHTML = '<svg viewBox="0 0 20 20" width="17" height="17" xmlns="http://www.w3.org/2000/svg">'
-          + '<circle cx="6" cy="10" r="2.2" fill="currentColor"/>'
-          + '<circle cx="15" cy="4.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
-          + '<circle cx="15" cy="10" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
-          + '<circle cx="15" cy="15.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/>'
-          + '<path d="M7.8 9.2 13.2 5.2M8.2 10h4.9M7.8 10.8l5.4 4" fill="none" stroke="currentColor" stroke-width="1" stroke-opacity="0.55"/>'
-          + '</svg>';
-        L.DomEvent.disableClickPropagation(btn);
-        L.DomEvent.on(btn, 'click', function() { setSpreadPick(!_pickSpreadMode); });
-        return btn;
-      }
-    });
-    new SpreadPickBtn({position: 'topleft'}).addTo(map);
-
-    window._imSetSpreadPick = setSpreadPick;
-
-    function setSpreadPick(on) {
-      _pickSpreadMode = !!on;
-      var btn = document.getElementById('spread-pick-btn');
-      if (btn) btn.classList.toggle('measure-active', _pickSpreadMode);
-      map.getContainer().style.cursor = _pickSpreadMode ? 'crosshair' : '';
-      // Leaving the tool puts everything it spread back where it belongs.
-      if (!_pickSpreadMode) clearPinnedSpread();
-    }
-
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && _pickSpreadMode) setSpreadPick(false);
-    });
-  })();
-
-  function clearPinnedSpread(onlyItem) {
-    var kept = [];
-    _pinnedSpread.forEach(function(p) {
-      if (onlyItem && p.item !== onlyItem) { kept.push(p); return; }
-      p.mkr._spreadPinned = false;
-      p.item._pinnedCount = Math.max(0, (p.item._pinnedCount || 0) - 1);
-      _syncLabelGroup(p.item);
-    });
-    _pinnedSpread = kept;
-    spreadMarkers();
-  }
-
-  // Pin every spreadable marker the caller matched. `hit(latlng, containerPt)`
-  // decides; returning true pins that marker.
-  function _pinSpreadWhere(hit) {
-    var added = 0;
-    legendItems.forEach(function(item) {
-      if (!item.visible || !item.spreadMarkers || !item.spreadMarkers.length) return;
-      item.spreadMarkers.forEach(function(mkr) {
-        if (!mkr._origLatLng || mkr._spreadPinned) return;
-        if (!hit(mkr._origLatLng, map.latLngToContainerPoint(mkr._origLatLng))) return;
-        mkr._spreadPinned = true;
-        item._pinnedCount = (item._pinnedCount || 0) + 1;
-        _pinnedSpread.push({ mkr: mkr, item: item });
-        added++;
-      });
-      _syncLabelGroup(item);
-    });
-    if (added) spreadMarkers();
-    return added;
-  }
-
-  function pickSpreadAtPoint(pt) {
-    // A single point is not a cluster — take everything within the same
-    // proximity radius the automatic spread uses, so one click opens the knot.
-    var r2 = SPREAD_THRESHOLD * SPREAD_THRESHOLD;
-    _pinSpreadWhere(function(_ll, p) {
-      var dx = p.x - pt.x, dy = p.y - pt.y;
-      return dx * dx + dy * dy <= r2;
-    });
-  }
-
-  function pickSpreadInBounds(bounds) {
-    _pinSpreadWhere(function(ll) { return bounds.contains(ll); });
-  }
-
   // ── Data export ───────────────────────────────────────────────────────────
   // Toolbar button that lets the viewer download the underlying layer data as
   // GeoJSON or CSV (per layer, or all vector layers combined as GeoJSON).
@@ -3768,7 +3810,7 @@
     { sel: '[title="Toggle attribute filter"]',  name: 'Attribute Filter',  text: 'Show or hide the filter bar to display only features matching a chosen attribute value.' },
     { sel: '[title="Search all layers"]',        name: 'Smart Search',      text: 'Type a term and press Enter to search all layers at once. Non-matching features are greyed out. Click the lightning bolt to activate.' },
     { sel: '#measure-btn',                       name: 'Measure',           text: 'Measure distance along a path: click each point, then double-click to finish. Running totals are labelled on the map. Click the button again to clear.' },
-    { sel: '#spread-pick-btn',                   name: 'Spread Points',     text: 'Click a knot of overlapping points, or drag a box over them, to fan just those points out with their labels shown. Click the button again to put them back.' },
+    { sel: '#spread-pick-btn',                   name: 'Spread Points',     text: 'Click a knot of overlapping points, or drag a box over them, to fan just those points out with their labels shown. Click the button again to stop picking — the spread stays, so you can click a point to identify it. Click once more (or press Escape) to put them back.' },
     { sel: '#print-btn',                         name: 'Print',             text: 'Print the current map. The printed sheet includes the legend, scale bar, north arrow, title and data credit; the on-screen tool buttons are left off.' },
     { sel: '#data-export-btn',                   name: 'Data Export',       text: 'Download layers as GeoJSON or CSV, either individually or all at once.' },
     { sel: '.leaflet-control-fullscreen-button', name: 'Full Screen',       text: 'Toggle full-screen mode.' },

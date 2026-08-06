@@ -634,7 +634,7 @@
     justify-content: center;
     border-bottom: 1px solid #1a1a1a;
     flex-shrink: 0;
-    min-height: 46px;
+    min-height: 30px;
   }
   .cad-section:last-child { border-bottom: none; }
   .cad-label {
@@ -651,7 +651,7 @@
     pointer-events: none;
   }
   .cad-value {
-    padding: 18px 8px 6px 8px;
+    padding: 13px 8px 4px 8px;
     font-size: 11px;
     font-weight: 700;
     color: #1a1a1a;
@@ -664,11 +664,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 10px 8px;
+    padding: 6px 8px;
     width: 100%;
   }
-  .cad-logo svg { max-width: 140px; height: auto; max-height: 40px; display: block; }
-  .cad-logo-img { max-width: 140px; max-height: 40px; object-fit: contain; display: block; }
+  .cad-logo svg { max-width: 140px; height: auto; max-height: 34px; display: block; }
+  .cad-logo-img { max-width: 140px; max-height: 34px; object-fit: contain; display: block; }
   .cad-split {
     display: flex;
     flex-direction: row;
@@ -679,18 +679,18 @@
     flex: 1;
     border-bottom: none;
     border-right: 1px solid #1a1a1a;
-    min-height: 46px;
+    min-height: 30px;
   }
   .cad-split .cad-section:last-child { border-right: none; }
   .cad-img {
     display: block;
     max-width: calc(100% - 16px);
-    max-height: 52px;
+    max-height: 46px;
     object-fit: contain;
-    margin: 18px auto 6px auto;
+    margin: 13px auto 4px auto;
   }
   .cad-img-ph {
-    margin: 18px 8px 6px 8px;
+    margin: 13px 8px 4px 8px;
     background: transparent;
     border: 1px dashed #c0c4cc;
     display: flex;
@@ -700,18 +700,18 @@
     font-size: 8px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    height: 32px;
+    height: 26px;
     width: calc(100% - 16px);
   }
   .cad-dc-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 9px;
-    margin-top: 16px;
-    margin-bottom: 4px;
+    margin-top: 12px;
+    margin-bottom: 3px;
   }
   .cad-dc-table td {
-    padding: 2px 5px;
+    padding: 1px 5px;
     border-bottom: 1px solid #ececec;
     color: #1a1a1a;
     vertical-align: middle;
@@ -791,14 +791,15 @@
   }
   .mv-text-hdr:hover .mv-text-chev { color: #333; }
 
+  /* Same type and rule as a text-block heading, so the two read as one list. */
   .mv-section-header {
     padding: 8px 14px 4px;
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #999;
-    border-bottom: 1px solid #eee;
+    color: #666;
+    border-top: 1px solid #eee;
   }
   .mv-item {
     padding: 9px 14px 9px 12px;
@@ -808,8 +809,11 @@
     transition: background 0.12s;
   }
   .mv-item:last-child { border-bottom: none; }
-  .mv-item:hover { background: #f5f5f5; border-left-color: #ccc; }
-  .mv-item.active { background: #f0f0f0; border-left-color: #999; }
+  .mv-item:hover { background: #f5f5f5; border-left-color: @@_th_acc_md@@; }
+  /* The accent at 15% rather than the flat acc_lt tint: it sits over the white
+     panel, so the selection reads as the theme colour in every theme without
+     the notes text losing contrast on the dark theme's dark tint. */
+  .mv-item.active { background: @@_th_acc_a15@@; border-left-color: @@_th_acc@@; }
   .mv-item-name {
     font-size: 11px; font-weight: 600; color: #333; line-height: 1.3;
   }
@@ -992,6 +996,9 @@
   /* ── Drag-select / measure button active states */
   .select-btn-active { background: rgba(255,255,255,0.25) !important; color: #fff !important; outline: 2px solid rgba(255,255,255,0.7); }
   .measure-active { background: @@_th_acc@@ !important; color: #fff !important; }
+  /* Spread tool, middle step: not picking any more, but still holding a
+     spread that a further click will clear. */
+  .spread-holding { color: @@_th_acc@@ !important; box-shadow: inset 0 0 0 2px @@_th_acc@@; }
   /* ── Data export control */
   .data-export-wrap { position: relative; }
   #data-export-btn.active { background: @@_th_acc@@ !important; color: #fff !important; }
