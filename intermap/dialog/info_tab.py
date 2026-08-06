@@ -2,7 +2,7 @@
 import datetime
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
-    QLineEdit, QTextEdit, QFormLayout,
+    QLineEdit, QTextEdit, QFormLayout, QCheckBox,
     QWidget, QComboBox, QScrollArea, QGridLayout, QSizePolicy,
 )
 from qgis.PyQt.QtGui import QFont
@@ -21,6 +21,19 @@ class MapInfoTabMixin:
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 8)
         layout.setSpacing(6)
+
+        # Tab-level: the exported title block is built from the three cards
+        # below, so how it opens is a setting for the tab, not for one card.
+        _tb_row = QWidget()
+        _tb_hl = QHBoxLayout(_tb_row)
+        _tb_hl.setContentsMargins(2, 0, 2, 2)
+        self.title_block_collapsed_cb = QCheckBox(
+            "Title block starts minimised in the exported map")
+        self.title_block_collapsed_cb.setToolTip(
+            "The reader can still open it from its header")
+        _tb_hl.addWidget(self.title_block_collapsed_cb)
+        _tb_hl.addStretch()
+        layout.addWidget(_tb_row)
 
         # ── Map info ──────────────────────────────────────────────────────────
         self.info_card = ChipCard("Map info", include_text="Include in export")
@@ -205,6 +218,10 @@ class MapInfoTabMixin:
         _rm_btn = QPushButton("Remove selected")
         _rm_btn.clicked.connect(self._changelog_remove_entry)
         cl_vl.addWidget(_rm_btn)
+
+        self.changelog_collapsed_cb = QCheckBox("Starts minimised in the exported map")
+        self.changelog_collapsed_cb.setChecked(True)
+        cl_vl.addWidget(self.changelog_collapsed_cb)
 
         layout.addWidget(self.changelog_card)
         # Changelog starts collapsed — it is reference, not routine input.

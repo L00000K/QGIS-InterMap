@@ -114,6 +114,8 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
             ("include_layer_control", "layer_control_cb"),
             ("include_legend",        "feat_legend_cb"),
             ("feat_tree_lines",       "feat_tree_lines_cb"),
+            ("title_block_collapsed",  "title_block_collapsed_cb"),
+            ("changelog_collapsed",    "changelog_collapsed_cb"),
             ("include_basemap",       "basemap_cb"),
             ("basemap_greyscale",     "basemap_greyscale_cb"),
             ("include_info",          "include_info_cb"),
@@ -214,6 +216,8 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         s.setValue(f"{_SETTINGS_KEY}/include_layer_control", self.layer_control_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_legend", self.feat_legend_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/feat_tree_lines", self.feat_tree_lines_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/title_block_collapsed", self.title_block_collapsed_cb.isChecked())
+        s.setValue(f"{_SETTINGS_KEY}/changelog_collapsed", self.changelog_collapsed_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_basemap",       self.basemap_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/basemap_greyscale",     self.basemap_greyscale_cb.isChecked())
         s.setValue(f"{_SETTINGS_KEY}/include_info",          self.include_info_cb.isChecked())

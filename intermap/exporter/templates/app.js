@@ -135,7 +135,8 @@
         var body = cadHdr.nextElementSibling;
         var btn  = cadHdr.querySelector('.cad-collapse-btn');
         var collapsed = body.classList.toggle('collapsed');
-        btn.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+        btn.classList.toggle('up', collapsed);
+        btn.classList.toggle('down', !collapsed);
         btn.setAttribute('aria-label', collapsed ? 'Expand title block' : 'Collapse title block');
       });
     }
@@ -2031,6 +2032,7 @@
           node._grpCb = grpCb;
           node._grpBody = grpBody;
           node._grpExp = grpExp;
+          node._grpDiv = grpDiv;
           buildLegendNodes(node.children, grpBody);
         } else {
           var item = displayItems[node.index];
@@ -2381,6 +2383,7 @@
     else removeItemLayer(item);
     if (item.checkbox) item.checkbox.checked = visible;
     if (item.layerDiv) item.layerDiv.classList.toggle('hidden', !visible);
+    if (LAYER_TREE.length) _markEmptyGroups(LAYER_TREE);
     _syncLabelGroup(item);
     setTimeout(layoutAllLabels, 100);
     setTimeout(renderLineLabels, 100);
@@ -3637,6 +3640,23 @@
 
   // Sync legend group checkboxes and expand/collapse after a theme is applied.
   // Nodes have _grpCb/_grpBody/_grpExp/_item set by buildLegendNodes.
+  // Mark groups with nothing visible inside them. Legend mode hides those:
+  // a folder whose layers are all switched off is not part of the legend.
+  // Runs on every visibility change, not just on theme apply.
+  function _markEmptyGroups(nodes) {
+    var hasVisible = false;
+    nodes.forEach(function(node) {
+      if (node.type === 'group') {
+        var childVis = _markEmptyGroups(node.children);
+        if (node._grpDiv) node._grpDiv.classList.toggle('empty', !childVis);
+        hasVisible = hasVisible || childVis;
+      } else if (node.type === 'layer' && node._item) {
+        hasVisible = hasVisible || node._item.visible;
+      }
+    });
+    return hasVisible;
+  }
+
   function _syncLegendGroups(nodes) {
     var hasVisible = false;
     nodes.forEach(function(node) {
@@ -3663,7 +3683,7 @@
         var vis = theme.layerIds.indexOf(it.ld.name) !== -1;
         setLayerVisible(it, vis);
       });
-      if (LAYER_TREE.length) _syncLegendGroups(LAYER_TREE);
+      if (LAYER_TREE.length) { _syncLegendGroups(LAYER_TREE); _markEmptyGroups(LAYER_TREE); }
     }
     if (theme.extent) {
       try { map.fitBounds(theme.extent, {padding: [20, 20]}); } catch(e) {}
@@ -3690,9 +3710,11 @@
           var bHdr = document.createElement('div');
           bHdr.className = 'mv-text-hdr';
           bHdr.innerHTML = '<span>' + escHtml(th.name || 'Notes') + '</span>'
-                         + '<button type="button" class="mv-text-chev down" aria-label="Collapse"></button>';
+                         + '<button type="button" class="mv-text-chev cl-chev '
+                         + (th.collapsed ? 'up' : 'down') + '" aria-label="'
+                         + (th.collapsed ? 'Expand' : 'Collapse') + '"></button>';
           var bBody = document.createElement('div');
-          bBody.className = 'mv-text-body';
+          bBody.className = 'mv-text-body' + (th.collapsed ? ' collapsed' : '');
           bBody.innerHTML = th.notes || '';
           bHdr.addEventListener('click', function() {
             var closed = bBody.classList.toggle('collapsed');

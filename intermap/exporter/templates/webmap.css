@@ -80,6 +80,7 @@
   #legend.legend-mode .legend-group-hdr:hover { background: none; }
   /* A hidden layer is not part of the legend at all. */
   #legend.legend-mode .legend-layer.hidden,
+  #legend.legend-mode .legend-group.empty,
   #legend.legend-mode .legend-entry.class-hidden { display: none; }
   #legend-toggle-all {
     font-size: 11px;
@@ -267,22 +268,38 @@
      Elbow connectors drawn in the indent gutter each nesting level opens up.
      The vertical run stops at the last child's elbow so the branch closes
      off rather than trailing past the final row. */
+  /* Geometry, measured from the rows themselves rather than guessed:
+       -9.5px  the parent's tick-box centre, relative to the child's left edge
+       13px    a child's tick box and name sit on this line — half a 26px
+               layer row, and the same for a group header once its uneven
+               5/3 padding is taken into account
+       10px    group-header bottom up to the parent's tick-box centre         */
   #legend.tree-lines .legend-group-body > .legend-layer,
   #legend.tree-lines .legend-group-body > .legend-group { position: relative; }
   #legend.tree-lines .legend-group-body > .legend-layer::before,
   #legend.tree-lines .legend-group-body > .legend-group::before {
-    content: ''; position: absolute; left: -14px; top: 0;
-    width: 1px; height: 100%; background: #c8ccd2;
+    content: ''; position: absolute; left: -9.5px; top: -10px;
+    width: 1px; height: calc(100% + 10px); background: #c8ccd2;
   }
   #legend.tree-lines .legend-group-body > .legend-layer::after,
   #legend.tree-lines .legend-group-body > .legend-group::after {
-    content: ''; position: absolute; left: -14px;
-    width: 9px; height: 1px; background: #c8ccd2;
+    content: ''; position: absolute; left: -9.5px; top: 13px;
+    width: 15px; height: 1px; background: #c8ccd2;
   }
-  #legend.tree-lines .legend-group-body > .legend-layer::after { top: 12px; }
-  #legend.tree-lines .legend-group-body > .legend-group::after { top: 11px; }
-  #legend.tree-lines .legend-group-body > .legend-layer:last-child::before { height: 12px; }
-  #legend.tree-lines .legend-group-body > .legend-group:last-child::before { height: 11px; }
+  /* The line runs from the parent's tick box down to the last child's elbow,
+     so a branch closes off instead of trailing past its final row. Only the
+     first child needs the run up into the header; the rest start at their own
+     top edge and meet the child above. */
+  #legend.tree-lines .legend-group-body > .legend-layer:not(:first-child)::before,
+  #legend.tree-lines .legend-group-body > .legend-group:not(:first-child)::before {
+    top: 0; height: 100%;
+  }
+  #legend.tree-lines .legend-group-body > .legend-layer:last-child::before,
+  #legend.tree-lines .legend-group-body > .legend-group:last-child::before { height: 13px; }
+  #legend.tree-lines .legend-group-body > .legend-layer:first-child:last-child::before,
+  #legend.tree-lines .legend-group-body > .legend-group:first-child:last-child::before {
+    height: 23px;
+  }
 
   /* ── Layer cog button ─────────────────────────────────────────── */
   .legend-cog-btn {
@@ -732,21 +749,17 @@
   /* Chevron drawn in CSS rather than set from a font glyph: the caret
      characters render at wildly different sizes and baselines depending on
      the font, so a rotated corner gives a consistent arrow at header scale. */
-  #changelog-hdr .cl-chev {
+  .cl-chev {
     width: 14px; height: 14px; position: relative; flex: none;
   }
-  #changelog-hdr .cl-chev::before {
+  .cl-chev::before {
     content: ''; position: absolute; left: 50%; top: 50%;
     width: 6px; height: 6px;
     border-right: 1.6px solid currentColor;
     border-bottom: 1.6px solid currentColor;
   }
-  #changelog-hdr .cl-chev.up::before {
-    transform: translate(-50%, -25%) rotate(-135deg);
-  }
-  #changelog-hdr .cl-chev.down::before {
-    transform: translate(-50%, -75%) rotate(45deg);
-  }
+  .cl-chev.up::before { transform: translate(-50%, -25%) rotate(-135deg); }
+  .cl-chev.down::before { transform: translate(-50%, -75%) rotate(45deg); }
   #changelog-list li {
     display: flex; gap: 6px; padding: 3px 10px;
     font-size: 9px; line-height: 1.35; border-bottom: 1px solid #f0f0f0;
@@ -772,20 +785,11 @@
   .mv-text-body.collapsed { display: none; }
   .mv-text-body p { margin: 0 0 6px; }
   .mv-text-body p:last-child { margin-bottom: 0; }
-  /* Same CSS-drawn chevron as the changelog header. */
+  /* Chevron geometry comes from .cl-chev; this is just the button chrome. */
   .mv-text-chev {
-    width: 14px; height: 14px; position: relative; flex: none;
     background: none; border: none; padding: 0; cursor: pointer; color: #888;
   }
   .mv-text-hdr:hover .mv-text-chev { color: #333; }
-  .mv-text-chev::before {
-    content: ''; position: absolute; left: 50%; top: 50%;
-    width: 6px; height: 6px;
-    border-right: 1.6px solid currentColor;
-    border-bottom: 1.6px solid currentColor;
-  }
-  .mv-text-chev.up::before { transform: translate(-50%, -25%) rotate(-135deg); }
-  .mv-text-chev.down::before { transform: translate(-50%, -75%) rotate(45deg); }
 
   .mv-section-header {
     padding: 8px 14px 4px;

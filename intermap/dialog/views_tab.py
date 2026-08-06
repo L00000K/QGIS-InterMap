@@ -1,7 +1,7 @@
 """Map Views tab: named views with extents, layer sets, QGIS theme/layout links."""
 from qgis.PyQt.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget,
-    QLineEdit, QMessageBox, QTextEdit, QWidget, QComboBox,
+    QLineEdit, QMessageBox, QTextEdit, QWidget, QComboBox, QCheckBox,
     QInputDialog, QScrollArea, QAbstractItemView, QFrame, QMenu,
 )
 from qgis.PyQt.QtGui import QColor
@@ -155,6 +155,20 @@ class MapViewsTabMixin:
                    self._mv_rule()):
             box_vl.addWidget(_w)
             self._mv_view_only_widgets.append(_w)
+
+        # Text-block-only: how the block opens in the exported panel.
+        self._mv_text_only_widgets = []
+        _tb_row = QWidget()
+        _tb_hl = QHBoxLayout(_tb_row)
+        _tb_hl.setContentsMargins(0, 0, 0, 0)
+        _tb_hl.setSpacing(7)
+        self.mv_text_collapsed_cb = QCheckBox("Starts minimised in the exported map")
+        self.mv_text_collapsed_cb.toggled.connect(self._mv_autosave)
+        _tb_hl.addWidget(self.mv_text_collapsed_cb)
+        _tb_hl.addStretch()
+        for _w in (_tb_row, self._mv_rule()):
+            box_vl.addWidget(_w)
+            self._mv_text_only_widgets.append(_w)
 
         # Duplicate / Delete live inside the card, at the bottom
         act_row = QHBoxLayout()
@@ -556,6 +570,9 @@ class MapViewsTabMixin:
         self._set_richtext(self.map_view_notes_edit, mv.get("notes", ""))
         self.map_view_name_edit.blockSignals(False)
         self.map_view_notes_edit.blockSignals(False)
+        self.mv_text_collapsed_cb.blockSignals(True)
+        self.mv_text_collapsed_cb.setChecked(bool(mv.get("collapsed")))
+        self.mv_text_collapsed_cb.blockSignals(False)
         self._update_mv_extent_label(mv.get("extent"))
         self._update_mv_layers_label(mv.get("layerIds"), mv.get("theme"), mv.get("layout"))
         self._mv_update_rubber_bands()
@@ -565,6 +582,8 @@ class MapViewsTabMixin:
         is_text = kind == "text"
         for w in getattr(self, "_mv_view_only_widgets", []):
             w.setVisible(not is_text)
+        for w in getattr(self, "_mv_text_only_widgets", []):
+            w.setVisible(is_text)
         self._mv_card_chip.setText("Text block settings" if is_text
                                    else "Map view settings")
         self.map_view_name_edit.setPlaceholderText(
@@ -633,6 +652,8 @@ class MapViewsTabMixin:
         name = self.map_view_name_edit.text().strip()
         mv["name"] = name or mv.get("name", "(unnamed)")
         mv["notes"] = self.map_view_notes_edit.toHtml()
+        if mv.get("kind") == "text":
+            mv["collapsed"] = self.mv_text_collapsed_cb.isChecked()
         self.map_views_list_widget.blockSignals(True)
         item = self.map_views_list_widget.item(idx)
         if item:

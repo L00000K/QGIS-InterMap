@@ -589,6 +589,8 @@ class ExportTabMixin:
                     "reviewed_date":   self.info_reviewed_date_edit.text().strip()   if inc_dc else "",
                     "approved_name":   self.info_approved_name_edit.text().strip()   if inc_dc else "",
                     "approved_date":   self.info_approved_date_edit.text().strip()   if inc_dc else "",
+                    "title_block_collapsed": self.title_block_collapsed_cb.isChecked(),
+                    "changelog_collapsed":   self.changelog_collapsed_cb.isChecked(),
                 }
 
             exporter = WebMapExporter(

@@ -261,6 +261,8 @@ class ConfigsMixin:
             "project_number":      self.info_project_number_edit.text().strip(),
             "project":             self.info_project_edit.text().strip(),
             "project_img":         self.info_project_img_edit.text().strip(),
+            "title_block_collapsed": self.title_block_collapsed_cb.isChecked(),
+            "changelog_collapsed":   self.changelog_collapsed_cb.isChecked(),
             "include_project_info":  self.include_project_info_cb.isChecked(),
             "include_doc_metadata":  self.include_doc_metadata_cb.isChecked(),
             "include_doc_control":   self.include_doc_control_cb.isChecked(),
@@ -357,6 +359,8 @@ class ConfigsMixin:
         self.info_project_number_edit.setText(info.get("project_number", ""))
         self.info_project_edit.setText(info.get("project", ""))
         self.info_project_img_edit.setText(info.get("project_img", ""))
+        self.title_block_collapsed_cb.setChecked(bool(info.get("title_block_collapsed", False)))
+        self.changelog_collapsed_cb.setChecked(bool(info.get("changelog_collapsed", True)))
         self.include_project_info_cb.setChecked(bool(info.get("include_project_info", True)))
         self.include_doc_metadata_cb.setChecked(bool(info.get("include_doc_metadata", True)))
         self.include_doc_control_cb.setChecked(bool(info.get("include_doc_control", True)))

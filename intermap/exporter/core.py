@@ -489,13 +489,18 @@ class WebMapExporter:
                         '</div>'
                     )
 
+                # Chevron points the way the click will move the block, matching
+                # the changelog: up to bring it back, down to put it away.
+                _tb_shut = bool(self.info_panel.get("title_block_collapsed"))
+                _tb_dir, _tb_act = ("up", "Expand") if _tb_shut else ("down", "Collapse")
                 _cad_parts = [
                     '<div class="cad-block">',
                     '<div class="cad-block-hdr" title="Collapse / expand title block">'
                     '<span>Title Block</span>'
-                    '<button class="cad-collapse-btn" aria-label="Collapse title block">&#9650;</button>'
+                    f'<button class="cad-collapse-btn cl-chev {_tb_dir}"'
+                    f' aria-label="{_tb_act} title block"></button>'
                     '</div>',
-                    '<div class="cad-block-body">',
+                    '<div class="cad-block-body%s">' % (' collapsed' if _tb_shut else ''),
                     f'<div class="cad-section"><div class="cad-label">Produced By</div>'
                     f'{_cad_logo_html}</div>',
                 ]
@@ -541,17 +546,20 @@ class WebMapExporter:
                     f'<span class="cl-text">{e.get("text","")}</span></li>'
                     for e in reversed(self.changelog)
                 )
-                # Collapsed on load: the revision history is reference, not the
-                # first thing a reader needs. It sits below the title block.
+                # Collapsed on load by default: the revision history is
+                # reference, not the first thing a reader needs.
+                _cl_shut = self.info_panel.get("changelog_collapsed", True)
+                _cl_dir, _cl_act = ("up", "Expand") if _cl_shut else ("down", "Collapse")
                 _changelog_html = (
                     '<div id="changelog-section">'
                     '<div id="changelog-hdr" title="Collapse / expand changelog">'
                     '<span>Changelog</span>'
-                    '<button class="cad-collapse-btn cl-chev up" aria-label="Expand changelog"></button>'
+                    f'<button class="cad-collapse-btn cl-chev {_cl_dir}"'
+                    f' aria-label="{_cl_act} changelog"></button>'
                     '</div>'
-                    f'<ul id="changelog-list" class="collapsed">{_cl_items}</ul>'
+                    '<ul id="changelog-list"%s>%s</ul>'
                     '</div>'
-                )
+                ) % (' class="collapsed"' if _cl_shut else '', _cl_items)
             else:
                 _changelog_html = ''
 
