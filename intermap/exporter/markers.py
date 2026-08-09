@@ -111,7 +111,7 @@ def _render_marker_symbol_to_svg(symbol, dpi: float = 96.0):
     rect = None
     probe_painter = None
     try:
-        probe = QImage(32, 32, QImage.Format_ARGB32)
+        probe = QImage(32, 32, QImage.Format.Format_ARGB32)
         probe_painter = QPainter(probe)
         rect = symbol.bounds(QPointF(0.0, 0.0), _ctx(probe_painter))
     except Exception:

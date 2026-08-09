@@ -26,8 +26,31 @@ class QgsCoordinateReferenceSystem:
 
 
 class QgsMapLayer:
+    # QGIS 3.x aliases, kept so the compat fallback path is still exercisable.
     VectorLayer = 0
     RasterLayer = 1
+
+
+class Qgis:
+    """The QGIS 4 spellings of the enums this plugin reads.
+
+    Values match the QgsMapLayer/QgsWkbTypes aliases above so either path
+    resolves to the same constant.
+    """
+
+    class LayerType:
+        Vector = 0
+        Raster = 1
+
+    class GeometryType:
+        Point = 0
+        Line = 1
+        Polygon = 2
+
+    class MessageLevel:
+        Info = 0
+        Warning = 1
+        Critical = 2
 
 
 class QgsSymbol:

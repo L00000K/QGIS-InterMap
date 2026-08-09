@@ -1,8 +1,22 @@
+class _QtName(str):
+    """A dotted Qt name that keeps resolving.
+
+    Qt6 requires fully-scoped enum members (Qt.CheckState.Checked), so the
+    stub has to allow another attribute hop after the enum class. The value is
+    still a plain string, so identity comparisons in the code under test work
+    exactly as they did.
+    """
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _QtName("%s.%s" % (self, name))
+
+
 class _QtNamespace:
     def __getattr__(self, name):
         if name.startswith("__"):
             raise AttributeError(name)
-        return f"Qt.{name}"
+        return _QtName("Qt.%s" % name)
 
 
 Qt = _QtNamespace()
@@ -67,8 +81,20 @@ def pyqtSignal(*_args, **_kwargs):
     return _Signal()
 
 
-def _noop(*args, **kwargs):
-    return None
+class _NoOpCallable:
+    """Callable placeholder that also keeps resolving attributes, so both
+    QStandardPaths.writableLocation(...) and Qt6's scoped
+    QStandardPaths.StandardLocation.DownloadLocation work on the stub."""
+    def __call__(self, *args, **kwargs):
+        return None
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _NoOpCallable()
+
+
+_noop = _NoOpCallable()
 
 
 class _PlaceholderMeta(type):

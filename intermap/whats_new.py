@@ -113,7 +113,7 @@ class ChangelogDialog(QDialog):
         else:
             head = QLabel("InterMap <b>{}</b>".format(
                 html.escape(version_info.version_label())))
-        head.setTextFormat(Qt.RichText)
+        head.setTextFormat(Qt.TextFormat.RichText)
         head.setStyleSheet(f"font-size: 14px; color: {_PURPLE};")
         layout.addWidget(head)
 
@@ -134,7 +134,7 @@ class ChangelogDialog(QDialog):
 
 def show_changelog(parent=None):
     """Open the changelog on demand (the header version button)."""
-    ChangelogDialog(parent).exec_()
+    ChangelogDialog(parent).exec()
 
 
 def check_for_update(parent=None):
@@ -158,7 +158,7 @@ def check_for_update(parent=None):
         prev_version, _, prev_commit = previous.partition("+")
         ChangelogDialog(parent, highlight=version_info.version(),
                         updated_from=prev_version,
-                        since_commit=prev_commit or None).exec_()
+                        since_commit=prev_commit or None).exec()
         return True
     except Exception:
         return False

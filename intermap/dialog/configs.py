@@ -40,7 +40,7 @@ class ConfigsMixin:
         loaded_hl.setSpacing(6)
         self.config_name_label = QLabel("")
         self.config_name_label.setObjectName("icConfigName")
-        self.config_name_label.setTextFormat(Qt.RichText)
+        self.config_name_label.setTextFormat(Qt.TextFormat.RichText)
         loaded_hl.addWidget(self.config_name_label)
         loaded_hl.addStretch()
         self.config_save_btn = QPushButton("Save")
@@ -58,7 +58,7 @@ class ConfigsMixin:
         # where the number is the capability's tab position in the nav bar.
         self.config_caps_label = QLabel("")
         self.config_caps_label.setObjectName("icConfigCaps")
-        self.config_caps_label.setTextFormat(Qt.RichText)
+        self.config_caps_label.setTextFormat(Qt.TextFormat.RichText)
         self.config_caps_label.setToolTip("Map profile features switched on for this map")
         bar_hl.addWidget(self.config_caps_label)
 
@@ -179,7 +179,7 @@ class ConfigsMixin:
         menu.addSeparator()
         del_act      = menu.addAction("Delete")
         btn = self.sender()
-        action = menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+        action = menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
         if action == new_act:
             self._new_blank_config()
         elif action == switch_act:
@@ -204,9 +204,9 @@ class ConfigsMixin:
         if name in data:
             resp = QMessageBox.question(
                 self, "Overwrite?", f"Config '{name}' already exists. Overwrite?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
             )
-            if resp != QMessageBox.Yes:
+            if resp != QMessageBox.StandardButton.Yes:
                 return
         blank = {"map_views": [{"name": "Default", "notes": "", "extent": None, "layerIds": []}]}
         self._apply_state(blank)  # reset everything to defaults with one Default view
@@ -465,9 +465,9 @@ class ConfigsMixin:
             resp = QMessageBox.question(
                 self, "Overwrite?",
                 f"A config named '{name}' already exists. Overwrite it?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
             )
-            if resp != QMessageBox.Yes:
+            if resp != QMessageBox.StandardButton.Yes:
                 return
         data[name] = self._collect_state()
         self._instances_save_all(data)
@@ -483,9 +483,9 @@ class ConfigsMixin:
         resp = QMessageBox.question(
             self, "Delete config",
             f"Delete saved config '{name}'?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
-        if resp != QMessageBox.Yes:
+        if resp != QMessageBox.StandardButton.Yes:
             return
         data = self._instances_load_all()
         data.pop(name, None)
@@ -544,7 +544,7 @@ class ConfigsMixin:
             return
 
         name, ok = QInputDialog.getText(
-            self, "Import config", "Save imported config as:", QLineEdit.Normal, suggested_name
+            self, "Import config", "Save imported config as:", QLineEdit.EchoMode.Normal, suggested_name
         )
         if not ok:
             return
@@ -557,9 +557,9 @@ class ConfigsMixin:
         if name in existing:
             resp = QMessageBox.question(
                 self, "Overwrite?", f"A config named '{name}' already exists. Overwrite it?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
             )
-            if resp != QMessageBox.Yes:
+            if resp != QMessageBox.StandardButton.Yes:
                 return
 
         self._apply_state(state)

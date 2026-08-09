@@ -6,6 +6,7 @@ the package contract: it imports cleanly, the public class exists with its
 mixin composition, and no mixin accidentally shadows another's methods.
 """
 import os
+import re
 import sys
 import unittest
 
@@ -108,3 +109,65 @@ class DialogPackageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class Qt6ReadinessTests(unittest.TestCase):
+    """Guard the QGIS 4 / Qt6 port against regressions.
+
+    PyQt6 removed the unscoped enum aliases and exec_(), and moved QAction, so
+    any of these creeping back in breaks the plugin on QGIS 4 while still
+    working perfectly on QGIS 3.
+    """
+
+    _SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "intermap")
+
+    def _sources(self):
+        for root, dirs, files in os.walk(self._SRC):
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for name in files:
+                if name.endswith(".py"):
+                    path = os.path.join(root, name)
+                    with open(path, encoding="utf-8") as fh:
+                        yield path, fh.read()
+
+    def test_no_exec_underscore(self):
+        bad = [p for p, src in self._sources() if ".exec_(" in src]
+        self.assertEqual(bad, [], "exec_() was removed in PyQt6; use exec()")
+
+    def test_no_unscoped_qt_enums(self):
+        # Every Qt.<Name> must be an enum class (Qt.CheckState.Checked), not a
+        # bare member. Enum classes are the only CamelCase names allowed here.
+        allowed = {
+            "CheckState", "ItemDataRole", "BrushStyle", "PenStyle", "TextFormat",
+            "AlignmentFlag", "ItemFlag", "ScrollBarPolicy", "CursorShape",
+            "DockWidgetArea", "MouseButton", "DropAction", "TransformationMode",
+            "AspectRatioMode", "GlobalColor", "WindowType", "Orientation",
+            "KeyboardModifier", "Key", "WidgetAttribute", "ConnectionType",
+            "FocusPolicy", "ContextMenuPolicy", "TextInteractionFlag",
+        }
+        bad = []
+        for path, src in self._sources():
+            for member in re.findall(r"\bQt\.([A-Za-z_]+)", src):
+                if member not in allowed:
+                    bad.append("%s: Qt.%s" % (os.path.basename(path), member))
+        self.assertEqual(bad, [], "unscoped Qt enum members break on PyQt6")
+
+    def test_qaction_comes_from_the_compat_module(self):
+        # QAction moved from QtWidgets to QtGui in Qt6.
+        bad = [p for p, src in self._sources()
+               if os.path.basename(p) != "compat.py"
+               and re.search(r"from qgis\.PyQt\.QtWidgets import[^\n]*\bQAction\b", src)]
+        self.assertEqual(bad, [], "import QAction from intermap.compat instead")
+
+    def test_no_removed_qgis_enum_aliases(self):
+        # Resolved through intermap/compat.py so QGIS 4 can drop the aliases.
+        bad = []
+        for path, src in self._sources():
+            if os.path.basename(path) == "compat.py":
+                continue
+            for alias in ("QgsMapLayer.VectorLayer", "QgsMapLayer.RasterLayer",
+                          "QgsWkbTypes.PolygonGeometry", "Qgis.Warning"):
+                if alias in src:
+                    bad.append("%s: %s" % (os.path.basename(path), alias))
+        self.assertEqual(bad, [], "use the constants in intermap.compat")

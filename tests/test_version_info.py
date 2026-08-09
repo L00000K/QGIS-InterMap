@@ -80,3 +80,54 @@ class VersionInfoTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class CompatTests(unittest.TestCase):
+    """The Qt5/Qt6 and QGIS 3/4 shims resolve to usable, distinct values."""
+
+    @classmethod
+    def setUpClass(cls):
+        from intermap import compat
+        cls.compat = compat
+
+    def test_layer_types_resolve_and_differ(self):
+        self.assertIsNotNone(self.compat.LAYER_TYPE_VECTOR)
+        self.assertIsNotNone(self.compat.LAYER_TYPE_RASTER)
+        self.assertNotEqual(self.compat.LAYER_TYPE_VECTOR,
+                            self.compat.LAYER_TYPE_RASTER)
+
+    def test_geometry_and_message_constants_resolve(self):
+        self.assertIsNotNone(self.compat.GEOMETRY_TYPE_POLYGON)
+        self.assertIsNotNone(self.compat.MESSAGE_WARNING)
+
+    def test_qaction_is_importable(self):
+        self.assertTrue(callable(self.compat.QAction))
+
+    def test_first_attr_prefers_the_earlier_name(self):
+        class _A:
+            class New:
+                Thing = "new"
+            Thing = "old"
+        self.assertEqual(self.compat._first_attr(_A, "New.Thing", "Thing"), "new")
+        self.assertEqual(self.compat._first_attr(_A, "Missing.Thing", "Thing"), "old")
+        self.assertIsNone(self.compat._first_attr(_A, "Nope"))
+
+    def test_mouse_pos_helpers_prefer_the_qt6_accessors(self):
+        class _Pt:
+            def __init__(self, v): self.v = v
+            def toPoint(self): return ("qt6", self.v)
+
+        class _Qt6Event:
+            def globalPosition(self): return _Pt("global")
+            def position(self): return _Pt("local")
+            def globalPos(self): return ("qt5", "global")
+            def pos(self): return ("qt5", "local")
+
+        class _Qt5Event:
+            def globalPos(self): return ("qt5", "global")
+            def pos(self): return ("qt5", "local")
+
+        self.assertEqual(self.compat.event_global_pos(_Qt6Event()), ("qt6", "global"))
+        self.assertEqual(self.compat.event_pos(_Qt6Event()), ("qt6", "local"))
+        self.assertEqual(self.compat.event_global_pos(_Qt5Event()), ("qt5", "global"))
+        self.assertEqual(self.compat.event_pos(_Qt5Event()), ("qt5", "local"))

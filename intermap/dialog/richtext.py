@@ -40,7 +40,7 @@ class RichTextMixin:
             for btn in [b_btn, i_btn, u_btn, s_btn]:
                 if btn:
                     btn.blockSignals(True)
-            b_btn.setChecked(fmt.fontWeight() >= QFont.Bold)
+            b_btn.setChecked(fmt.fontWeight() >= QFont.Weight.Bold)
             i_btn.setChecked(fmt.fontItalic())
             u_btn.setChecked(fmt.fontUnderline())
             if s_btn:
@@ -70,7 +70,7 @@ class RichTextMixin:
 
         def _apply(_=None):
             fmt = QTextCharFormat()
-            fmt.setFontWeight(QFont.Bold if b.isChecked() else QFont.Normal)
+            fmt.setFontWeight(QFont.Weight.Bold if b.isChecked() else QFont.Weight.Normal)
             fmt.setFontItalic(i.isChecked())
             fmt.setFontUnderline(u.isChecked())
             edit.textCursor().mergeCharFormat(fmt)
@@ -106,7 +106,7 @@ class RichTextMixin:
 
         def _apply_char(_=None):
             fmt = QTextCharFormat()
-            fmt.setFontWeight(QFont.Bold if b.isChecked() else QFont.Normal)
+            fmt.setFontWeight(QFont.Weight.Bold if b.isChecked() else QFont.Weight.Normal)
             fmt.setFontItalic(i.isChecked())
             fmt.setFontUnderline(u.isChecked())
             fmt.setFontStrikeOut(s.isChecked())
@@ -180,9 +180,9 @@ class RichTextMixin:
                 other.blockSignals(False)
             edit.setAlignment(alignment)
 
-        al.clicked.connect(lambda: _align(Qt.AlignLeft,    al))
-        ac.clicked.connect(lambda: _align(Qt.AlignHCenter, ac))
-        ar.clicked.connect(lambda: _align(Qt.AlignRight,   ar))
+        al.clicked.connect(lambda: _align(Qt.AlignmentFlag.AlignLeft,    al))
+        ac.clicked.connect(lambda: _align(Qt.AlignmentFlag.AlignHCenter, ac))
+        ar.clicked.connect(lambda: _align(Qt.AlignmentFlag.AlignRight,   ar))
         al.setChecked(True)
 
         sep()
@@ -247,7 +247,7 @@ class RichTextMixin:
             if img.isNull():
                 return
             if img.width() > 600:
-                img = img.scaledToWidth(600, Qt.SmoothTransformation)
+                img = img.scaledToWidth(600, Qt.TransformationMode.SmoothTransformation)
             ba = QByteArray()
             buf = QBuffer(ba)
             buf.open(QBuffer.WriteOnly)

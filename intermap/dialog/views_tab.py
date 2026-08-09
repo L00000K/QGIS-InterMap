@@ -8,9 +8,10 @@ from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtCore import Qt
 from qgis.core import (
     QgsProject, QgsCoordinateTransform, QgsCoordinateReferenceSystem,
-    QgsPointXY, QgsWkbTypes,
+    QgsPointXY,
 )
 from .constants import _PURPLE
+from ..compat import GEOMETRY_TYPE_POLYGON
 from .widgets import _VResizeHandle, _RectExtentTool
 
 
@@ -26,8 +27,8 @@ class MapViewsTabMixin:
         self.map_views_list_widget.setFixedHeight(130)
         self.map_views_list_widget.setDragEnabled(True)
         self.map_views_list_widget.setAcceptDrops(True)
-        self.map_views_list_widget.setDragDropMode(QAbstractItemView.InternalMove)
-        self.map_views_list_widget.setDefaultDropAction(Qt.MoveAction)
+        self.map_views_list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.map_views_list_widget.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.map_views_list_widget.currentRowChanged.connect(self._on_map_view_selected)
         self.map_views_list_widget.model().rowsMoved.connect(self._on_mv_rows_moved)
         mv_layout.addWidget(self.map_views_list_widget)
@@ -62,7 +63,7 @@ class MapViewsTabMixin:
         # ── Map view detail ───────────────────────────────────────────────────
         self.mv_detail_scroll = QScrollArea()
         self.mv_detail_scroll.setWidgetResizable(True)
-        self.mv_detail_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.mv_detail_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
         detail_widget = QWidget()
         detail_layout = QVBoxLayout(detail_widget)
@@ -105,7 +106,7 @@ class MapViewsTabMixin:
         _k = QLabel("Detail:")
         _k.setObjectName("mvKey")
         _k.setFixedWidth(46)
-        detail_row.addWidget(_k, 0, Qt.AlignTop)
+        detail_row.addWidget(_k, 0, Qt.AlignmentFlag.AlignTop)
         detail_col = QVBoxLayout()
         detail_col.setSpacing(0)
         self.map_view_notes_edit = QTextEdit()
@@ -224,7 +225,7 @@ class MapViewsTabMixin:
         label.setFixedWidth(46)
         row.addWidget(label)
         row.addWidget(chip)
-        detail.setTextFormat(Qt.PlainText)
+        detail.setTextFormat(Qt.TextFormat.PlainText)
         row.addWidget(detail, 1)
 
         # The label is just "Set" — Qt draws the drop-down arrow itself once a
@@ -273,13 +274,13 @@ class MapViewsTabMixin:
     def _on_mv_rows_moved(self, _parent, start, _end, _dest, dest_row):
         new_order = []
         for i in range(self.map_views_list_widget.count()):
-            orig_idx = self.map_views_list_widget.item(i).data(Qt.UserRole)
+            orig_idx = self.map_views_list_widget.item(i).data(Qt.ItemDataRole.UserRole)
             if orig_idx is not None and 0 <= orig_idx < len(self._map_views):
                 new_order.append(self._map_views[orig_idx])
         if len(new_order) == len(self._map_views):
             self._map_views = new_order
         for i in range(self.map_views_list_widget.count()):
-            self.map_views_list_widget.item(i).setData(Qt.UserRole, i)
+            self.map_views_list_widget.item(i).setData(Qt.ItemDataRole.UserRole, i)
         self._mv_update_rubber_bands()
         self._update_required_layers()
 
@@ -339,7 +340,7 @@ class MapViewsTabMixin:
                 try:
                     node.setItemVisibilityChecked(on)
                 except AttributeError:
-                    node.setVisible(Qt.Checked if on else Qt.Unchecked)
+                    node.setVisible(Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
             self.iface.mapCanvas().refresh()
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
@@ -506,7 +507,7 @@ class MapViewsTabMixin:
                 continue
             try:
                 transformed = self._wgs84_to_canvas_rect(ext)
-                rb = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
+                rb = QgsRubberBand(canvas, GEOMETRY_TYPE_POLYGON)
                 if i == selected_idx:
                     rb.setStrokeColor(QColor(_PURPLE))
                     rb.setWidth(2)
@@ -530,7 +531,7 @@ class MapViewsTabMixin:
     def _mv_clear_rubber_bands(self):
         for rb in self._mv_rubber_bands.values():
             try:
-                rb.reset(QgsWkbTypes.PolygonGeometry)
+                rb.reset(GEOMETRY_TYPE_POLYGON)
             except Exception:
                 pass
         self._mv_rubber_bands = {}
@@ -547,7 +548,7 @@ class MapViewsTabMixin:
         self.map_views_list_widget.clear()
         for i, mv in enumerate(self._map_views):
             item = QListWidgetItem(self._mv_list_text(mv))
-            item.setData(Qt.UserRole, i)
+            item.setData(Qt.ItemDataRole.UserRole, i)
             item.setToolTip("Text block — drag to reorder" if mv.get("kind") == "text"
                             else "Drag to reorder")
             self.map_views_list_widget.addItem(item)
@@ -937,9 +938,9 @@ class MapViewsTabMixin:
         resp = QMessageBox.question(
             self, "Delete map view",
             f"Delete '{name}'?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
-        if resp != QMessageBox.Yes:
+        if resp != QMessageBox.StandardButton.Yes:
             return
         del self._map_views[idx]
         self._mv_clear_rubber_bands()

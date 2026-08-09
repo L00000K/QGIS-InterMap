@@ -98,7 +98,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         return tr.transformBoundingBox(rect)
 
     def _default_output_path(self):
-        downloads = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation)
+        downloads = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation)
         if not downloads or not os.path.isdir(downloads):
             downloads = os.path.expanduser("~")
         ts = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -294,7 +294,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
                 renderer = QSvgRenderer(svg_icon_path)
                 sz = 26
                 pm = QPixmap(sz, sz)
-                pm.fill(Qt.transparent)
+                pm.fill(Qt.GlobalColor.transparent)
                 painter = QPainter(pm)
                 renderer.render(painter)
                 painter.end()
@@ -313,7 +313,7 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
         self.version_btn = QPushButton(version_label())
         self.version_btn.setObjectName("icVersion")
         self.version_btn.setFlat(True)
-        self.version_btn.setCursor(Qt.PointingHandCursor)
+        self.version_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         _stamp = build_stamp()
         self.version_btn.setToolTip(
             "InterMap {}{}\n\nClick to see what's changed.".format(
@@ -370,9 +370,9 @@ class WebMapExportDialog(RichTextMixin, ConfigsMixin, MapInfoTabMixin,
             return page
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setWidget(page)
         return scroll
 

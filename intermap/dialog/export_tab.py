@@ -472,9 +472,9 @@ class ExportTabMixin:
         def collect_checked(parent_item):
             for i in range(parent_item.childCount()):
                 item = parent_item.child(i)
-                layer_id = item.data(0, Qt.UserRole)
+                layer_id = item.data(0, Qt.ItemDataRole.UserRole)
                 if layer_id is not None:
-                    if item.checkState(0) == Qt.Checked:
+                    if item.checkState(0) == Qt.CheckState.Checked:
                         selected_ids.append(layer_id)
                 else:
                     collect_checked(item)
@@ -539,7 +539,7 @@ class ExportTabMixin:
                 "Continue anyway?"
             )
             if QMessageBox.question(self, "Performance warning", msg,
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                 return
 
         self.export_btn.setEnabled(False)
@@ -647,10 +647,10 @@ class ExportTabMixin:
     def _show_success(self, output_path):
         msg = QMessageBox(self)
         msg.setWindowTitle("Export complete")
-        msg.setIcon(QMessageBox.Information)
+        msg.setIcon(QMessageBox.Icon.Information)
         msg.setText(f"Web map exported successfully to:\n{output_path}")
-        open_btn = msg.addButton("Open in Browser", QMessageBox.ActionRole)
-        msg.addButton(QMessageBox.Ok)
-        msg.exec_()
+        open_btn = msg.addButton("Open in Browser", QMessageBox.ButtonRole.ActionRole)
+        msg.addButton(QMessageBox.StandardButton.Ok)
+        msg.exec()
         if msg.clickedButton() == open_btn:
             QDesktopServices.openUrl(QUrl.fromLocalFile(output_path))

@@ -1,5 +1,5 @@
 import os
-from qgis.PyQt.QtWidgets import QAction
+from .compat import QAction
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import QCoreApplication, Qt
 
@@ -37,6 +37,6 @@ class WebMapExporterPlugin:
         from .dialog import WebMapExportDialog
         if self._dlg is None:
             self._dlg = WebMapExportDialog(self.iface)
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self._dlg)
+            self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dlg)
         self._dlg.show()
         self._dlg.raise_()

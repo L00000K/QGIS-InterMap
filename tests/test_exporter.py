@@ -152,11 +152,11 @@ class SvgHelperTests(unittest.TestCase):
 
 class StyleHelperTests(unittest.TestCase):
     def test_pen_style_dash(self):
-        self.assertEqual(_pen_style_dash(Qt.DashLine), "8 4")
-        self.assertEqual(_pen_style_dash(Qt.DotLine), "2 4")
-        self.assertEqual(_pen_style_dash(Qt.DashDotLine), "8 4 2 4")
-        self.assertEqual(_pen_style_dash(Qt.DashDotDotLine), "8 4 2 4 2 4")
-        self.assertIsNone(_pen_style_dash(Qt.SolidLine))
+        self.assertEqual(_pen_style_dash(Qt.PenStyle.DashLine), "8 4")
+        self.assertEqual(_pen_style_dash(Qt.PenStyle.DotLine), "2 4")
+        self.assertEqual(_pen_style_dash(Qt.PenStyle.DashDotLine), "8 4 2 4")
+        self.assertEqual(_pen_style_dash(Qt.PenStyle.DashDotDotLine), "8 4 2 4 2 4")
+        self.assertIsNone(_pen_style_dash(Qt.PenStyle.SolidLine))
 
     def test_snap_hatch_angle_cardinals(self):
         self.assertEqual(_snap_hatch_angle(0), "hor")
@@ -345,7 +345,7 @@ class _FakeSimpleLine(QgsSimpleLineSymbolLayer):
     def color(self): return self._c
     def width(self): return self._w
     def widthUnit(self): return QgsUnitTypes.RenderMillimeters
-    def penStyle(self): return {"solid": Qt.SolidLine, "dash": Qt.DashLine}[self._pen]
+    def penStyle(self): return {"solid": Qt.PenStyle.SolidLine, "dash": Qt.PenStyle.DashLine}[self._pen]
 
 
 class _FakeMarkerLine(QgsMarkerLineSymbolLayer):

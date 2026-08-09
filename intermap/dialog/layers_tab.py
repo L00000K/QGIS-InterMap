@@ -7,9 +7,10 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.core import (
-    QgsProject, QgsMapLayer, QgsLayerTreeGroup, QgsLayerTreeLayer,
+    QgsProject, QgsLayerTreeGroup, QgsLayerTreeLayer,
 )
 from .constants import _PURPLE
+from ..compat import LAYER_TYPE_RASTER, LAYER_TYPE_VECTOR
 
 
 class LayersTabMixin:
@@ -106,11 +107,11 @@ class LayersTabMixin:
 
         def walk(item):
             """Return True if this item or any descendant is a required layer."""
-            layer_id = item.data(0, Qt.UserRole)
+            layer_id = item.data(0, Qt.ItemDataRole.UserRole)
             if layer_id is not None:
                 layer = QgsProject.instance().mapLayer(layer_id)
                 if layer and layer.name() in required:
-                    item.setCheckState(0, Qt.Checked)
+                    item.setCheckState(0, Qt.CheckState.Checked)
                     item.setToolTip(0, "Required by a map view — cannot be deselected")
                     item.setForeground(0, QColor(_PURPLE))
                     return True
@@ -125,7 +126,7 @@ class LayersTabMixin:
                     if walk(item.child(i)):
                         child_required = True
                 if child_required:
-                    item.setCheckState(0, Qt.Checked)
+                    item.setCheckState(0, Qt.CheckState.Checked)
                     item.setForeground(0, QColor(_PURPLE))
                 else:
                     item.setForeground(0, QColor())
@@ -144,16 +145,16 @@ class LayersTabMixin:
         state = item.checkState(0)
 
         # Prevent unchecking required layers
-        if state == Qt.Unchecked:
-            layer_id = item.data(0, Qt.UserRole)
+        if state == Qt.CheckState.Unchecked:
+            layer_id = item.data(0, Qt.ItemDataRole.UserRole)
             if layer_id:
                 layer = QgsProject.instance().mapLayer(layer_id)
                 if layer and layer.name() in self._get_required_layer_names():
-                    item.setCheckState(0, Qt.Checked)
+                    item.setCheckState(0, Qt.CheckState.Checked)
                     self.layer_tree_widget.blockSignals(False)
                     return
 
-        if state != Qt.PartiallyChecked and item.childCount() > 0:
+        if state != Qt.CheckState.PartiallyChecked and item.childCount() > 0:
             self._set_children_check_state(item, state)
         parent = item.parent()
         if parent:
@@ -171,14 +172,14 @@ class LayersTabMixin:
         total = item.childCount()
         if total == 0:
             return
-        checked = sum(1 for i in range(total) if item.child(i).checkState(0) == Qt.Checked)
-        partial = sum(1 for i in range(total) if item.child(i).checkState(0) == Qt.PartiallyChecked)
+        checked = sum(1 for i in range(total) if item.child(i).checkState(0) == Qt.CheckState.Checked)
+        partial = sum(1 for i in range(total) if item.child(i).checkState(0) == Qt.CheckState.PartiallyChecked)
         if checked == total:
-            item.setCheckState(0, Qt.Checked)
+            item.setCheckState(0, Qt.CheckState.Checked)
         elif checked == 0 and partial == 0:
-            item.setCheckState(0, Qt.Unchecked)
+            item.setCheckState(0, Qt.CheckState.Unchecked)
         else:
-            item.setCheckState(0, Qt.PartiallyChecked)
+            item.setCheckState(0, Qt.CheckState.PartiallyChecked)
         grandparent = item.parent()
         if grandparent:
             self._update_parent_check_state(grandparent)
@@ -266,8 +267,8 @@ class LayersTabMixin:
         def walk(parent):
             for i in range(parent.childCount()):
                 it = parent.child(i)
-                lid = it.data(0, Qt.UserRole)
-                if lid and it.checkState(0) == Qt.Checked:
+                lid = it.data(0, Qt.ItemDataRole.UserRole)
+                if lid and it.checkState(0) == Qt.CheckState.Checked:
                     ids.add(lid)
                 walk(it)
 
@@ -280,9 +281,9 @@ class LayersTabMixin:
         def walk(parent):
             for i in range(parent.childCount()):
                 it = parent.child(i)
-                lid = it.data(0, Qt.UserRole)
+                lid = it.data(0, Qt.ItemDataRole.UserRole)
                 if lid:
-                    it.setCheckState(0, Qt.Checked if lid in ids else Qt.Unchecked)
+                    it.setCheckState(0, Qt.CheckState.Checked if lid in ids else Qt.CheckState.Unchecked)
                 walk(it)
 
         def sync_groups(parent):
@@ -308,21 +309,21 @@ class LayersTabMixin:
                 if isinstance(child, QgsLayerTreeGroup):
                     grp = QTreeWidgetItem(parent)
                     grp.setText(0, child.name())
-                    grp.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-                    grp.setCheckState(0, Qt.Unchecked)
+                    grp.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+                    grp.setCheckState(0, Qt.CheckState.Unchecked)
                     add_nodes(grp, child)
                     self._update_parent_check_state(grp)
                 elif isinstance(child, QgsLayerTreeLayer):
                     layer = child.layer()
                     if layer is None:
                         continue
-                    if layer.type() not in (QgsMapLayer.VectorLayer, QgsMapLayer.RasterLayer):
+                    if layer.type() not in (LAYER_TYPE_VECTOR, LAYER_TYPE_RASTER):
                         continue
                     item = QTreeWidgetItem(parent)
                     item.setText(0, layer.name())
-                    item.setData(0, Qt.UserRole, layer.id())
-                    item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
-                    item.setCheckState(0, Qt.Checked if child.isVisible() else Qt.Unchecked)
+                    item.setData(0, Qt.ItemDataRole.UserRole, layer.id())
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsSelectable)
+                    item.setCheckState(0, Qt.CheckState.Checked if child.isVisible() else Qt.CheckState.Unchecked)
 
         add_nodes(self.layer_tree_widget, root)
         self.layer_tree_widget.expandAll()
@@ -339,7 +340,7 @@ class LayersTabMixin:
         self.elevation_raster_combo.clear()
         self.elevation_raster_combo.addItem("(none)", None)
         for layer in QgsProject.instance().mapLayers().values():
-            if layer.type() == QgsMapLayer.RasterLayer:
+            if layer.type() == LAYER_TYPE_RASTER:
                 self.elevation_raster_combo.addItem(layer.name(), layer.id())
         # Restore previous selection if it still exists
         if current_data:
@@ -379,9 +380,9 @@ class LayersTabMixin:
         self.layer_tree_widget.blockSignals(True)
 
         def update_item(item):
-            layer_id = item.data(0, Qt.UserRole)
+            layer_id = item.data(0, Qt.ItemDataRole.UserRole)
             if layer_id is not None:
-                item.setCheckState(0, Qt.Checked if layer_id in visible_ids else Qt.Unchecked)
+                item.setCheckState(0, Qt.CheckState.Checked if layer_id in visible_ids else Qt.CheckState.Unchecked)
             else:
                 for i in range(item.childCount()):
                     update_item(item.child(i))
@@ -397,12 +398,12 @@ class LayersTabMixin:
 
     def _select_all(self):
         self.layer_tree_widget.blockSignals(True)
-        self._set_children_check_state(self.layer_tree_widget.invisibleRootItem(), Qt.Checked)
+        self._set_children_check_state(self.layer_tree_widget.invisibleRootItem(), Qt.CheckState.Checked)
         self.layer_tree_widget.blockSignals(False)
 
     def _deselect_all(self):
         self.layer_tree_widget.blockSignals(True)
-        self._set_children_check_state(self.layer_tree_widget.invisibleRootItem(), Qt.Unchecked)
+        self._set_children_check_state(self.layer_tree_widget.invisibleRootItem(), Qt.CheckState.Unchecked)
         self.layer_tree_widget.blockSignals(False)
 
     def _checked_layer_names(self):
@@ -411,9 +412,9 @@ class LayersTabMixin:
         def walk(parent_item):
             for i in range(parent_item.childCount()):
                 item = parent_item.child(i)
-                layer_id = item.data(0, Qt.UserRole)
+                layer_id = item.data(0, Qt.ItemDataRole.UserRole)
                 if layer_id is not None:
-                    if item.checkState(0) == Qt.Checked:
+                    if item.checkState(0) == Qt.CheckState.Checked:
                         layer = QgsProject.instance().mapLayer(layer_id)
                         if layer:
                             names.append(layer.name())
@@ -429,7 +430,7 @@ class LayersTabMixin:
         def walk(parent_item):
             for i in range(parent_item.childCount()):
                 item = parent_item.child(i)
-                layer_id = item.data(0, Qt.UserRole)
+                layer_id = item.data(0, Qt.ItemDataRole.UserRole)
                 if layer_id is not None:
                     layer = QgsProject.instance().mapLayer(layer_id)
                     if layer:
@@ -448,11 +449,11 @@ class LayersTabMixin:
         def walk(parent_item):
             for i in range(parent_item.childCount()):
                 item = parent_item.child(i)
-                layer_id = item.data(0, Qt.UserRole)
+                layer_id = item.data(0, Qt.ItemDataRole.UserRole)
                 if layer_id is not None:
                     layer = QgsProject.instance().mapLayer(layer_id)
                     checked = layer is not None and layer.name() in nameset
-                    item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+                    item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
                 else:
                     walk(item)
 
@@ -464,18 +465,18 @@ class LayersTabMixin:
                 if child.childCount() > 0:
                     child_has = sync_groups(child)
                 else:
-                    child_has = child.checkState(0) == Qt.Checked
+                    child_has = child.checkState(0) == Qt.CheckState.Checked
                 has_checked = has_checked or child_has
             if item is not root and item.childCount() > 0:
                 total = item.childCount()
-                n_checked = sum(1 for j in range(total) if item.child(j).checkState(0) == Qt.Checked)
-                n_partial = sum(1 for j in range(total) if item.child(j).checkState(0) == Qt.PartiallyChecked)
+                n_checked = sum(1 for j in range(total) if item.child(j).checkState(0) == Qt.CheckState.Checked)
+                n_partial = sum(1 for j in range(total) if item.child(j).checkState(0) == Qt.CheckState.PartiallyChecked)
                 if n_checked == total:
-                    item.setCheckState(0, Qt.Checked)
+                    item.setCheckState(0, Qt.CheckState.Checked)
                 elif n_checked == 0 and n_partial == 0:
-                    item.setCheckState(0, Qt.Unchecked)
+                    item.setCheckState(0, Qt.CheckState.Unchecked)
                 else:
-                    item.setCheckState(0, Qt.PartiallyChecked)
+                    item.setCheckState(0, Qt.CheckState.PartiallyChecked)
                 item.setExpanded(has_checked)
             return has_checked
 

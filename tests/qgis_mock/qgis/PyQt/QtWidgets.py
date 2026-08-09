@@ -29,13 +29,22 @@ class _NoOp:
 _noop = _NoOp()
 
 
-class _PlaceholderMeta(type):
-    # Class-level attribute access (enum constants like QScrollArea.NoFrame,
-    # QAbstractItemView.SelectRows) returns a unique placeholder value.
+class _EnumName(str):
+    """Dotted enum name that keeps resolving, for Qt6's scoped enum members
+    (QMessageBox.StandardButton.Yes). Still a plain string as a value."""
     def __getattr__(cls, name):
         if name.startswith("__"):
             raise AttributeError(name)
-        return "%s.%s" % (cls.__name__, name)
+        return _EnumName("%s.%s" % (cls, name))
+
+
+class _PlaceholderMeta(type):
+    # Class-level attribute access (enum constants like QScrollArea.Shape.NoFrame,
+    # QAbstractItemView.SelectionBehavior.SelectRows) returns a placeholder value.
+    def __getattr__(cls, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _EnumName("%s.%s" % (cls.__name__, name))
 
 
 class _Placeholder(metaclass=_PlaceholderMeta):

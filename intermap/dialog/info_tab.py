@@ -15,7 +15,7 @@ class MapInfoTabMixin:
     def _build_map_info_tab(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -42,7 +42,7 @@ class MapInfoTabMixin:
             "Show the 'About this map' info panel in the exported map")
         info_form = QFormLayout()
         info_form.setContentsMargins(0, 0, 0, 0)
-        info_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        info_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.info_title_edit = QLineEdit()
         self.info_title_edit.setText(QgsProject.instance().baseName() or "")
         self.info_title_edit.setPlaceholderText("Panel title…")
@@ -70,7 +70,7 @@ class MapInfoTabMixin:
         self.doc_meta_widget = self.doc_meta_card.body
         dm_form = QFormLayout()
         dm_form.setContentsMargins(0, 0, 0, 0)
-        dm_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        dm_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.info_doc_number_edit = QLineEdit()
         self.info_doc_number_edit.setPlaceholderText("Document number…")
         dm_form.addRow("Doc number:", self.info_doc_number_edit)
@@ -105,7 +105,7 @@ class MapInfoTabMixin:
         self.proj_info_widget = self.proj_info_card.body
         proj_form = QFormLayout()
         proj_form.setContentsMargins(0, 0, 0, 0)
-        proj_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        proj_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.info_client_edit = QLineEdit()
         self.info_client_edit.setPlaceholderText("Client name…")
@@ -237,7 +237,7 @@ class MapInfoTabMixin:
             _w = layout.itemAt(_i).widget()
             if _w is not None:
                 _w.setSizePolicy(_w.sizePolicy().horizontalPolicy(),
-                                 QSizePolicy.Maximum)
+                                 QSizePolicy.Policy.Maximum)
 
         layout.addStretch()
 

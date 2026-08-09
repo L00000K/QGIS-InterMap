@@ -28,28 +28,28 @@ from .markers import _encode_marker_shape, _render_marker_symbol_to_svg
 
 # Qt hatch brush styles → tileable pattern kinds understood by the JS side
 _HATCH_BRUSH_KINDS = {
-    Qt.HorPattern: "hor", Qt.VerPattern: "ver", Qt.CrossPattern: "cross",
-    Qt.BDiagPattern: "bdiag", Qt.FDiagPattern: "fdiag",
-    Qt.DiagCrossPattern: "diagcross",
+    Qt.BrushStyle.HorPattern: "hor", Qt.BrushStyle.VerPattern: "ver", Qt.BrushStyle.CrossPattern: "cross",
+    Qt.BrushStyle.BDiagPattern: "bdiag", Qt.BrushStyle.FDiagPattern: "fdiag",
+    Qt.BrushStyle.DiagCrossPattern: "diagcross",
 }
 
 # Qt density brushes → approximate coverage fraction (used to scale opacity)
 _DENSE_BRUSH_FACTORS = {
-    Qt.Dense1Pattern: 0.9, Qt.Dense2Pattern: 0.75, Qt.Dense3Pattern: 0.6,
-    Qt.Dense4Pattern: 0.5, Qt.Dense5Pattern: 0.35, Qt.Dense6Pattern: 0.2,
-    Qt.Dense7Pattern: 0.1,
+    Qt.BrushStyle.Dense1Pattern: 0.9, Qt.BrushStyle.Dense2Pattern: 0.75, Qt.BrushStyle.Dense3Pattern: 0.6,
+    Qt.BrushStyle.Dense4Pattern: 0.5, Qt.BrushStyle.Dense5Pattern: 0.35, Qt.BrushStyle.Dense6Pattern: 0.2,
+    Qt.BrushStyle.Dense7Pattern: 0.1,
 }
 
 
 def _pen_style_dash(pen) -> Optional[str]:
     """Translate a Qt pen style to an SVG/Leaflet dashArray string."""
-    if pen == Qt.DashLine:
+    if pen == Qt.PenStyle.DashLine:
         return "8 4"
-    if pen == Qt.DotLine:
+    if pen == Qt.PenStyle.DotLine:
         return "2 4"
-    if pen == Qt.DashDotLine:
+    if pen == Qt.PenStyle.DashDotLine:
         return "8 4 2 4"
-    if pen == Qt.DashDotDotLine:
+    if pen == Qt.PenStyle.DashDotDotLine:
         return "8 4 2 4 2 4"
     return None
 
@@ -106,9 +106,9 @@ def _extract_fill_symbol_style(symbol, sym_opacity) -> dict:
                 try:
                     brush = sl.brushStyle()
                 except Exception:
-                    brush = Qt.SolidPattern
+                    brush = Qt.BrushStyle.SolidPattern
                 fill_color = sl.fillColor()
-                if brush == Qt.NoBrush:
+                if brush == Qt.BrushStyle.NoBrush:
                     pass  # outline-only layer: contributes no fill
                 elif brush in _HATCH_BRUSH_KINDS:
                     style["fillHatch"] = {
@@ -131,8 +131,8 @@ def _extract_fill_symbol_style(symbol, sym_opacity) -> dict:
                 try:
                     pen = sl.strokeStyle()
                 except Exception:
-                    pen = Qt.SolidLine
-                if pen != Qt.NoPen:
+                    pen = Qt.PenStyle.SolidLine
+                if pen != Qt.PenStyle.NoPen:
                     stroke_color = sl.strokeColor()
                     style["color"] = _color_to_hex(stroke_color)
                     style["opacity"] = round(stroke_color.alphaF() * sym_opacity, 3)
@@ -150,8 +150,8 @@ def _extract_fill_symbol_style(symbol, sym_opacity) -> dict:
                 try:
                     pen = sl.penStyle()
                 except Exception:
-                    pen = Qt.SolidLine
-                if pen != Qt.NoPen:
+                    pen = Qt.PenStyle.SolidLine
+                if pen != Qt.PenStyle.NoPen:
                     color = sl.color()
                     style["color"] = _color_to_hex(color)
                     style["opacity"] = round(color.alphaF() * sym_opacity, 3)
@@ -159,7 +159,7 @@ def _extract_fill_symbol_style(symbol, sym_opacity) -> dict:
                     dash = _pen_style_dash(pen)
                     if dash:
                         style["dashArray"] = dash
-                    elif pen == Qt.CustomDashLine:
+                    elif pen == Qt.PenStyle.CustomDashLine:
                         try:
                             dv = sl.customDashVector()
                             unit = sl.customDashPatternUnit()
@@ -270,7 +270,7 @@ def _line_dash_array(sl):
         pen = sl.penStyle()
     except Exception:
         return None
-    if pen == Qt.CustomDashLine:
+    if pen == Qt.PenStyle.CustomDashLine:
         try:
             dv = sl.customDashVector()
             unit = sl.customDashPatternUnit()
@@ -433,7 +433,7 @@ def _extract_symbol_style(symbol) -> dict:
             style["markerStrokeColor"] = _color_to_hex(stroke_color)
             style["markerStrokeOpacity"] = round(stroke_color.alphaF() * sym_opacity, 3)
             try:
-                no_stroke = sl.strokeStyle() == Qt.NoPen
+                no_stroke = sl.strokeStyle() == Qt.PenStyle.NoPen
             except Exception:
                 no_stroke = False
             if no_stroke:

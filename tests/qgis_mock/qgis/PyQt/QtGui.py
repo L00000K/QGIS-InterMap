@@ -32,12 +32,28 @@ class QPainter:
         pass
 
 
-class QImage:
+class _EnumName(str):
+    """Dotted enum name that keeps resolving, for Qt6's scoped enum members
+    (QFont.Weight.Bold, QImage.Format.Format_ARGB32)."""
+    def __getattr__(cls, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _EnumName("%s.%s" % (cls, name))
+
+
+class _EnumMeta(type):
+    def __getattr__(cls, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _EnumName("%s.%s" % (cls.__name__, name))
+
+
+class QImage(metaclass=_EnumMeta):
     def __init__(self, *args):
         pass
 
 
-class _Placeholder:
+class _Placeholder(metaclass=_EnumMeta):
     def __init__(self, *args, **kwargs):
         pass
 
@@ -49,5 +65,5 @@ def __getattr__(name):
     if name.startswith("__"):
         raise AttributeError(name)
     if name not in _placeholder_cache:
-        _placeholder_cache[name] = type(name, (_Placeholder,), {})
+        _placeholder_cache[name] = _EnumMeta(name, (_Placeholder,), {})
     return _placeholder_cache[name]

@@ -64,8 +64,8 @@ def warn_if_unsupported(iface):
         ).format(_MIN_QGIS_VERSION_STR, _version_text(vint))
 
         try:
-            from qgis.core import Qgis
-            iface.messageBar().pushMessage("InterMap", msg, level=Qgis.Warning, duration=15)
+            from .compat import MESSAGE_WARNING
+            iface.messageBar().pushMessage("InterMap", msg, level=MESSAGE_WARNING, duration=15)
             return
         except Exception:
             pass

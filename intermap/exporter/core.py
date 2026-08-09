@@ -5,11 +5,12 @@ renders the final self-contained HTML page via template.render_page().
 import os
 import json
 
-from qgis.core import QgsCoordinateTransform, QgsMapLayer, QgsProject
+from qgis.core import QgsCoordinateTransform, QgsProject
 
 from .assets import (
     _PLUGIN_DIR, _get_leaflet_assets, _load_plugin_assets, _script_safe_js,
 )
+from ..compat import LAYER_TYPE_RASTER, LAYER_TYPE_VECTOR
 from .compat import _WGS84
 from .geometry import _flatten_coords, _geom_type_str, _layer_to_geojson
 from .labels import _extract_label_config
@@ -91,7 +92,7 @@ class WebMapExporter:
             step += 1
             self.progress(step)
 
-            if layer.type() == QgsMapLayer.VectorLayer:
+            if layer.type() == LAYER_TYPE_VECTOR:
                 geojson = _layer_to_geojson(layer)
                 style_map = _build_style_map(layer)
                 geom_type = _geom_type_str(layer)
@@ -107,7 +108,7 @@ class WebMapExporter:
                     ldef["labelConfig"] = label_cfg
                 layer_defs.append(ldef)
 
-            elif layer.type() == QgsMapLayer.RasterLayer:
+            elif layer.type() == LAYER_TYPE_RASTER:
                 wms = _parse_wms_source(layer)
                 if wms:
                     # Reproject layer extent to WGS-84 for fitBounds

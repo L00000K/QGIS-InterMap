@@ -4,8 +4,9 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtCore import Qt
-from qgis.core import QgsRectangle, QgsPointXY, QgsWkbTypes
+from qgis.core import QgsRectangle, QgsPointXY
 from .constants import _PURPLE
+from ..compat import GEOMETRY_TYPE_POLYGON, event_global_pos, event_pos
 
 
 class ChipCard(QFrame):
@@ -84,18 +85,18 @@ class _VResizeHandle(QWidget):
         self._start_h = None
         self._min_h = min_h
         self.setFixedHeight(6)
-        self.setCursor(Qt.SizeVerCursor)
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
         self.setToolTip("Drag to resize")
         self.setStyleSheet("background:#CBD5E1; border-radius:2px; margin:1px 0;")
 
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self._drag_y = e.globalPos().y()
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_y = event_global_pos(e).y()
             self._start_h = self._target.height()
 
     def mouseMoveEvent(self, e):
         if self._drag_y is not None:
-            delta = e.globalPos().y() - self._drag_y
+            delta = event_global_pos(e).y() - self._drag_y
             self._target.setFixedHeight(max(self._min_h, self._start_h + delta))
 
     def mouseReleaseEvent(self, e):
@@ -116,21 +117,21 @@ class _RectExtentTool:
 
                 def __init__(self, cv):
                     super().__init__(cv)
-                    self._rb = QgsRubberBand(cv, QgsWkbTypes.PolygonGeometry)
+                    self._rb = QgsRubberBand(cv, GEOMETRY_TYPE_POLYGON)
                     self._rb.setStrokeColor(QColor(_PURPLE))
                     self._rb.setFillColor(QColor(63, 50, 241, 25))
                     self._rb.setWidth(2)
                     self._start = None
 
                 def canvasPressEvent(self, e):
-                    self._start = self.toMapCoordinates(e.pos())
-                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    self._start = self.toMapCoordinates(event_pos(e))
+                    self._rb.reset(GEOMETRY_TYPE_POLYGON)
 
                 def canvasMoveEvent(self, e):
                     if not self._start:
                         return
                     end = self.toMapCoordinates(e.pos())
-                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    self._rb.reset(GEOMETRY_TYPE_POLYGON)
                     for pt in [
                         QgsPointXY(self._start.x(), self._start.y()),
                         QgsPointXY(self._start.x(), end.y()),
@@ -145,13 +146,13 @@ class _RectExtentTool:
                         return
                     end = self.toMapCoordinates(e.pos())
                     rect = QgsRectangle(self._start, end)
-                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    self._rb.reset(GEOMETRY_TYPE_POLYGON)
                     self._start = None
                     if not rect.isEmpty():
                         self.rectDrawn.emit(rect)
 
                 def deactivate(self):
-                    self._rb.reset(QgsWkbTypes.PolygonGeometry)
+                    self._rb.reset(GEOMETRY_TYPE_POLYGON)
                     super().deactivate()
 
             self._tool = _Tool(canvas)
