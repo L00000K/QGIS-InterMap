@@ -2,6 +2,8 @@
 
 A QGIS 3 plugin that exports selected layers to a **standalone HTML web map** powered by [Leaflet.js](https://leafletjs.com). Symbology, labels, layer groups, and interactive features are all preserved in a single self-contained `.html` file — no server required.
 
+**[▶ See it running](https://l00000k.github.io/QGIS-webmap/)** — real exports, opened straight in the browser.
+
 ---
 
 ## Feature highlights

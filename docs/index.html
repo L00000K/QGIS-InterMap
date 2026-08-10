@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InterMap — live demos</title>
+<meta name="description" content="Live examples of interactive map packages exported from QGIS with the InterMap plugin.">
+<style>
+  :root {
+    --accent: #3f32f1;
+    --accent-dk: #2b22c0;
+    --ink: #1f2430;
+    --muted: #6b7280;
+    --line: #e2e5ea;
+    --card: #ffffff;
+    --bg: #f6f7f9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+
+  header { background: var(--accent); color: #fff; padding: 40px 0 34px; }
+  header h1 { margin: 0 0 6px; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  header p { margin: 0; font-size: 15px; color: rgba(255,255,255,0.88); max-width: 60ch; }
+  header a { color: #fff; }
+
+  main { padding: 34px 0 60px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.07em;
+       color: var(--muted); margin: 0 0 14px; font-weight: 700; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden; margin-bottom: 18px;
+  }
+  .card-body { padding: 18px 20px 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 19px; }
+  .card h3 a { color: var(--ink); text-decoration: none; }
+  .card h3 a:hover { color: var(--accent); }
+  .card p { margin: 0 0 14px; color: #444; font-size: 14px; max-width: 68ch; }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+  .tags li {
+    font-size: 11px; font-weight: 600; color: #414d66; background: #eceff4;
+    border-radius: 10px; padding: 3px 10px;
+  }
+
+  .btn {
+    display: inline-block; background: var(--accent); color: #fff;
+    text-decoration: none; font-size: 14px; font-weight: 600;
+    padding: 9px 18px; border-radius: 6px; transition: background 0.15s;
+  }
+  .btn:hover { background: var(--accent-dk); }
+  .btn.secondary {
+    background: #fff; color: var(--accent); border: 1px solid #cdd2da; margin-left: 8px;
+  }
+  .btn.secondary:hover { background: #f3f2ff; border-color: var(--accent); }
+
+  .note {
+    border-left: 3px solid var(--accent); background: #f3f2ff;
+    padding: 12px 16px; border-radius: 0 6px 6px 0; font-size: 13px; color: #33384a;
+  }
+  .note strong { color: var(--ink); }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 20px 0 40px;
+    font-size: 13px; color: var(--muted);
+  }
+  footer a { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    header { padding: 30px 0 26px; }
+    header h1 { font-size: 24px; }
+    .btn.secondary { margin: 8px 0 0; display: block; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>InterMap — live demos</h1>
+    <p>
+      Interactive map packages exported straight from QGIS. Each one is a single
+      self-contained HTML file — no server, no tile cache, nothing to install.
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+  <h2>Demos</h2>
+
+  <div class="card">
+    <div class="card-body">
+      <h3><a href="demo/sydney-cbd-soil-landscapes.html">Sydney CBD Soil Landscapes</a></h3>
+      <p>
+        Publicly available soil landscape mapping for the Sydney CBD, showing what
+        replaces a set of PDF figures: seven named map views, a categorised soil
+        landscape layer over a clipped hillshade, and a full drawing title block.
+      </p>
+      <ul class="tags">
+        <li>7 map views</li>
+        <li>Categorised polygons</li>
+        <li>Hillshade raster</li>
+        <li>Title block</li>
+        <li>4.3 MB</li>
+      </ul>
+      <a class="btn" href="demo/sydney-cbd-soil-landscapes.html">Open the map</a>
+      <a class="btn secondary" href="https://github.com/L00000K/QGIS-webmap">Source on GitHub</a>
+    </div>
+  </div>
+
+  <p class="note">
+    <strong>Tip:</strong> everything a demo needs travels with the file. Save the
+    page and it still works with no internet — only the OpenStreetMap basemap
+    needs a connection, and the exported data draws without it.
+  </p>
+</main>
+
+<footer class="wrap">
+  Exported with the <a href="https://github.com/L00000K/QGIS-webmap">InterMap</a>
+  QGIS plugin. Basemap © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors.
+</footer>
+
+</body>
+</html>
