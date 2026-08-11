@@ -2304,9 +2304,7 @@
         if (!it.visible || it.ld.kind !== 'vector') return;
         it.lfl.eachLayer(function(fl) {
           if (!fl._infoHtml) return;
-          var ll = fl.getLatLng ? fl.getLatLng()
-                 : (fl.getBounds ? fl.getBounds().getCenter() : null);
-          if (ll && dragBounds.contains(ll)) {
+          if (_featureInBounds(fl, dragBounds)) {
             dragFound.push({layerName: it.ld.name, html: fl._infoHtml, lfl: fl, legendItem: it});
           }
         });
@@ -2333,8 +2331,9 @@
             }
           } else {
             try {
-              var center = L.geoJSON(feat).getBounds().getCenter();
-              if (dragBounds.contains(center)) selSet.push(fi);
+              // Reaching the shape is enough; requiring its centre meant a
+              // drag across part of a large polygon selected nothing.
+              if (dragBounds.intersects(L.geoJSON(feat).getBounds())) selSet.push(fi);
             } catch(ex) {}
           }
         });
@@ -2413,6 +2412,101 @@
     if (found.length === 1) showIdentifySingle(found[0]); else showIdentifySplit(found);
   }
 
+  // ── Feature hit testing ───────────────────────────────────────────────────
+  // A click identifies what it lands on. Points use a pixel radius, lines
+  // measure to the nearest segment, and polygons use a point-in-ring test with
+  // the same radius as an edge tolerance so slivers and outlines stay
+  // clickable. This used to measure the distance to the feature's centroid,
+  // which for anything but a point meant clicking the shape itself found
+  // nothing — only a 10px spot at the middle of its bounding box responded.
+  var IDENTIFY_TOLERANCE = 10;   // px
+
+  function _identifyPx(latlng) { return map.latLngToContainerPoint(latlng); }
+
+  function _distToSegmentSq(p, a, b) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len2 = dx * dx + dy * dy;
+    var t = len2 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    var qx = a.x + t * dx - p.x, qy = a.y + t * dy - p.y;
+    return qx * qx + qy * qy;
+  }
+
+  // Leaflet returns LatLng[], LatLng[][] or LatLng[][][] depending on the
+  // geometry; flatten to a list of rings in container pixels.
+  function _pixelRings(latlngs, out) {
+    out = out || [];
+    if (!latlngs || !latlngs.length) return out;
+    if (latlngs[0] && latlngs[0].lat !== undefined) {
+      out.push(latlngs.map(_identifyPx));
+    } else {
+      for (var i = 0; i < latlngs.length; i++) _pixelRings(latlngs[i], out);
+    }
+    return out;
+  }
+
+  function _ringContains(ring, p) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var a = ring[i], b = ring[j];
+      if ((a.y > p.y) !== (b.y > p.y) &&
+          p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  function _featureHitTest(fl, p, tol) {
+    tol = (tol == null) ? IDENTIFY_TOLERANCE : tol;
+    if (fl.getLatLng) {                        // point / circle marker
+      var c = _identifyPx(fl.getLatLng());
+      var dx = c.x - p.x, dy = c.y - p.y;
+      return dx * dx + dy * dy <= tol * tol;
+    }
+    if (!fl.getLatLngs) return false;
+    // Reject on the bounding box before walking vertices — that prunes almost
+    // every feature on a click, so the vertex walk stays cheap.
+    if (fl.getBounds) {
+      var b = fl.getBounds();
+      var nw = _identifyPx(b.getNorthWest()), se = _identifyPx(b.getSouthEast());
+      if (p.x < Math.min(nw.x, se.x) - tol || p.x > Math.max(nw.x, se.x) + tol ||
+          p.y < Math.min(nw.y, se.y) - tol || p.y > Math.max(nw.y, se.y) + tol) {
+        return false;
+      }
+    }
+    var rings = _pixelRings(fl.getLatLngs());
+    var closed = (typeof L.Polygon !== 'undefined') && (fl instanceof L.Polygon);
+    var r, k, ring;
+    if (closed) {
+      // XOR across a polygon's rings, so a click in a hole reads as outside.
+      var inside = false;
+      for (r = 0; r < rings.length; r++) {
+        if (_ringContains(rings[r], p)) inside = !inside;
+      }
+      if (inside) return true;
+    }
+    var tol2 = tol * tol;
+    for (r = 0; r < rings.length; r++) {
+      ring = rings[r];
+      for (k = 1; k < ring.length; k++) {
+        if (_distToSegmentSq(p, ring[k - 1], ring[k]) <= tol2) return true;
+      }
+      if (closed && ring.length > 2 &&
+          _distToSegmentSq(p, ring[ring.length - 1], ring[0]) <= tol2) return true;
+    }
+    return false;
+  }
+
+  // Does a dragged box catch this feature? A point has to fall inside it; an
+  // extended feature counts if the box reaches it at all, so dragging over part
+  // of a large polygon selects it.
+  function _featureInBounds(fl, bounds) {
+    if (fl.getLatLng) return bounds.contains(fl.getLatLng());
+    if (fl.getBounds) return bounds.intersects(fl.getBounds());
+    return false;
+  }
+
   // ── Click identify ────────────────────────────────────────────────────────
   map.on('click', function(e) {
     // Select and pick modes own the click; identify is otherwise always passive.
@@ -2423,12 +2517,9 @@
       if (!it.visible || it.ld.kind !== 'vector') return;
       it.lfl.eachLayer(function(fl) {
         if (!fl._infoHtml) return;
-        var latlng = fl.getLatLng ? fl.getLatLng()
-                   : (fl.getBounds ? fl.getBounds().getCenter() : null);
-        if (!latlng) return;
-        var pt = map.latLngToContainerPoint(latlng);
-        var d = Math.sqrt(Math.pow(pt.x - clickPt.x, 2) + Math.pow(pt.y - clickPt.y, 2));
-        if (d <= 10) found.push({layerName: it.ld.name, html: fl._infoHtml, lfl: fl, legendItem: it});
+        if (_featureHitTest(fl, clickPt)) {
+          found.push({layerName: it.ld.name, html: fl._infoHtml, lfl: fl, legendItem: it});
+        }
       });
     });
 
@@ -4034,6 +4125,7 @@
   window.applyTheme       = applyTheme;
   window._legendItems     = legendItems;
   window._im_map          = map;
+  window._imHitTest       = _featureHitTest;
   window._im_feat         = FEAT;
   window._im_layers       = LAYERS;
   window._im_themes       = THEMES;
