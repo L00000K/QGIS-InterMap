@@ -7,6 +7,11 @@ a browser without downloading anything.
 |---|---|
 | `sydney-cbd-soil-landscapes.html` | Seven map views over categorised soil landscape polygons and a clipped hillshade, with a full drawing title block. Public data, Sydney CBD. |
 
+> `sydney-cbd-soil-landscapes.html` was exported before the click-identify fix
+> and has had that one patch applied to its embedded script by hand, so the
+> demo behaves like the current plugin. Replace it with a fresh export when
+> convenient and this note can go.
+
 ## Adding another demo
 
 1. Export the map from QGIS as usual.
